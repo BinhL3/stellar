@@ -13,10 +13,9 @@ import { startLimbRipples } from "./limbRipples";
 const HERO_HEIGHT_RATIO = 1.25;
 const AMBIENT_HEIGHT_RATIO = 1.5;
 /**
- * The new-thread screen's backdrop: the seven Landsat scenes that spell STELLAR, wrapped onto a
- * planet's limb under an orange-blue atmosphere, ordered-dithered; the pointer stirs it like
- * water, re-dithering the dots as waves pass (see `limbRipples`).
- * It is dark art, so it shows only in the dark theme, where text over it stays readable.
+ * The backdrop: Landsat scenes on a planet's limb, graded to one palette and dithered; the pointer
+ * stirs it like water (see `limbRipples`). The art is dark, so the light theme shows its negative
+ * with hues turned back (ink stars on a paper sky) and text stays readable in both.
  */
 export function DraftHeroBackdrop(props: { readonly ambient?: boolean }) {
   const ambient = props.ambient === true;
@@ -58,7 +57,7 @@ export function DraftHeroBackdrop(props: { readonly ambient?: boolean }) {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 -z-10 hidden overflow-hidden bg-black dark:block"
+      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden bg-hero-paper dark:bg-black"
     >
       <canvas
         ref={canvasRef}
@@ -66,7 +65,9 @@ export function DraftHeroBackdrop(props: { readonly ambient?: boolean }) {
         height={450}
         className={cn(
           "absolute inset-x-0 top-0 w-full object-cover object-top [image-rendering:pixelated]",
-          ambient && "opacity-55",
+          "hue-rotate-180 invert dark:hue-rotate-0 dark:invert-0",
+          // Light themes get a faint pencil drawing of it; at full strength it glares.
+          ambient ? "opacity-25 dark:opacity-55" : "opacity-40 dark:opacity-100",
         )}
         style={{ height: `${(ambient ? AMBIENT_HEIGHT_RATIO : HERO_HEIGHT_RATIO) * 100}%` }}
       />
@@ -74,12 +75,12 @@ export function DraftHeroBackdrop(props: { readonly ambient?: boolean }) {
         className={cn(
           "absolute inset-0 bg-linear-to-b",
           ambient
-            ? "from-black/70 via-black/45 to-black/20"
-            : "from-black/40 via-transparent to-black/50",
+            ? "dark:from-black/70 dark:via-black/45 dark:to-black/20"
+            : "via-transparent dark:from-black/40 dark:to-black/50",
         )}
       />
       {ambient ? null : (
-        <p className="absolute right-3 bottom-2 text-3xs text-white/50">
+        <p className="absolute right-3 bottom-2 text-3xs text-foreground/40 dark:text-white/50">
           Landsat imagery: NASA and USGS
         </p>
       )}
