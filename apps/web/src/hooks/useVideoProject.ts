@@ -1,5 +1,6 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 
+import { VIDEO_ONLY } from "~/branding";
 import { useFilesystemReadAccess } from "~/state/filesystem";
 import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentQuery } from "~/state/query";
@@ -9,8 +10,9 @@ const TIMELINES_DIRECTORY = "timelines";
 const EMPTY_TIMELINES: ReadonlyArray<string> = [];
 
 /**
- * A project is a video project when it has a `timelines/` folder. One started from an idea has
- * the folder and nothing in it yet, until a Premiere sequence is pulled.
+ * In Stellar every project is a video project (`VIDEO_ONLY`). Where that is off, a project is
+ * one when it has a `timelines/` folder; one started from an idea has the folder and nothing in
+ * it yet, until a Premiere sequence is pulled.
  */
 export function useVideoProject(
   environmentId: EnvironmentId | null,
@@ -40,5 +42,9 @@ export function useVideoProject(
       )
       .map((entry) => entry.path)
       .toSorted() ?? EMPTY_TIMELINES;
-  return { isVideoProject: result.data !== null, timelinePaths, refresh: result.refresh };
+  return {
+    isVideoProject: VIDEO_ONLY ? workspaceRoot != null : result.data !== null,
+    timelinePaths,
+    refresh: result.refresh,
+  };
 }

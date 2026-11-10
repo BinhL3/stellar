@@ -393,7 +393,8 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
       normalizedFlags.autoBootstrapProjectFromCwd,
       Option.fromUndefinedOr(env.autoBootstrapProjectFromCwd),
     ),
-    () => mode === "web",
+    // Stellar's projects are videos, so the folder a server starts in is never added as one.
+    () => false,
   );
   const logWebSocketEvents = Option.getOrElse(
     resolveOptionPrecedence(

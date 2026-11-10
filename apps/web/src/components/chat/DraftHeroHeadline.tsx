@@ -364,7 +364,7 @@ export function DraftHeroHeadline({
       >
         {hasResolvedProject || canChooseProject
           ? "or start a new video project"
-          : "Start a video project from Premiere"}
+          : "Start a video project"}
       </InlineButton>
     ) : null;
 

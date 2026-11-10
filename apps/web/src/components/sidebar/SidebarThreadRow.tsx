@@ -1,3 +1,4 @@
+import { SHOW_GIT_SURFACES } from "~/branding";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
@@ -290,7 +291,7 @@ function SidebarThreadTooltip({
             <div className="min-w-0 truncate text-foreground/75">{environmentLabel}</div>
           </div>
         ) : null}
-        {thread.branch ? (
+        {thread.branch && SHOW_GIT_SURFACES ? (
           <div className="flex min-w-0 items-center gap-2">
             <GitBranchIcon className="size-3 shrink-0 stroke-muted-foreground" />
             <MiddleTruncate value={thread.branch} className="flex" />
@@ -1057,7 +1058,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     if (!props.isRouteThread) onThreadActivate(threadRef);
   };
   const prBadge =
-    prBadgeShape?.kind === "stack" || pr || currentLinkedPr ? (
+    SHOW_GIT_SURFACES && (prBadgeShape?.kind === "stack" || pr || currentLinkedPr) ? (
       <ThreadPullRequestBadgeControl
         render={<InlineButton />}
         badge={prBadgeShape}

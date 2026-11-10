@@ -1,3 +1,4 @@
+import { SHOW_GIT_SURFACES } from "~/branding";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -1033,7 +1034,7 @@ function OpenCommandPaletteDialog(props: {
       },
     ];
 
-    if (newProjectsRootFor(environmentId) !== null) {
+    if (SHOW_GIT_SURFACES && newProjectsRootFor(environmentId) !== null) {
       sourceItems.unshift({
         kind: "action",
         value: `action:add-project:${environmentId}:new`,
@@ -1048,10 +1049,10 @@ function OpenCommandPaletteDialog(props: {
       });
     }
 
-    const orderedSources: ReadonlyArray<AddProjectRemoteSource> = [
-      "url",
-      ...sortAddProjectProviderSources(readinessBySource),
-    ];
+    // Cloning a repository is a coding flow; without git surfaces only a local folder is offered.
+    const orderedSources: ReadonlyArray<AddProjectRemoteSource> = SHOW_GIT_SURFACES
+      ? ["url", ...sortAddProjectProviderSources(readinessBySource)]
+      : [];
 
     for (const source of orderedSources) {
       const label = addProjectRemoteSourceLabel(source);

@@ -35,6 +35,12 @@ export const SHOW_PERMISSION_CONTROLS = false;
 export const SHOW_STAGE_ARTWORK = false;
 /** Stellar has no terminal: no drawer, no terminal surfaces, no terminal shortcuts. */
 export const SHOW_TERMINAL = false;
-/** Diffs and pull requests are coding surfaces; Stellar edits video. */
+/** Diffs, branches and pull requests are coding surfaces; Stellar edits video. */
 export const SHOW_GIT_SURFACES = false;
+/**
+ * Stellar has no code projects: every project is a video project, whether or not it has pulled
+ * a timeline yet. The costs: branch, commit, open-in-editor and project-script controls never
+ * show, so the app can't be used to work on a repository, including its own.
+ */
+export const VIDEO_ONLY = true;
 export const DESKTOP_DOWNLOAD_URL = "https://github.com/BinhL3/stellar/releases";
