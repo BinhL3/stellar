@@ -309,8 +309,12 @@ Built from the past threads: it targets where time and failures actually went, a
   finding out. Export is the first form of push: an FCP 7 XML in the Premiere folder that
   imports as a new sequence. It carries the cut only (not effects, text or stills), so it
   suits a rough cut and not a polished sequence, and it has not been imported into a real
-  Premiere yet. The baton, native re-attach and cutting by words are not built. The tool text has not been through
+  Premiere yet. The baton and native re-attach are not built. The tool text has not been through
   `evals/mcp-tool-use` yet.
+- **Cutting by words: built.** `video_timeline_words` numbers the words heard on a timeline and
+  the `removeWords` edit cuts a run of them. It relies on the `Audio/<clip>.words.json` files
+  the transcription pipeline already writes; Stellar does no transcription itself, so a clip
+  without that file can't be cut by words.
 - **Frame rates: detected, not conformed.** The proxy build records each clip's nominal rate
   and, for clips whose average is off it, reads every frame time and records where the rate
   changes (`rateChanges` in the proxy index). The Premiere badge and `video_timeline_read`

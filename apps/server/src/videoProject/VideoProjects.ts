@@ -20,6 +20,7 @@ import {
   type VideoTimelineExportResult,
   type VideoTimelineReadInput,
   type VideoTimelineView,
+  type VideoTimelineWords,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { editableView } from "@t3tools/timeline/compactView";
@@ -39,6 +40,7 @@ import { PREMIERE_LINK_PATH, recordPull, syncFromPremiere } from "@t3tools/timel
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import { buildProjectProxies, markProxiesBuilding } from "@t3tools/timeline/proxyBuilder";
 import { pullToProject } from "@t3tools/timeline/pullToProject";
+import { timelineWords, type TranscriptWord, wordRange, wordsText } from "@t3tools/timeline/words";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -69,13 +71,25 @@ export class VideoProjectError extends Schema.TaggedError<VideoProjectError>()(
 }
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+const decodeTranscript = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Array(Schema.Struct({ w: Schema.String, start: Schema.Number, end: Schema.Number })),
+  ),
+);
+/** Where the user's pipeline writes `<clip>.words.json`, inside the media root. */
+const TRANSCRIPT_FOLDER = "Audio";
+
+type FrameRange = { readonly start: number; readonly end: number };
 
 // A split names its new pieces after the clip it cut ("id~frame"), so a later edit in the same
 // call can name a piece that doesn't exist until the split has run.
 const isSplitPiece = (clipId: string) => clipId.includes("~");
 
 /** The typed edit a flat tool input describes, or what is missing from it. */
-const toTimelineEdit = (edit: VideoTimelineEdit): TimelineEdit | string => {
+const toTimelineEdit = (
+  edit: VideoTimelineEdit,
+  framesOfWords: (fromWord: number, toWord: number, ripple: boolean) => FrameRange | string,
+): TimelineEdit | string => {
   const missing = (...keys: ReadonlyArray<keyof VideoTimelineEdit>) =>
     `needs ${keys.filter((key) => edit[key] === undefined).join(", ")}`;
   switch (edit.kind) {
@@ -116,6 +130,13 @@ const toTimelineEdit = (edit: VideoTimelineEdit): TimelineEdit | string => {
       const { start, end } = edit;
       if (start === undefined || end === undefined) return missing("start", "end");
       return { kind: "removeRange", start, end, ripple: edit.ripple ?? false };
+    }
+    case "removeWords": {
+      const { fromWord, toWord } = edit;
+      if (fromWord === undefined || toWord === undefined) return missing("fromWord", "toWord");
+      const ripple = edit.ripple ?? false;
+      const range = framesOfWords(fromWord, toWord, ripple);
+      return typeof range === "string" ? range : { kind: "removeRange", ...range, ripple };
     }
     case "setEnabled": {
       const { clipId, enabled } = edit;
@@ -219,6 +240,13 @@ export class VideoProjects extends Context.Service<
     readonly editTimeline: (
       input: VideoTimelineEditInput,
     ) => Effect.Effect<VideoTimelineView, VideoProjectError>;
+    /**
+     * The words spoken on a timeline, numbered and placed in frames, from the transcripts the
+     * user's pipeline writes beside the audio. Stellar doesn't transcribe.
+     */
+    readonly readWords: (
+      input: VideoTimelineReadInput,
+    ) => Effect.Effect<VideoTimelineWords, VideoProjectError>;
   }
 >()("t3/videoProject/VideoProjects") {}
 
@@ -707,6 +735,55 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const loadWords = Effect.fn("VideoProjects.loadWords")(function* (
+    workspaceRoot: string,
+    timeline: Timeline,
+  ) {
+    const targets = new Set(
+      layoutTimeline(timeline)
+        .tracks.filter((track) => track.kind === "Audio")
+        .flatMap((track) =>
+          track.clips.map((item) => item.clip.media_references.DEFAULT_MEDIA.target_url),
+        ),
+    );
+    const transcripts = new Map<string, ReadonlyArray<TranscriptWord>>();
+    for (const target of targets) {
+      const name = `${path.basename(target, path.extname(target))}.words.json`;
+      const file = path.join(path.dirname(workspaceRoot), TRANSCRIPT_FOLDER, name);
+      if (!(yield* fileSystem.exists(file).pipe(Effect.orElseSucceed(() => false)))) continue;
+      transcripts.set(
+        target,
+        yield* fileSystem.readFileString(file).pipe(
+          Effect.flatMap(decodeTranscript),
+          Effect.mapError(
+            (cause) =>
+              new VideoProjectError({
+                reason: `Could not read the transcript ${TRANSCRIPT_FOLDER}/${name}.`,
+                cause,
+              }),
+          ),
+        ),
+      );
+    }
+    return timelineWords(timeline, transcripts);
+  });
+
+  const readWords: VideoProjects["Service"]["readWords"] = Effect.fn("VideoProjects.readWords")(
+    function* (input) {
+      yield* sync({ workspaceRoot: input.workspaceRoot });
+      const timelines = yield* listTimelines(input.workspaceRoot);
+      const chosen =
+        input.timeline ??
+        timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
+        timelines[0];
+      if (chosen === undefined) {
+        return yield* new VideoProjectError({ reason: "This project has no timeline to read." });
+      }
+      const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
+      return { timeline: chosen, text: wordsText(yield* loadWords(input.workspaceRoot, timeline)) };
+    },
+  );
+
   const readTimeline: VideoProjects["Service"]["readTimeline"] = Effect.fn(
     "VideoProjects.readTimeline",
   )(function* (input) {
@@ -759,9 +836,32 @@ const make = Effect.gen(function* () {
     const layout = layoutTimeline(timeline);
     const clipIds = new Set(layout.tracks.flatMap((track) => track.clips.map((clip) => clip.key)));
     const trackNames = new Set(layout.tracks.map((track) => track.name));
+    const words = input.edits.some((edit) => edit.kind === "removeWords")
+      ? yield* loadWords(input.workspaceRoot, timeline)
+      : null;
+    // Words are placed on the timeline as it was before the call, so a ripple word cut moves
+    // the ones resolved after it by the frames it removed ahead of them.
+    const rippled: Array<FrameRange> = [];
+    const afterCuts = (frame: number) =>
+      frame -
+      rippled.reduce(
+        (removed, cut) => removed + Math.max(0, Math.min(frame, cut.end) - cut.start),
+        0,
+      );
+    const framesOfWords = (fromWord: number, toWord: number, ripple: boolean) => {
+      const range = wordRange(
+        words ?? { name: timeline.name, rate: layout.rate, count: 0, clips: [] },
+        fromWord,
+        toWord,
+      );
+      if (typeof range === "string") return range;
+      const placed = { start: afterCuts(range.start), end: afterCuts(range.end) };
+      if (ripple) rippled.push(range);
+      return placed;
+    };
     const edits: Array<TimelineEdit> = [];
     for (const [index, edit] of input.edits.entries()) {
-      const parsed = toTimelineEdit(edit);
+      const parsed = toTimelineEdit(edit, framesOfWords);
       const problem =
         typeof parsed === "string"
           ? parsed
@@ -870,9 +970,7 @@ const make = Effect.gen(function* () {
     const sequenceName = `${timeline.name} (Stellar ${two(stamp.getHours())}.${two(stamp.getMinutes())})`;
     const exported = toFcpXml(timeline, {
       sequenceName,
-      durations: Object.fromEntries(
-        Object.entries(index?.media ?? {}).map(([target, entry]) => [target, entry.duration]),
-      ),
+      media: index?.media ?? {},
     });
     const folder = path.join(path.dirname(input.workspaceRoot), "Premiere");
     const file = path.join(folder, `${sequenceName.replace(/[/\\:]+/g, " ")}.xml`);
@@ -894,6 +992,7 @@ const make = Effect.gen(function* () {
     exportForPremiere,
     saveVoiceOver,
     readTimeline,
+    readWords,
     editTimeline,
     inspectPremiere,
     createFromPremiere,

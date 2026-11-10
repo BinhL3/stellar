@@ -5,6 +5,7 @@ import {
   VideoTimelineEdit,
   VideoTimelineExportResult,
   VideoTimelineView,
+  VideoTimelineWords,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
@@ -38,7 +39,7 @@ const TimelineReadTool = Tool.make("video_timeline_read", {
 
 const TimelineEditTool = Tool.make("video_timeline_edit", {
   description:
-    "Edit a timeline in Stellar. `edits` run in order, in whole frames, naming clips by `#clipId` from `video_timeline_read`: move (clipId, toTrack, startFrame; `magnetic` closes the gap and pushes clips instead of overwriting), trim (clipId, edge, frame), delete, rippleDelete, split (frame, tracks), removeRange (start, end, ripple), setEnabled, setText. A split's later piece is `<clipId>~<frame>`. One bad edit refuses the whole call. Edits change Stellar's timeline only; `video_premiere_export` sends the result to Premiere.",
+    "Edit a timeline in Stellar. `edits` run in order, in whole frames, naming clips by `#clipId` from `video_timeline_read`: move (clipId, toTrack, startFrame; `magnetic` closes the gap and pushes clips instead of overwriting), trim (clipId, edge, frame), delete, rippleDelete, split (frame, tracks), removeRange (start, end, ripple), removeWords (fromWord, toWord, ripple), setEnabled, setText. A split's later piece is `<clipId>~<frame>`. removeWords takes word numbers from `video_timeline_words` as they were before this call, so one call can hold several word cuts; put them before other edits. One bad edit refuses the whole call. Edits change Stellar's timeline only; `video_premiere_export` sends the result to Premiere.",
   parameters: Schema.Struct({
     timeline: Schema.String,
     edits: Schema.Array(VideoTimelineEdit),
@@ -52,6 +53,21 @@ const TimelineEditTool = Tool.make("video_timeline_edit", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const TimelineWordsTool = Tool.make("video_timeline_words", {
+  description:
+    "Read what is said on a timeline, to cut by words: per audio clip, each transcribed word as `index:word@startFrame`. Cut with `video_timeline_edit` removeWords, which removes from a word's start to the next word's start. Numbers change after every edit, so read again before cutting more. Transcripts come from the project's `Audio/<clip>.words.json`; clips without one say so.",
+  parameters: Schema.Struct({ timeline: Schema.optional(Schema.String) }),
+  success: VideoTimelineWords,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Read the timeline's words")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
 const PremiereExportTool = Tool.make("video_premiere_export", {
@@ -130,6 +146,7 @@ const FootageTool = Tool.make("video_footage", {
 export const VideoToolkit = Toolkit.make(
   TimelineReadTool,
   TimelineEditTool,
+  TimelineWordsTool,
   PremiereExportTool,
   ProjectStartTool,
   PremierePullTool,

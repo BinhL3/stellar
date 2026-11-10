@@ -46,6 +46,7 @@ export type T3McpToolSummaryAction =
   | "worktree-status"
   | "video-timeline-read"
   | "video-timeline-edit"
+  | "video-timeline-words"
   | "video-project-start"
   | "video-premiere-pull"
   | "video-footage"
@@ -193,6 +194,10 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_worktree_status: tool(["Get", "Getting", "Got", "thread worktree status"], "worktree-status"),
   video_timeline_read: tool(["Read", "Reading", "Read", "the timeline"], "video-timeline-read"),
   video_timeline_edit: tool(["Edit", "Editing", "Edited", "the timeline"], "video-timeline-edit"),
+  video_timeline_words: tool(
+    ["Read", "Reading", "Read", "the timeline's words"],
+    "video-timeline-words",
+  ),
   video_project_start: tool(
     ["Start", "Starting", "Started", "a video project"],
     "video-project-start",

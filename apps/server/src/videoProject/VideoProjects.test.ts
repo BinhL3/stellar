@@ -265,6 +265,101 @@ it.live("copies footage in, replacing a cut-short copy and leaving the originals
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
+it.live("cuts by transcript words, numbered as they were before the call", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-words-" });
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot } = yield* videoProjects.createFromIdea({
+      title: "Jollibee",
+      parentFolder: root,
+    });
+    const mediaRoot = path.dirname(workspaceRoot);
+    const timeline = "timelines/Footage.otio";
+    const file = path.join(workspaceRoot, timeline);
+    yield* fs.writeFileString(
+      file,
+      serializeTimeline(
+        footageStringout(
+          [
+            { target: "Footage/a.MOV", duration: 2, width: 1080, height: 1920 },
+            { target: "Footage/b.MOV", duration: 1, width: 1080, height: 1920 },
+          ],
+          mediaRoot,
+        ),
+      ),
+    );
+    yield* fs.writeFileString(
+      path.join(mediaRoot, "Audio", "a.words.json"),
+      JSON.stringify([
+        { w: "Hãy", start: 0.5, end: 0.6, aligned: true },
+        { w: "subscribe", start: 0.6, end: 1, aligned: true },
+        { w: "cho", start: 1, end: 1.5, aligned: true },
+        { w: "kênh", start: 1.5, end: 1.9, aligned: true },
+      ]),
+    );
+    const wordLines = (text: string) =>
+      text
+        .split("\n")
+        .slice(1)
+        .map((line) => line.replace(/#\S+/, "#id"));
+
+    const read = yield* videoProjects.readWords({ workspaceRoot });
+    assert.strictEqual(read.timeline, timeline);
+    assert.deepStrictEqual(wordLines(read.text), [
+      "A1 0-120 #id a.MOV",
+      "1:Hãy@30 2:subscribe@36 3:cho@60 4:kênh@90",
+      "A1 120-180 #id b.MOV (no transcript)",
+    ]);
+
+    const before = yield* fs.readFileString(file);
+    const refused = yield* videoProjects
+      .editTimeline({
+        workspaceRoot,
+        timeline,
+        edits: [
+          { kind: "removeWords", fromWord: 1, toWord: 1, ripple: true },
+          { kind: "removeWords", fromWord: 4, toWord: 9 },
+        ],
+      })
+      .pipe(Effect.flip);
+    assert.strictEqual(
+      refused.message,
+      "Edit 2 (removeWords): no word 9 (the timeline has 4 words). Nothing was changed.",
+    );
+    assert.strictEqual(yield* fs.readFileString(file), before);
+
+    // The second cut names word 3 by its number before the first cut moved it.
+    yield* videoProjects.editTimeline({
+      workspaceRoot,
+      timeline,
+      edits: [
+        { kind: "removeWords", fromWord: 1, toWord: 1, ripple: true },
+        { kind: "removeWords", fromWord: 3, toWord: 3, ripple: true },
+      ],
+    });
+    const after = yield* videoProjects.readWords({ workspaceRoot, timeline });
+    assert.deepStrictEqual(wordLines(after.text), [
+      "A1 0-30 #id a.MOV (no words)",
+      "A1 30-54 #id a.MOV",
+      "1:subscribe@30",
+      "A1 54-84 #id a.MOV",
+      "2:kênh@54",
+      "A1 84-144 #id b.MOV (no transcript)",
+    ]);
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
+
 it.live("reads a timeline for an agent and applies its edits, refusing a bad one whole", () => {
   const created: Array<string> = [];
   return Effect.gen(function* () {

@@ -50,6 +50,10 @@
     "./pullToProject": {
       "types": "./src/pullToProject.ts",
       "import": "./src/pullToProject.ts"
+    },
+    "./words": {
+      "types": "./src/words.ts",
+      "import": "./src/words.ts"
     }
   },
   "scripts": {

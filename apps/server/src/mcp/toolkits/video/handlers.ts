@@ -49,6 +49,18 @@ const handlers = {
         .pipe(Effect.mapError(refused));
     }),
   ),
+  video_timeline_words: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      return yield* videoProjects
+        .readWords({
+          workspaceRoot,
+          ...(input.timeline === undefined ? {} : { timeline: input.timeline }),
+        })
+        .pipe(Effect.mapError(refused));
+    }),
+  ),
   video_premiere_export: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const workspaceRoot = yield* callerWorkspaceRoot;

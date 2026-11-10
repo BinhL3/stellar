@@ -639,6 +639,7 @@ export const VideoTimelineEdit = Schema.Struct({
     "rippleDelete",
     "split",
     "removeRange",
+    "removeWords",
     "setEnabled",
     "setText",
   ]),
@@ -652,6 +653,9 @@ export const VideoTimelineEdit = Schema.Struct({
   start: Schema.optional(Schema.Number),
   end: Schema.optional(Schema.Number),
   ripple: Schema.optional(Schema.Boolean),
+  /** Word numbers from the timeline's words view, inclusive. */
+  fromWord: Schema.optional(Schema.Number),
+  toWord: Schema.optional(Schema.Number),
   enabled: Schema.optional(Schema.Boolean),
   text: Schema.optional(Schema.String),
 });
@@ -729,6 +733,13 @@ export const VideoTimelineView = Schema.Struct({
   text: Schema.String,
 });
 export type VideoTimelineView = typeof VideoTimelineView.Type;
+
+export const VideoTimelineWords = Schema.Struct({
+  timeline: Schema.String,
+  /** A line per audio clip, then its numbered words as `index:word@startFrame`. */
+  text: Schema.String,
+});
+export type VideoTimelineWords = typeof VideoTimelineWords.Type;
 
 export const ProjectCreateFromThreadInput = Schema.Struct({
   threadId: ThreadId,
