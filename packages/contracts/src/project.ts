@@ -627,6 +627,74 @@ export const VideoProjectIntakeStatus = Schema.Struct({
 });
 export type VideoProjectIntakeStatus = typeof VideoProjectIntakeStatus.Type;
 
+/**
+ * One edit to a timeline, in whole timeline frames. Flat on purpose: which fields apply
+ * depends on `kind`, and tool schemas with unions are harder for models to fill in.
+ */
+export const VideoTimelineEdit = Schema.Struct({
+  kind: Schema.Literals([
+    "move",
+    "trim",
+    "delete",
+    "rippleDelete",
+    "split",
+    "removeRange",
+    "setEnabled",
+    "setText",
+  ]),
+  clipId: Schema.optional(Schema.String),
+  toTrack: Schema.optional(Schema.String),
+  startFrame: Schema.optional(Schema.Number),
+  magnetic: Schema.optional(Schema.Boolean),
+  edge: Schema.optional(Schema.Literals(["start", "end"])),
+  frame: Schema.optional(Schema.Number),
+  tracks: Schema.optional(Schema.Array(Schema.String)),
+  start: Schema.optional(Schema.Number),
+  end: Schema.optional(Schema.Number),
+  ripple: Schema.optional(Schema.Boolean),
+  enabled: Schema.optional(Schema.Boolean),
+  text: Schema.optional(Schema.String),
+});
+export type VideoTimelineEdit = typeof VideoTimelineEdit.Type;
+
+export const VideoTimelineReadInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** A path from `timelines`; omitted, the project's main timeline. */
+  timeline: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+});
+export type VideoTimelineReadInput = typeof VideoTimelineReadInput.Type;
+
+export const VideoTimelineExportResult = Schema.Struct({
+  /** The XML file Premiere imports as a new sequence. */
+  path: TrimmedNonEmptyString,
+  sequenceName: TrimmedNonEmptyString,
+  clips: Schema.Number,
+  /** Clips the XML can't carry (text graphics, anything without a media file). */
+  skipped: Schema.Array(Schema.String),
+});
+export type VideoTimelineExportResult = typeof VideoTimelineExportResult.Type;
+
+export const VideoTimelineEditInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  timeline: TrimmedNonEmptyString.check(Schema.isMaxLength(512)),
+  edits: Schema.Array(VideoTimelineEdit).check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+});
+export type VideoTimelineEditInput = typeof VideoTimelineEditInput.Type;
+
+export const VideoProjectSaveVoiceOverInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** The recording as the browser made it (WebM or MP4 audio). */
+  recording: Schema.Uint8ArrayFromBase64,
+});
+export type VideoProjectSaveVoiceOverInput = typeof VideoProjectSaveVoiceOverInput.Type;
+
+export const VideoProjectSaveVoiceOverResult = Schema.Struct({
+  /** The saved WAV, relative to the project's media root, such as "Audio/VO/VO 2026-11-09 21.04.33.wav". */
+  path: TrimmedNonEmptyString,
+  absolutePath: TrimmedNonEmptyString,
+});
+export type VideoProjectSaveVoiceOverResult = typeof VideoProjectSaveVoiceOverResult.Type;
+
 export const VideoProjectSyncInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   /** Replace timelines edited here with Premiere's version; the replaced files are kept. */
@@ -642,8 +710,25 @@ export const VideoProjectSyncResult = Schema.Struct({
   updated: Schema.Array(Schema.String),
   /** Timeline paths that differ from Premiere's save and were left alone. */
   kept: Schema.Array(Schema.String),
+  /** Whether Premiere is open on the host; null where that can't be told. */
+  premiereRunning: Schema.NullOr(Schema.Boolean),
 });
 export type VideoProjectSyncResult = typeof VideoProjectSyncResult.Type;
+
+export const VideoTimelineView = Schema.Struct({
+  timelines: Schema.Array(Schema.String),
+  timeline: Schema.NullOr(Schema.String),
+  /** How the project stands against Premiere's last save, checked just before reading. */
+  premiere: VideoProjectSyncResult.fields.state,
+  /**
+   * What exists and what is ready, one fact per line: the project folder, whether Premiere is
+   * open and linked, footage, previews, transcripts, voice-over takes, and missing tools.
+   */
+  project: Schema.String,
+  /** One line per clip: track, start-end in frames, #clipId, name. */
+  text: Schema.String,
+});
+export type VideoTimelineView = typeof VideoTimelineView.Type;
 
 export const ProjectCreateFromThreadInput = Schema.Struct({
   threadId: ThreadId,

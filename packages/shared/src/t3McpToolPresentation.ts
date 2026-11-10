@@ -44,6 +44,12 @@ export type T3McpToolSummaryAction =
   | "worktree-handoff"
   | "worktree-list"
   | "worktree-status"
+  | "video-timeline-read"
+  | "video-timeline-edit"
+  | "video-project-start"
+  | "video-premiere-pull"
+  | "video-footage"
+  | "video-premiere-export"
   | "project-list"
   | "project-read"
   | "project-create"
@@ -185,6 +191,21 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "worktree-handoff",
   ),
   t3_worktree_status: tool(["Get", "Getting", "Got", "thread worktree status"], "worktree-status"),
+  video_timeline_read: tool(["Read", "Reading", "Read", "the timeline"], "video-timeline-read"),
+  video_timeline_edit: tool(["Edit", "Editing", "Edited", "the timeline"], "video-timeline-edit"),
+  video_project_start: tool(
+    ["Start", "Starting", "Started", "a video project"],
+    "video-project-start",
+  ),
+  video_premiere_pull: tool(
+    ["Pull", "Pulling", "Pulled", "a Premiere sequence"],
+    "video-premiere-pull",
+  ),
+  video_premiere_export: tool(
+    ["Export", "Exporting", "Exported", "the timeline for Premiere"],
+    "video-premiere-export",
+  ),
+  video_footage: tool(["Bring in", "Bringing in", "Brought in", "footage"], "video-footage"),
   preview_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),
   preview_open: tool(
     ["Open", "Opening", "Opened", "a page in the preview browser"],

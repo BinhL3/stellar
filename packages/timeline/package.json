@@ -23,6 +23,10 @@
       "types": "./src/otio.ts",
       "import": "./src/otio.ts"
     },
+    "./premiere/fcpxml": {
+      "types": "./src/premiere/fcpxml.ts",
+      "import": "./src/premiere/fcpxml.ts"
+    },
     "./premiere/prproj": {
       "types": "./src/premiere/prproj.ts",
       "import": "./src/premiere/prproj.ts"

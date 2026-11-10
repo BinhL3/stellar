@@ -2947,6 +2947,14 @@ export const layerWsRpc = (
                 (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
               ),
             ),
+        [WS_METHODS.videoProjectsSaveVoiceOver]: (input) =>
+          videoProjects
+            .saveVoiceOver(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
         [WS_METHODS.videoProjectsSync]: (input) =>
           videoProjects
             .sync(input)

@@ -327,6 +327,24 @@ export function summarizeT3ToolCalls(
     case "worktree-status":
       label = phrase("Checked", "check", `worktree status ${times}`);
       break;
+    case "video-timeline-read":
+      label = phrase("Read", "read", `the timeline ${times}`);
+      break;
+    case "video-timeline-edit":
+      label = phrase("Edited", "edit", `the timeline ${times}`);
+      break;
+    case "video-project-start":
+      label = phrase("Started", "start", `a video project ${times}`);
+      break;
+    case "video-premiere-pull":
+      label = phrase("Pulled from", "pull from", `Premiere ${times}`);
+      break;
+    case "video-premiere-export":
+      label = phrase("Exported", "export", `the timeline for Premiere ${times}`);
+      break;
+    case "video-footage":
+      label = phrase("Brought in", "bring in", `footage ${times}`);
+      break;
     case "project-list":
       label = phrase("Listed", "list", `projects ${times}`);
       break;

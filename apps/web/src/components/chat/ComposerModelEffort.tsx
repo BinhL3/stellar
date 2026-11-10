@@ -4,7 +4,7 @@ import {
   isReasoningControl,
   selectableProviderOptionChoices,
 } from "@t3tools/client-runtime/model-traits";
-import { SHOW_PERMISSION_CONTROLS } from "~/branding";
+import { showPermissionControls } from "~/branding";
 import type { ProviderOptionDescriptor, RuntimeMode } from "@t3tools/contracts";
 import type { EffortDisplay } from "@t3tools/contracts/settings";
 import { getProviderOptionCurrentLabel } from "@t3tools/shared/model";
@@ -687,7 +687,7 @@ export function ComposerPickerFooter(props: {
     <div className="flex flex-wrap items-center gap-2 border-t border-border/70 bg-muted/40 px-3 py-2">
       {props.traits ? <SpeedControl traits={props.traits} /> : null}
       {props.traits ? <UltracodeControl traits={props.traits} /> : null}
-      {SHOW_PERMISSION_CONTROLS ? (
+      {showPermissionControls(props.runtimeMode) ? (
         <PermissionsMenu
           runtimeMode={props.runtimeMode}
           options={props.runtimeModeOptions}

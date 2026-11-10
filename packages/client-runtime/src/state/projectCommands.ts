@@ -234,6 +234,12 @@ export function createProjectEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
       },
     }),
+    saveVideoVoiceOver: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:save-voice-over",
+      tag: WS_METHODS.videoProjectsSaveVoiceOver,
+      scheduler: projectScheduler,
+      concurrency: { mode: "parallel" },
+    }),
     syncVideoProject: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:video-projects:sync",
       tag: WS_METHODS.videoProjectsSync,

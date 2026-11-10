@@ -1,0 +1,137 @@
+import {
+  OrchestratorMcpFailure,
+  VideoProjectCreateFromIdeaResult,
+  VideoProjectScanIntakeResult,
+  VideoTimelineEdit,
+  VideoTimelineExportResult,
+  VideoTimelineView,
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+import { Tool, Toolkit } from "effect/ai";
+
+import * as ProjectService from "../../../project/ProjectService.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as VideoProjects from "../../../videoProject/VideoProjects.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
+
+const dependencies = [
+  McpInvocationContext.McpInvocationContext,
+  ThreadManagementService.ThreadManagementService,
+  ProjectService.ProjectService,
+  VideoProjects.VideoProjects,
+];
+
+const TimelineReadTool = Tool.make("video_timeline_read", {
+  description:
+    "Read this thread's video timeline: one line per clip as `track start-end #clipId name`, in whole frames. Call it first in a video thread: `project` says what footage, previews, transcripts and takes exist and whether Premiere is open and linked. Pulls Premiere's latest save first, so read before every edit; `premiere` says whether the timeline holds edits Premiere doesn't. Omit `timeline` for the main one; `timelines` lists the others, such as the footage laid end to end.",
+  parameters: Schema.Struct({ timeline: Schema.optional(Schema.String) }),
+  success: VideoTimelineView,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Read the video timeline")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const TimelineEditTool = Tool.make("video_timeline_edit", {
+  description:
+    "Edit a timeline in Stellar. `edits` run in order, in whole frames, naming clips by `#clipId` from `video_timeline_read`: move (clipId, toTrack, startFrame; `magnetic` closes the gap and pushes clips instead of overwriting), trim (clipId, edge, frame), delete, rippleDelete, split (frame, tracks), removeRange (start, end, ripple), setEnabled, setText. A split's later piece is `<clipId>~<frame>`. One bad edit refuses the whole call. Edits change Stellar's timeline only; `video_premiere_export` sends the result to Premiere.",
+  parameters: Schema.Struct({
+    timeline: Schema.String,
+    edits: Schema.Array(VideoTimelineEdit),
+  }),
+  success: VideoTimelineView,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Edit the video timeline")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const PremiereExportTool = Tool.make("video_premiere_export", {
+  description:
+    "Send a Stellar timeline to Premiere: writes it as an XML file in the project's Premiere folder and returns the `path`. Import that file with a Premiere tool; it arrives as a new sequence named `sequenceName`, never replacing one. Only the cut travels (tracks, positions, source ranges, enabled state). Effects, text graphics and clips without a media file are left out and listed in `skipped`: tell the user what didn't come across.",
+  parameters: Schema.Struct({ timeline: Schema.optional(Schema.String) }),
+  success: VideoTimelineExportResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Export the timeline for Premiere")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const ProjectStartTool = Tool.make("video_project_start", {
+  description:
+    "Start a video project from an idea, before footage or a Premiere project exists. Makes `<parentFolder>/<title>` with Footage, Audio, B-roll, Graphics, Premiere, Exports and Stellar folders and adds it as a project. Save the Premiere project into its Premiere folder later, then `video_premiere_pull`.",
+  parameters: Schema.Struct({ title: Schema.String, parentFolder: Schema.String }),
+  success: VideoProjectCreateFromIdeaResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Start a video project")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const PremierePullTool = Tool.make("video_premiere_pull", {
+  description:
+    "Pull a Premiere sequence into Stellar as a timeline that then follows Premiere's saves. Save the project in Premiere first: only saved state is read. Without `sequence`, lists the project's sequences. The timeline goes in the Stellar folder beside the .prproj, joining the project already there.",
+  parameters: Schema.Struct({
+    premiereProjectPath: Schema.String,
+    sequence: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    sequences: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+    pulled: Schema.NullOr(Schema.Struct({ workspaceRoot: Schema.String, timeline: Schema.String })),
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Pull a Premiere sequence")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const FootageTool = Tool.make("video_footage", {
+  description:
+    "Bring footage into this thread's video project. `scan` lists videos and photos that arrived in the host's Downloads in the last few days (AirDrop keeps camera dates, so this goes by date added). `import` copies the `paths` the user approved into `Footage/<folder>`, size-checked, in the background, then builds previews and a Footage timeline; originals stay in Downloads. Show the scan and get the user's approval before importing.",
+  parameters: Schema.Struct({
+    action: Schema.Literals(["scan", "import"]),
+    paths: Schema.optional(Schema.Array(Schema.String)),
+    folder: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    scan: Schema.NullOr(VideoProjectScanIntakeResult),
+    importing: Schema.NullOr(Schema.Struct({ files: Schema.Number, folder: Schema.String })),
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Scan or import footage")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+export const VideoToolkit = Toolkit.make(
+  TimelineReadTool,
+  TimelineEditTool,
+  PremiereExportTool,
+  ProjectStartTool,
+  PremierePullTool,
+  FootageTool,
+);

@@ -63,6 +63,7 @@ import {
   PullRequestsToolkit,
 } from "../../apps/server/src/mcp/toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.ts";
+import { VideoToolkit } from "../../apps/server/src/mcp/toolkits/video/tools.ts";
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
 import {
   CLAUDE_PROVIDER,
@@ -432,6 +433,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   EnvironmentToolkit,
   PreviewControlsToolkit,
   WorktreeToolkit,
+  VideoToolkit,
   PullRequestsToolkit,
   PreviewToolkit,
   DeviceToolkit,

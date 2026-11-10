@@ -9,21 +9,39 @@ import {
   type VideoProjectInspectPremiereInput,
   type VideoProjectInspectPremiereResult,
   type VideoProjectIntakeStatus,
+  type VideoProjectSaveVoiceOverInput,
+  type VideoProjectSaveVoiceOverResult,
   type VideoProjectScanIntakeInput,
   type VideoProjectScanIntakeResult,
   type VideoProjectSyncInput,
   type VideoProjectSyncResult,
+  type VideoTimelineEdit,
+  type VideoTimelineEditInput,
+  type VideoTimelineExportResult,
+  type VideoTimelineReadInput,
+  type VideoTimelineView,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { copyFootage, FOOTAGE_DIRECTORY, writeFootageStringout } from "@t3tools/timeline/footage";
-import { serializeJson } from "@t3tools/timeline/otio";
+import { editableView } from "@t3tools/timeline/compactView";
+import { applyEdits, type TimelineEdit } from "@t3tools/timeline/edits";
+import {
+  copyFootage,
+  listFootage,
+  FOOTAGE_DIRECTORY,
+  FOOTAGE_TIMELINE_PATH,
+  writeFootageStringout,
+} from "@t3tools/timeline/footage";
+import { layoutTimeline } from "@t3tools/timeline/layout";
+import { serializeJson, serializeTimeline, type Timeline } from "@t3tools/timeline/otio";
+import { toFcpXml } from "@t3tools/timeline/premiere/fcpxml";
 import { parsePrproj } from "@t3tools/timeline/premiere/prproj";
-import { recordPull, syncFromPremiere } from "@t3tools/timeline/premiereSync";
+import { PREMIERE_LINK_PATH, recordPull, syncFromPremiere } from "@t3tools/timeline/premiereSync";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import { buildProjectProxies, markProxiesBuilding } from "@t3tools/timeline/proxyBuilder";
 import { pullToProject } from "@t3tools/timeline/pullToProject";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
@@ -51,6 +69,66 @@ export class VideoProjectError extends Schema.TaggedError<VideoProjectError>()(
 }
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+
+// A split names its new pieces after the clip it cut ("id~frame"), so a later edit in the same
+// call can name a piece that doesn't exist until the split has run.
+const isSplitPiece = (clipId: string) => clipId.includes("~");
+
+/** The typed edit a flat tool input describes, or what is missing from it. */
+const toTimelineEdit = (edit: VideoTimelineEdit): TimelineEdit | string => {
+  const missing = (...keys: ReadonlyArray<keyof VideoTimelineEdit>) =>
+    `needs ${keys.filter((key) => edit[key] === undefined).join(", ")}`;
+  switch (edit.kind) {
+    case "move": {
+      const { clipId, toTrack, startFrame } = edit;
+      if (clipId === undefined || toTrack === undefined || startFrame === undefined) {
+        return missing("clipId", "toTrack", "startFrame");
+      }
+      return {
+        kind: "move",
+        clipId,
+        toTrack,
+        startFrame,
+        ...(edit.magnetic === undefined ? {} : { magnetic: edit.magnetic }),
+      };
+    }
+    case "trim": {
+      const { clipId, edge, frame } = edit;
+      if (clipId === undefined || edge === undefined || frame === undefined) {
+        return missing("clipId", "edge", "frame");
+      }
+      return { kind: "trim", clipId, edge, frame };
+    }
+    case "delete":
+    case "rippleDelete":
+      return edit.clipId === undefined
+        ? missing("clipId")
+        : { kind: edit.kind, clipId: edit.clipId };
+    case "split":
+      return edit.frame === undefined
+        ? missing("frame")
+        : {
+            kind: "split",
+            frame: edit.frame,
+            ...(edit.tracks === undefined ? {} : { tracks: edit.tracks }),
+          };
+    case "removeRange": {
+      const { start, end } = edit;
+      if (start === undefined || end === undefined) return missing("start", "end");
+      return { kind: "removeRange", start, end, ripple: edit.ripple ?? false };
+    }
+    case "setEnabled": {
+      const { clipId, enabled } = edit;
+      if (clipId === undefined || enabled === undefined) return missing("clipId", "enabled");
+      return { kind: "setEnabled", clipId, enabled };
+    }
+    case "setText": {
+      const { clipId, text } = edit;
+      if (clipId === undefined || text === undefined) return missing("clipId", "text");
+      return { kind: "setText", clipId, text };
+    }
+  }
+};
 
 /** Stellar's own files for a video project sit in this folder beside the Premiere project. */
 const STELLAR_FOLDER = "Stellar";
@@ -116,6 +194,31 @@ export class VideoProjects extends Context.Service<
     readonly sync: (
       input: VideoProjectSyncInput,
     ) => Effect.Effect<VideoProjectSyncResult, VideoProjectError>;
+    /**
+     * Saves a voice-over recorded in a client as a 48 kHz WAV under `Audio/VO`, the form
+     * Premiere imports; browsers record WebM or MP4 audio, which it doesn't.
+     */
+    readonly saveVoiceOver: (
+      input: VideoProjectSaveVoiceOverInput,
+    ) => Effect.Effect<VideoProjectSaveVoiceOverResult, VideoProjectError>;
+    /**
+     * Writes a timeline as an XML file in the project's Premiere folder, which Premiere imports
+     * as a new sequence. Only the cut travels; what can't is listed in `skipped`.
+     */
+    readonly exportForPremiere: (
+      input: VideoTimelineReadInput,
+    ) => Effect.Effect<VideoTimelineExportResult, VideoProjectError>;
+    /** A timeline as an agent reads it, synced with Premiere first so it is never stale. */
+    readonly readTimeline: (
+      input: VideoTimelineReadInput,
+    ) => Effect.Effect<VideoTimelineView, VideoProjectError>;
+    /**
+     * Applies edits to a timeline file and returns the result. Edits that name a missing clip
+     * or leave out a field their kind needs are refused, and nothing is written.
+     */
+    readonly editTimeline: (
+      input: VideoTimelineEditInput,
+    ) => Effect.Effect<VideoTimelineView, VideoProjectError>;
   }
 >()("t3/videoProject/VideoProjects") {}
 
@@ -127,6 +230,12 @@ const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const background = yield* FiberSet.make();
   const syncing = yield* Semaphore.make(1);
+  // Premiere's process is named for its year ("Adobe Premiere Pro 2026"); `ps` lists it on macOS
+  // and Linux. Where `ps` isn't there, the answer is unknown rather than "closed".
+  const premiereRunning = spawner.string(ChildProcess.make("ps", ["-axo", "comm"])).pipe(
+    Effect.map((processes) => /Adobe Premiere Pro/.test(processes)),
+    Effect.orElseSucceed((): boolean | null => null),
+  );
   const building = new Set<string>();
   const importing = new Set<string>();
   const downloads = path.join(yield* HostProcess.HomeDirectory, "Downloads");
@@ -498,10 +607,294 @@ const make = Effect.gen(function* () {
     if (result.updated.length > 0 || (yield* proxiesUnfinished(input.workspaceRoot))) {
       yield* startProxies(input.workspaceRoot);
     }
-    return result;
+    return { ...result, premiereRunning: yield* premiereRunning };
+  });
+
+  /**
+   * The facts an agent would otherwise spend its first minute discovering, one per line.
+   * Anything that blocks work (Premiere closed, no ffmpeg) is said plainly.
+   */
+  const describeProject = Effect.fn("VideoProjects.describeProject")(function* (
+    workspaceRoot: string,
+    synced: VideoProjectSyncResult,
+  ) {
+    const mediaRoot = path.dirname(workspaceRoot);
+    const names = (folder: string) =>
+      fileSystem
+        .readDirectory(path.join(mediaRoot, folder))
+        .pipe(Effect.orElseSucceed((): Array<string> => []));
+    const footage = yield* listFootage(mediaRoot).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    const index = yield* fileSystem.readFileString(path.join(workspaceRoot, PROXY_INDEX_PATH)).pipe(
+      Effect.flatMap(decodeJson),
+      Effect.map((value) => value as ProxyIndex),
+      Effect.orElseSucceed(() => null),
+    );
+    const link = yield* fileSystem
+      .readFileString(path.join(workspaceRoot, PREMIERE_LINK_PATH))
+      .pipe(
+        Effect.flatMap(decodeJson),
+        Effect.map((value) => (value as { project?: string }).project ?? null),
+        Effect.orElseSucceed(() => null),
+      );
+    const transcripts = (yield* names("Audio")).filter((name) => name.endsWith(".words.json"));
+    const takes = (yield* names(path.join("Audio", "VO"))).filter((name) => name.endsWith(".wav"));
+    const hasScript = yield* fileSystem
+      .exists(path.join(workspaceRoot, "script.md"))
+      .pipe(Effect.orElseSucceed(() => false));
+    const hasFfmpeg = yield* spawner.string(ChildProcess.make("ffmpeg", ["-version"])).pipe(
+      Effect.as(true),
+      Effect.orElseSucceed(() => false),
+    );
+    const running =
+      synced.premiereRunning === null
+        ? "may or may not be open (can't tell on this system)"
+        : synced.premiereRunning
+          ? "is open"
+          : "is NOT open: Premiere tools will fail until the user opens it";
+    const linked =
+      link === null
+        ? "no Premiere project is linked (save one into the Premiere folder, then video_premiere_pull)"
+        : synced.state === "offline"
+          ? `linked project ${link} can't be read (drive unplugged or file moved)`
+          : `linked to ${link} (${synced.state})`;
+    const previews =
+      index === null
+        ? "none built yet"
+        : index.building !== undefined
+          ? `building, ${index.building.done} of ${index.building.total}`
+          : `ready for ${Object.keys(index.media).length} files${index.failed ? `, ${index.failed} failed` : ""}`;
+    return [
+      `Project folder: ${mediaRoot}`,
+      `Premiere ${running}; ${linked}.`,
+      `Footage: ${footage.length} videos in Footage/. Previews: ${previews}.`,
+      `Transcripts: ${transcripts.length} word-timed in Audio/. Script snapshot: ${hasScript ? "Stellar/script.md" : "none"}. Voice-over takes: ${takes.length} in Audio/VO/.`,
+      ...(hasFfmpeg
+        ? []
+        : ["ffmpeg is NOT installed: previews, imports and voice-over can't be made."]),
+    ].join("\n");
+  });
+
+  const listTimelines = (workspaceRoot: string) =>
+    fileSystem.readDirectory(path.join(workspaceRoot, "timelines")).pipe(
+      Effect.orElseSucceed((): Array<string> => []),
+      Effect.map((names) =>
+        names
+          .filter((name) => name.endsWith(".otio"))
+          .map((name) => `timelines/${name}`)
+          .toSorted(),
+      ),
+    );
+
+  const loadTimeline = Effect.fn("VideoProjects.loadTimeline")(function* (
+    workspaceRoot: string,
+    timelinePath: string,
+  ) {
+    const timelines = yield* listTimelines(workspaceRoot);
+    if (!timelines.includes(timelinePath)) {
+      return yield* new VideoProjectError({
+        reason: `No timeline ${timelinePath}. This project has: ${timelines.join(", ") || "none"}.`,
+      });
+    }
+    return yield* fileSystem.readFileString(path.join(workspaceRoot, timelinePath)).pipe(
+      Effect.flatMap(decodeJson),
+      Effect.map((value) => value as Timeline),
+      Effect.mapError(
+        (cause) => new VideoProjectError({ reason: `Could not read ${timelinePath}.`, cause }),
+      ),
+    );
+  });
+
+  const readTimeline: VideoProjects["Service"]["readTimeline"] = Effect.fn(
+    "VideoProjects.readTimeline",
+  )(function* (input) {
+    const synced = yield* sync({ workspaceRoot: input.workspaceRoot });
+    const timelines = yield* listTimelines(input.workspaceRoot);
+    const chosen =
+      input.timeline ??
+      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
+      timelines[0] ??
+      null;
+    if (chosen === null) {
+      return {
+        timelines,
+        timeline: null,
+        premiere: synced.state,
+        project: yield* describeProject(input.workspaceRoot, synced),
+        text: "",
+      };
+    }
+    const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
+    // Clips whose frame rate changes partway can't be cut by time until they are conformed.
+    const index = yield* fileSystem
+      .readFileString(path.join(input.workspaceRoot, PROXY_INDEX_PATH))
+      .pipe(
+        Effect.flatMap(decodeJson),
+        Effect.map((value) => value as ProxyIndex),
+        Effect.orElseSucceed(() => null),
+      );
+    const warnings = Object.entries(index?.media ?? {}).flatMap(([target, entry]) =>
+      entry.rateChanges === undefined
+        ? []
+        : [
+            `! ${path.basename(target)} changes frame rate (${entry.rateChanges.map((change) => `${change.fps} fps from ${change.at}s`).join(", ")}). Conform it whole to one rate before cutting it by time.`,
+          ],
+    );
+    return {
+      timelines,
+      timeline: chosen,
+      premiere: synced.state,
+      project: yield* describeProject(input.workspaceRoot, synced),
+      text: [editableView(timeline), ...warnings].join("\n"),
+    };
+  });
+
+  const editTimeline: VideoProjects["Service"]["editTimeline"] = Effect.fn(
+    "VideoProjects.editTimeline",
+  )(function* (input) {
+    yield* requireProject(input.workspaceRoot);
+    const timeline = yield* loadTimeline(input.workspaceRoot, input.timeline);
+    const layout = layoutTimeline(timeline);
+    const clipIds = new Set(layout.tracks.flatMap((track) => track.clips.map((clip) => clip.key)));
+    const trackNames = new Set(layout.tracks.map((track) => track.name));
+    const edits: Array<TimelineEdit> = [];
+    for (const [index, edit] of input.edits.entries()) {
+      const parsed = toTimelineEdit(edit);
+      const problem =
+        typeof parsed === "string"
+          ? parsed
+          : "clipId" in parsed && !clipIds.has(parsed.clipId) && !isSplitPiece(parsed.clipId)
+            ? `no clip #${parsed.clipId}`
+            : parsed.kind === "move" && !trackNames.has(parsed.toTrack)
+              ? `no track ${parsed.toTrack}`
+              : null;
+      if (problem !== null || typeof parsed === "string") {
+        return yield* new VideoProjectError({
+          reason: `Edit ${index + 1} (${edit.kind}): ${problem}. Nothing was changed.`,
+        });
+      }
+      edits.push(parsed);
+    }
+    const edited = applyEdits(timeline, edits);
+    yield* syncing.withPermits(1)(
+      fileSystem
+        .writeFileString(path.join(input.workspaceRoot, input.timeline), serializeTimeline(edited))
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new VideoProjectError({ reason: `Could not write ${input.timeline}.`, cause }),
+          ),
+        ),
+    );
+    const synced = yield* sync({ workspaceRoot: input.workspaceRoot });
+    return {
+      timelines: yield* listTimelines(input.workspaceRoot),
+      timeline: input.timeline,
+      premiere: synced.state,
+      project: yield* describeProject(input.workspaceRoot, synced),
+      text: editableView(edited),
+    };
+  });
+
+  const saveVoiceOver: VideoProjects["Service"]["saveVoiceOver"] = Effect.fn(
+    "VideoProjects.saveVoiceOver",
+  )(function* (input) {
+    yield* requireProject(input.workspaceRoot);
+    if (input.recording.byteLength === 0) {
+      return yield* new VideoProjectError({ reason: "The recording was empty." });
+    }
+    const mediaRoot = path.dirname(input.workspaceRoot);
+    const folder = path.join("Audio", "VO");
+    // Local time, so the name matches the clock the person recorded by.
+    const stamp = yield* DateTime.nowAsDate;
+    const two = (value: number) => String(value).padStart(2, "0");
+    const name = `VO ${stamp.getFullYear()}-${two(stamp.getMonth() + 1)}-${two(stamp.getDate())} ${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}`;
+    const target = path.join(mediaRoot, folder, `${name}.wav`);
+    const raw = path.join(mediaRoot, folder, `${name}.recording`);
+    yield* Effect.gen(function* () {
+      yield* fileSystem.makeDirectory(path.join(mediaRoot, folder), { recursive: true });
+      yield* fileSystem.writeFile(raw, input.recording);
+      yield* spawner.string(
+        ChildProcess.make("ffmpeg", [
+          "-v",
+          "error",
+          "-y",
+          "-i",
+          raw,
+          "-vn",
+          "-ar",
+          "48000",
+          "-c:a",
+          "pcm_s24le",
+          target,
+        ]),
+      );
+    }).pipe(
+      Effect.ensuring(fileSystem.remove(raw).pipe(Effect.ignore)),
+      Effect.mapError(
+        (cause) =>
+          new VideoProjectError({
+            reason: "Could not save the voice-over. Is ffmpeg installed on this machine?",
+            cause,
+          }),
+      ),
+    );
+    return { path: path.join(folder, `${name}.wav`), absolutePath: target };
+  });
+
+  const exportForPremiere: VideoProjects["Service"]["exportForPremiere"] = Effect.fn(
+    "VideoProjects.exportForPremiere",
+  )(function* (input) {
+    yield* requireProject(input.workspaceRoot);
+    const timelines = yield* listTimelines(input.workspaceRoot);
+    const chosen =
+      input.timeline ??
+      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
+      timelines[0];
+    if (chosen === undefined) {
+      return yield* new VideoProjectError({ reason: "This project has no timeline to export." });
+    }
+    const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
+    const index = yield* fileSystem
+      .readFileString(path.join(input.workspaceRoot, PROXY_INDEX_PATH))
+      .pipe(
+        Effect.flatMap(decodeJson),
+        Effect.map((value) => value as ProxyIndex),
+        Effect.orElseSucceed(() => null),
+      );
+    // A new name each time, so an import never replaces a sequence the user has worked on.
+    const stamp = yield* DateTime.nowAsDate;
+    const two = (value: number) => String(value).padStart(2, "0");
+    const sequenceName = `${timeline.name} (Stellar ${two(stamp.getHours())}.${two(stamp.getMinutes())})`;
+    const exported = toFcpXml(timeline, {
+      sequenceName,
+      durations: Object.fromEntries(
+        Object.entries(index?.media ?? {}).map(([target, entry]) => [target, entry.duration]),
+      ),
+    });
+    const folder = path.join(path.dirname(input.workspaceRoot), "Premiere");
+    const file = path.join(folder, `${sequenceName.replace(/[/\\:]+/g, " ")}.xml`);
+    yield* fileSystem.makeDirectory(folder, { recursive: true }).pipe(
+      Effect.andThen(fileSystem.writeFileString(file, exported.xml)),
+      Effect.mapError(
+        (cause) => new VideoProjectError({ reason: `Could not write ${file}.`, cause }),
+      ),
+    );
+    return {
+      path: file,
+      sequenceName,
+      clips: exported.xml.split("<clipitem ").length - 1,
+      skipped: exported.skipped,
+    };
   });
 
   return VideoProjects.of({
+    exportForPremiere,
+    saveVoiceOver,
+    readTimeline,
+    editTimeline,
     inspectPremiere,
     createFromPremiere,
     createFromIdea,

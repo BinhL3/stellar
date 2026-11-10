@@ -6,12 +6,17 @@ import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
 
 export interface PremiereSyncStatus {
-  readonly link: Pick<VideoProjectSyncResult, "state" | "premiereSavedAt"> | null;
+  readonly link: Pick<
+    VideoProjectSyncResult,
+    "state" | "premiereSavedAt" | "premiereRunning"
+  > | null;
   readonly syncing: boolean;
   /** Proxies still being made, or null when none are. */
   readonly building: { readonly done: number; readonly total: number } | null;
   /** Media files the last proxy build couldn't read. */
   readonly failedProxies: number;
+  /** Names of clips whose frame rate changes partway. */
+  readonly rateChanging: ReadonlyArray<string>;
   readonly proxied: boolean;
   /** Absent when this connection can't write to the project. */
   readonly onSync?: () => void;
@@ -98,6 +103,12 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
               ? "Checking Premiere for a newer save."
               : explain(state, props.link?.premiereSavedAt ?? null)}
           </p>
+          {props.link?.premiereRunning === false ? (
+            <p className="text-warning">
+              Premiere isn't open on this machine. An agent can read and edit this timeline, but
+              can't change the Premiere sequence until you open it.
+            </p>
+          ) : null}
           {state === "edited" || state === "conflict" ? (
             <p className="text-muted-foreground">
               Sending edits to Premiere isn't built yet. Taking Premiere's version keeps yours in
@@ -115,6 +126,14 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
               : ""}
             Presets and plugin effects render in Premiere.
           </p>
+          {props.rateChanging.length > 0 ? (
+            <p className="text-warning">
+              {props.rateChanging.join(", ")}{" "}
+              {props.rateChanging.length === 1 ? "changes" : "change"} frame rate partway. Conform{" "}
+              {props.rateChanging.length === 1 ? "it" : "them"} to one rate before cutting by
+              transcript, or cuts land on the wrong frame.
+            </p>
+          ) : null}
           {props.onSync ? (
             <div className="flex flex-wrap gap-1">
               <Button

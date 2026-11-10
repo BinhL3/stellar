@@ -30,7 +30,13 @@ export const APP_VERSION = import.meta.env.APP_VERSION || "0.0.0";
  * they're coding-agent controls that read as noise in a video editor. Threads keep running in
  * the default mode, Full access.
  */
-export const SHOW_PERMISSION_CONTROLS = false;
+const SHOW_PERMISSION_CONTROLS = false;
+/**
+ * A thread that isn't in Full access still shows the control, so there is a way back: without
+ * it, a thread started in a stricter mode asks for approval on every tool with no way out.
+ */
+export const showPermissionControls = (runtimeMode: string) =>
+  SHOW_PERMISSION_CONTROLS || runtimeMode !== "full-access";
 /** Stellar's chat backdrop is its art, so the sidebar's Dev and Nightly header art stays off. */
 export const SHOW_STAGE_ARTWORK = false;
 /** Stellar has no terminal: no drawer, no terminal surfaces, no terminal shortcuts. */

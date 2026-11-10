@@ -300,6 +300,24 @@ Built from the past threads: it targets where time and failures actually went, a
     still the one shown first.
   - Not built: the card in chat (it is a dialog), flagging overlap with a neighbouring
     project, deleting from Downloads after the copy, frame timestamp tables and conforming.
+- **Agent tools: started (milestone 4, first two parts).** The `video_*` MCP tools call the
+  same service the clients do: `video_timeline_read` (syncs with Premiere first, then one line
+  per clip with its id and frames), `video_timeline_edit` (the typed edits in
+  `packages/timeline/src/edits.ts`; one bad edit refuses the call), `video_project_start`,
+  `video_premiere_pull`, `video_footage` and `video_premiere_export`. The read also reports what
+  exists and whether Premiere is open and linked, so an agent doesn't spend its first minute
+  finding out. Export is the first form of push: an FCP 7 XML in the Premiere folder that
+  imports as a new sequence. It carries the cut only (not effects, text or stills), so it
+  suits a rough cut and not a polished sequence, and it has not been imported into a real
+  Premiere yet. The baton, native re-attach and cutting by words are not built. The tool text has not been through
+  `evals/mcp-tool-use` yet.
+- **Frame rates: detected, not conformed.** The proxy build records each clip's nominal rate
+  and, for clips whose average is off it, reads every frame time and records where the rate
+  changes (`rateChanges` in the proxy index). The Premiere badge and `video_timeline_read`
+  warn about those clips. Conforming them is still done outside Stellar.
+- **Voice-over: recording only (milestone 5, first step).** "Record voice-over" in the Timeline
+  tab records this device's microphone and saves a 48 kHz WAV under `Audio/VO`, then drops its
+  path into the chat. Takes aren't tied to script beats or placed on the timeline.
 - **Stage: started.** A video project has a stage (Scripting, Footage in, Rough cut, Polish,
   Posted), kept as `stage` in `project.json` in the project folder, so the person, an agent
   editing the file and every client read the same thing. Unset, it reads Rough cut once a

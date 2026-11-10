@@ -25,11 +25,48 @@ export interface ProxyEntry {
   readonly video?: string;
   /** Absent on entries from builds that didn't check; those are made again. */
   readonly alpha?: boolean;
+  /** The video's nominal frames per second. */
+  readonly fps?: number;
+  /**
+   * Present when the frame rate changes partway, as iPhone footage can (60 down to 30 and
+   * back): each entry is the second a new rate starts at. Seconds times a single rate lands
+   * on the wrong frame in such a clip, so it must be conformed whole before it is cut.
+   */
+  readonly rateChanges?: ReadonlyArray<RateChange>;
   readonly audio?: string;
   readonly strip?: ProxyStrip;
   /** JSON of `{ perSecond, peaks }`, peaks 0–100. */
   readonly peaks?: string;
 }
+
+export interface RateChange {
+  readonly at: number;
+  readonly fps: number;
+}
+
+/**
+ * Where a clip's frame rate changes, from its frame timestamps: frames are counted per second,
+ * and a second more than a quarter away from the current rate starts a new one. A clip at one
+ * rate gives an empty list. The last, partial second is ignored.
+ */
+export const rateChangesFrom = (frameTimes: ReadonlyArray<number>): Array<RateChange> => {
+  const perSecond = new Map<number, number>();
+  for (const time of frameTimes) {
+    const second = Math.floor(time);
+    perSecond.set(second, (perSecond.get(second) ?? 0) + 1);
+  }
+  const seconds = [...perSecond.keys()].toSorted((a, b) => a - b).slice(0, -1);
+  const changes: Array<RateChange> = [];
+  let current: number | null = null;
+  for (const second of seconds) {
+    const fps = perSecond.get(second) ?? 0;
+    if (current === null || Math.abs(fps - current) / current > 0.25) {
+      changes.push({ at: second, fps });
+      current = fps;
+    }
+  }
+  return changes.length > 1 ? changes : [];
+};
 
 export interface ProxyIndex {
   readonly version: 1;

@@ -4,6 +4,7 @@
  *
  *   V4 2058–2281 emoji_dumpling.png src 0–149@29.97 fx:Opacity~,Transform:"Malice Slide In"~ scale=80
  */
+import { layoutTimeline } from "./layout.ts";
 import { type Clip, type EffectRef, type Timeline, TIMELINE_NAMESPACE } from "./otio.ts";
 
 const num = (value: number): string =>
@@ -67,6 +68,33 @@ export const compactView = (timeline: Timeline): string => {
   for (const track of timeline.tracks.children) {
     for (const child of track.children) {
       if (child.OTIO_SCHEMA === "Clip.2") lines.push(compactLine(track.name, child));
+    }
+  }
+  return lines.join("\n");
+};
+
+/**
+ * What an agent edits from: one line per clip with its place in timeline frames and the id that
+ * edits name it by, such as `V2 2058-2166 #a1b2 emoji_dumpling.png`.
+ */
+export const editableView = (timeline: Timeline): string => {
+  const layout = layoutTimeline(timeline);
+  const lines = [
+    `# ${timeline.name} · ${num(layout.durationFrames)} frames @${num(layout.rate)} · track start-end #clipId name`,
+  ];
+  for (const track of layout.tracks) {
+    for (const item of track.clips) {
+      const words = (item.clip.metadata[TIMELINE_NAMESPACE] as { text?: string } | undefined)?.text;
+      lines.push(
+        [
+          track.name,
+          `${num(item.startFrame)}-${num(item.endFrame)}`,
+          `#${item.key}`,
+          item.clip.name,
+          ...(item.clip.enabled === false ? ["(disabled)"] : []),
+          ...(words === undefined ? [] : [JSON.stringify(words)]),
+        ].join(" "),
+      );
     }
   }
   return lines.join("\n");

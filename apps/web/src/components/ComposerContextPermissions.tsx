@@ -1,5 +1,5 @@
 import type { EnvironmentId, RuntimeMode } from "@t3tools/contracts";
-import { SHOW_PERMISSION_CONTROLS } from "~/branding";
+import { showPermissionControls } from "~/branding";
 import { useAtomValue } from "@effect/atom-react";
 
 import { shortcutLabelForCommand } from "../keybindings";
@@ -34,7 +34,7 @@ export function ComposerContextPermissions(props: {
   const options = resolveRuntimeModeOptions(modes, useManagedPolicy(props.environmentId));
   const composerMenuProps = useComposerMenuProps();
   const { icon: Icon, label } = runtimeModeConfig[mode];
-  if (!SHOW_PERMISSION_CONTROLS) return null;
+  if (!showPermissionControls(mode)) return null;
   return (
     <Menu>
       <Tooltip>

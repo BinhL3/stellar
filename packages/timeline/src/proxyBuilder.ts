@@ -21,6 +21,7 @@ import {
   type ProxyEntry,
   type ProxyIndex,
   peaksFromPcm,
+  rateChangesFrom,
   STRIP_TILE_HEIGHT,
   stripSpacing,
 } from "./proxies.ts";
@@ -39,7 +40,18 @@ interface Probe {
   readonly hasAudio: boolean;
   /** The picture has transparency, as generated graphics in ProRes 4444 do. */
   readonly hasAlpha: boolean;
+  /** Nominal frames per second, and the average over the whole clip; 0 when unknown. */
+  readonly fps: number;
+  readonly averageFps: number;
 }
+
+const ratio = (text: string | undefined): number => {
+  const [top, bottom = "1"] = (text ?? "").split("/");
+  const value = Number(top) / Number(bottom);
+  return Number.isFinite(value) ? value : 0;
+};
+// A clip whose average rate is this far off its nominal one has its frame times read in full.
+const VARIABLE_RATE_TOLERANCE = 0.001;
 
 // Pixel formats that carry an alpha plane: yuva444p12le, rgba, argb, gbrap and friends.
 const ALPHA_PIXEL_FORMAT = /^(yuva|ya\d|rgba|bgra|argb|abgr|gbrap)/;
@@ -57,7 +69,7 @@ const probe = Effect.fn("timeline.proxies.probe")(function* (file: string) {
     "-v",
     "error",
     "-show_entries",
-    "stream=codec_type,width,height,pix_fmt:stream_disposition=attached_pic:stream_side_data=rotation:stream_tags=rotate:format=duration",
+    "stream=codec_type,width,height,pix_fmt,r_frame_rate,avg_frame_rate:stream_disposition=attached_pic:stream_side_data=rotation:stream_tags=rotate:format=duration",
     "-of",
     "json",
     file,
@@ -68,6 +80,8 @@ const probe = Effect.fn("timeline.proxies.probe")(function* (file: string) {
       width?: number;
       height?: number;
       pix_fmt?: string;
+      r_frame_rate?: string;
+      avg_frame_rate?: string;
       tags?: { rotate?: string };
       disposition?: { attached_pic?: number };
       side_data_list?: ReadonlyArray<{ rotation?: number }>;
@@ -89,6 +103,8 @@ const probe = Effect.fn("timeline.proxies.probe")(function* (file: string) {
     hasVideo: video !== undefined,
     hasAudio: streams.some((s) => s.codec_type === "audio"),
     hasAlpha: ALPHA_PIXEL_FORMAT.test(video?.pix_fmt ?? ""),
+    fps: ratio(video?.r_frame_rate),
+    averageFps: ratio(video?.avg_frame_rate),
   } satisfies Probe;
 });
 
@@ -99,6 +115,7 @@ const reusable = Effect.fn("timeline.proxies.reusable")(function* (
   projectDir: string,
 ) {
   if (previous === undefined || previous.key !== key || previous.alpha === undefined) return false;
+  if (previous.video !== undefined && previous.fps === undefined) return false;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const outputs = [previous.video, previous.strip?.file, previous.audio, previous.peaks];
@@ -151,6 +168,26 @@ const buildEntry = Effect.fn("timeline.proxies.buildEntry")(function* (input: {
   };
 
   if (info.hasVideo && !STILL_PATH.test(input.source)) {
+    entry.fps = Math.round(info.fps * 1000) / 1000;
+    if (info.fps > 0 && Math.abs(info.averageFps - info.fps) / info.fps > VARIABLE_RATE_TOLERANCE) {
+      // Reads every packet's time without decoding; only clips that look variable pay for it.
+      const times = (yield* run("ffprobe", [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "packet=pts_time",
+        "-of",
+        "csv=p=0",
+        input.source,
+      ]))
+        .split("\n")
+        .map(Number)
+        .filter((time) => Number.isFinite(time) && time >= 0);
+      const changes = rateChangesFrom(times);
+      if (changes.length > 0) entry.rateChanges = changes;
+    }
     // H.264 has no alpha, so a transparent graphic would play on a black box; those get VP9.
     entry.video = out(info.hasAlpha ? ".webm" : ".mp4");
     const { every, count } = stripSpacing(info.duration);

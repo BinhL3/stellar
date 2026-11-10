@@ -11,7 +11,8 @@ import * as NodeOS from "node:os";
 import * as NodeZlib from "node:zlib";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { copyFootage, listFootage } from "@t3tools/timeline/footage";
+import { copyFootage, footageStringout, listFootage } from "@t3tools/timeline/footage";
+import { serializeTimeline } from "@t3tools/timeline/otio";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as VideoProjects from "./VideoProjects.ts";
@@ -263,6 +264,83 @@ it.live("copies footage in, replacing a cut-short copy and leaving the originals
     ]);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
+
+it.live("reads a timeline for an agent and applies its edits, refusing a bad one whole", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-edit-" });
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot } = yield* videoProjects.createFromIdea({
+      title: "Jollibee",
+      parentFolder: root,
+    });
+    const timeline = "timelines/Footage.otio";
+    const file = path.join(workspaceRoot, timeline);
+    yield* fs.writeFileString(
+      file,
+      serializeTimeline(
+        footageStringout(
+          [
+            { target: "Footage/a.MOV", duration: 2, width: 1080, height: 1920 },
+            { target: "Footage/b.MOV", duration: 1, width: 1080, height: 1920 },
+          ],
+          path.dirname(workspaceRoot),
+        ),
+      ),
+    );
+
+    const read = yield* videoProjects.readTimeline({ workspaceRoot });
+    assert.deepStrictEqual(read.timelines, [timeline]);
+    assert.strictEqual(read.premiere, "unlinked");
+    const facts = read.project.split("\n");
+    assert.strictEqual(facts[0], `Project folder: ${path.dirname(workspaceRoot)}`);
+    assert.include(facts[1], "no Premiere project is linked");
+    assert.include(facts[2], "Footage: 0 videos in Footage/.");
+    assert.deepStrictEqual(read.text.split("\n").slice(1), [
+      "V1 0-120 #0:0 a.MOV",
+      "V1 120-180 #0:1 b.MOV",
+      "A1 0-120 #1:0 a.MOV",
+      "A1 120-180 #1:1 b.MOV",
+    ]);
+
+    const before = yield* fs.readFileString(file);
+    const refused = yield* videoProjects
+      .editTimeline({
+        workspaceRoot,
+        timeline,
+        edits: [
+          { kind: "split", frame: 60 },
+          { kind: "trim", clipId: "0:9", edge: "end", frame: 30 },
+        ],
+      })
+      .pipe(Effect.flip);
+    assert.strictEqual(refused.message, "Edit 2 (trim): no clip #0:9. Nothing was changed.");
+    assert.strictEqual(yield* fs.readFileString(file), before);
+
+    const edited = yield* videoProjects.editTimeline({
+      workspaceRoot,
+      timeline,
+      edits: [{ kind: "removeRange", start: 0, end: 120, ripple: true }],
+    });
+    assert.deepStrictEqual(
+      edited.text
+        .split("\n")
+        .slice(1)
+        .map((line) => line.replace(/#\S+/, "#id")),
+      ["V1 0-60 #id b.MOV", "A1 0-60 #id b.MOV"],
+    );
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
 
 // The service reads the home folder when it is built, so the test's home has a fixed path.
 const intakeHome = `${NodeOS.tmpdir()}/stellar-intake-home-${process.pid}`;

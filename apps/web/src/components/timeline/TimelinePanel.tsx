@@ -41,6 +41,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useProjectFileQuery } from "../files/projectFilesQueryState";
 import { ImportFootageButton } from "../videoProject/ImportFootageButton";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
+import { RecordVoiceOverButton } from "../videoProject/RecordVoiceOverButton";
 import { VideoStageSelect } from "../videoProject/VideoStageSelect";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
 import type { PreviewMedia, PreviewMediaSource } from "./TimelinePreview";
@@ -399,7 +400,9 @@ export default function TimelinePanel(props: {
           </Select>
         ) : null}
         {intakeNote}
-        {canWriteFiles ? <span className="ml-auto">{importFootage("sm")}</span> : null}
+        {canWriteFiles ? (
+          <span className="ml-auto flex items-center gap-2">{importFootage("sm")}</span>
+        ) : null}
       </div>
       {file.data ? (
         <Suspense fallback={null}>
@@ -417,6 +420,11 @@ export default function TimelinePanel(props: {
                 syncing={syncing}
                 building={building}
                 failedProxies={proxyIndex?.failed ?? 0}
+                rateChanging={Object.entries(proxyIndex?.media ?? {}).flatMap(([target, entry]) =>
+                  entry.rateChanges === undefined
+                    ? []
+                    : [target.slice(target.lastIndexOf("/") + 1)],
+                )}
                 proxied={media.proxied}
                 {...(canWriteFiles
                   ? {
@@ -434,6 +442,24 @@ export default function TimelinePanel(props: {
           <Spinner size="lg" />
         </div>
       )}
+      {canWriteFiles ? (
+        // Under the tracks, where narration is recorded against the picture.
+        <div className="flex shrink-0 items-center gap-2 border-t border-border/60 px-3 py-2">
+          <RecordVoiceOverButton
+            environmentId={props.environmentId}
+            workspaceRoot={props.workspaceRoot}
+            onSaved={(path) => {
+              // Hand the take to the chat, so asking the agent to place it is one sentence.
+              composerRef?.current?.insertTextAtEnd(`Voice-over take: ${path} `, {
+                ensureLeadingBoundary: true,
+              });
+            }}
+          />
+          <span className="text-xs text-muted-foreground">
+            Press play, then record, to narrate to picture. Takes are saved in Audio/VO.
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }

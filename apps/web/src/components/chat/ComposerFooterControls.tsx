@@ -4,7 +4,7 @@ import type {
   ProviderInteractionMode,
   RuntimeMode,
 } from "@t3tools/contracts";
-import { SHOW_PERMISSION_CONTROLS } from "~/branding";
+import { showPermissionControls } from "~/branding";
 import { createModelSelection } from "@t3tools/shared/model";
 import { BotIcon, PencilRulerIcon } from "lucide-react";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
@@ -151,7 +151,9 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
 
   return (
     <>
-      {accessDisplay === "hidden" || !SHOW_PERMISSION_CONTROLS ? null : permissionsChip}
+      {accessDisplay === "hidden" || !showPermissionControls(props.runtimeMode)
+        ? null
+        : permissionsChip}
       {interactionModeToggle}
     </>
   );

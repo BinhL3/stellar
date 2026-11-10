@@ -1,5 +1,5 @@
 import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
-import { SHOW_PERMISSION_CONTROLS } from "~/branding";
+import { showPermissionControls } from "~/branding";
 import { memo, useRef } from "react";
 import { EllipsisIcon } from "lucide-react";
 import {
@@ -65,10 +65,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
               <MenuRadioItem value="default">Chat</MenuRadioItem>
               <MenuRadioItem value="plan">Plan</MenuRadioItem>
             </MenuRadioGroup>
-            {props.showPermissions !== false && SHOW_PERMISSION_CONTROLS ? <MenuDivider /> : null}
+            {props.showPermissions !== false && showPermissionControls(props.runtimeMode) ? (
+              <MenuDivider />
+            ) : null}
           </>
         ) : null}
-        {props.showPermissions === false || !SHOW_PERMISSION_CONTROLS ? null : (
+        {props.showPermissions === false || !showPermissionControls(props.runtimeMode) ? null : (
           <ComposerPermissionsSection
             runtimeMode={props.runtimeMode}
             runtimeModeOptions={props.runtimeModeOptions}
