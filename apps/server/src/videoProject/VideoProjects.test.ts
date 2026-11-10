@@ -291,8 +291,10 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
         ),
       ),
     );
+    // Some projects keep transcripts in Audio/, others in Audio/transcripts/; both are found.
+    yield* fs.makeDirectory(path.join(mediaRoot, "Audio", "transcripts"), { recursive: true });
     yield* fs.writeFileString(
-      path.join(mediaRoot, "Audio", "a.words.json"),
+      path.join(mediaRoot, "Audio", "transcripts", "a.words.json"),
       JSON.stringify([
         { w: "Hãy", start: 0.5, end: 0.6, aligned: true },
         { w: "subscribe", start: 0.6, end: 1, aligned: true },

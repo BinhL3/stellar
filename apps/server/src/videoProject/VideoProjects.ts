@@ -76,7 +76,7 @@ const decodeTranscript = Schema.decodeUnknownEffect(
     Schema.Array(Schema.Struct({ w: Schema.String, start: Schema.Number, end: Schema.Number })),
   ),
 );
-/** Where the user's pipeline writes `<clip>.words.json`, inside the media root. */
+/** The folder a project's pipeline writes `<clip>.words.json` into, directly or under `transcripts/`. */
 const TRANSCRIPT_FOLDER = "Audio";
 
 type FrameRange = { readonly start: number; readonly end: number };
@@ -667,7 +667,10 @@ const make = Effect.gen(function* () {
         Effect.map((value) => (value as { project?: string }).project ?? null),
         Effect.orElseSucceed(() => null),
       );
-    const transcripts = (yield* names("Audio")).filter((name) => name.endsWith(".words.json"));
+    const transcripts = [
+      ...(yield* names("Audio")),
+      ...(yield* names(path.join("Audio", "transcripts"))),
+    ].filter((name) => name.endsWith(".words.json"));
     const takes = (yield* names(path.join("Audio", "VO"))).filter((name) => name.endsWith(".wav"));
     const hasScript = yield* fileSystem
       .exists(path.join(workspaceRoot, "script.md"))
@@ -746,11 +749,34 @@ const make = Effect.gen(function* () {
           track.clips.map((item) => item.clip.media_references.DEFAULT_MEDIA.target_url),
         ),
     );
+    const mediaRoot = path.dirname(workspaceRoot);
     const transcripts = new Map<string, ReadonlyArray<TranscriptWord>>();
     for (const target of targets) {
+      if (target === "") continue;
       const name = `${path.basename(target, path.extname(target))}.words.json`;
-      const file = path.join(path.dirname(workspaceRoot), TRANSCRIPT_FOLDER, name);
-      if (!(yield* fileSystem.exists(file).pipe(Effect.orElseSucceed(() => false)))) continue;
+      const media = path.isAbsolute(target) ? target : path.join(mediaRoot, target);
+      // Pipelines differ on where transcripts go (Audio/ in one project, Audio/transcripts/ in
+      // another), and a timeline's media can live in another project's folder. Look in the Audio
+      // folder of this project and of each folder above the media file, nearest first.
+      const folders = [mediaRoot];
+      for (let folder = path.dirname(media), up = 0; up < 5; folder = path.dirname(folder), up++) {
+        if (!folders.includes(folder)) folders.push(folder);
+      }
+      let file: string | null = null;
+      for (const folder of folders) {
+        for (const candidate of [
+          path.join(folder, TRANSCRIPT_FOLDER, name),
+          path.join(folder, TRANSCRIPT_FOLDER, "transcripts", name),
+        ]) {
+          if (
+            file === null &&
+            (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false)))
+          ) {
+            file = candidate;
+          }
+        }
+      }
+      if (file === null) continue;
       transcripts.set(
         target,
         yield* fileSystem.readFileString(file).pipe(
@@ -758,7 +784,7 @@ const make = Effect.gen(function* () {
           Effect.mapError(
             (cause) =>
               new VideoProjectError({
-                reason: `Could not read the transcript ${TRANSCRIPT_FOLDER}/${name}.`,
+                reason: `Could not read the transcript ${file}.`,
                 cause,
               }),
           ),
