@@ -2,9 +2,16 @@ import type { LaidOutClip, TimelineLayout } from "@t3tools/timeline/layout";
 
 import { observeResize } from "~/lib/observeResize";
 
-import { ClipDecoder, loadProxy, webCodecsAvailable } from "./clipDecoder";
+import { ClipDecoder, loadProxy, prefetchProxies, webCodecsAvailable } from "./clipDecoder";
 
-import { clipTimes, graphicText, graphicTextPosition, poseAt, transformOf } from "./clipTransform";
+import {
+  type ClipPose,
+  clipTimes,
+  graphicText,
+  graphicTextPosition,
+  poseAt,
+  transformOf,
+} from "./clipTransform";
 
 /** What the engine plays for one media file; URLs are null when unavailable. */
 export interface PreviewSource {
@@ -33,7 +40,6 @@ const STILL_MAX_EDGE = 1600;
 // Scrubbing waits this long for every layer's exact frame, then draws what it has; layers that
 // are still decoding show their last picture, so a fast scrub keeps moving instead of freezing.
 const MAX_HOLD_MS = 50;
-const PREFETCH_PROXIES = 80;
 
 interface StillImage {
   bitmap: ImageBitmap | null;
@@ -50,12 +56,14 @@ const MAX_AUDIO_SPEED = 2;
 
 interface AudioSlot {
   readonly element: HTMLAudioElement;
+  readonly url: string;
   /** The clip's gain stage in the mix; null until the first play creates the audio graph. */
   gain: GainNode | null;
 }
 
 interface VideoSlot {
   readonly element: HTMLVideoElement;
+  readonly url: string;
   /** Source seconds the slot last seeked to while paused, so it doesn't re-seek each tick. */
   wanted: number;
   /** The file failed to load; it draws as offline instead of holding the picture forever. */
@@ -142,6 +150,12 @@ export class PreviewEngine {
   /** Proxied clips decode through WebCodecs: null while their proxy loads. */
   private readonly decoders = new Map<string, ClipDecoder | null>();
   private readonly stopObserving: () => void;
+  /** What the canvas last drew; an identical frame is not drawn again. */
+  private drawn = "";
+  // A hidden page gets no animation frames, so nothing would stop audio at its cut or loop.
+  private readonly pauseWhenHidden = () => {
+    if (document.hidden && this.speed !== 0) this.setSpeed(0);
+  };
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -156,19 +170,29 @@ export class PreviewEngine {
       const ratio = window.devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.round(canvas.clientWidth * ratio));
       canvas.height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+      // Sizing a canvas clears it.
+      this.drawn = "";
       this.invalidate();
     });
+    document.addEventListener("visibilitychange", this.pauseWhenHidden);
   }
 
   setScene(scene: PreviewScene) {
     this.scene = scene;
-    // Fetch proxies in the background so a jump anywhere decodes without waiting on the drive.
-    // Capped so a long project doesn't pull gigabytes into memory up front.
-    const proxied = [...scene.sources.values()].filter(
-      (source) => source.videoProxy === true && source.video,
-    );
-    for (const source of proxied.slice(0, PREFETCH_PROXIES)) {
-      if (source.video && webCodecsAvailable()) void loadProxy(source.video);
+    // Fetch proxies in the background, nearest the playhead first, so a jump anywhere decodes
+    // without waiting on the drive.
+    if (webCodecsAvailable()) {
+      const distance = new Map<string, number>();
+      for (const track of scene.layout.tracks) {
+        if (track.kind !== "Video") continue;
+        for (const item of track.clips) {
+          const source = this.source(scene, item);
+          if (source?.videoProxy !== true || !source.video) continue;
+          const away = Math.abs(item.startFrame - this.frameNumber);
+          if (away < (distance.get(source.video) ?? Infinity)) distance.set(source.video, away);
+        }
+      }
+      prefetchProxies([...distance].toSorted((a, b) => a[1] - b[1]).map(([url]) => url));
     }
     this.invalidate();
   }
@@ -235,6 +259,7 @@ export class PreviewEngine {
   destroy() {
     cancelAnimationFrame(this.handle);
     this.stopObserving();
+    document.removeEventListener("visibilitychange", this.pauseWhenHidden);
     for (const slot of this.videos.values()) releaseMedia(slot.element);
     for (const slot of this.audios.values()) {
       slot.gain?.disconnect();
@@ -368,10 +393,20 @@ export class PreviewEngine {
       if (!url) continue;
       liveVideos.add(item.key);
       if (this.source(scene, item)?.videoProxy === true && webCodecsAvailable()) {
+        // The clip's proxy finished building while its original was playing.
+        const original = this.videos.get(item.key);
+        if (original !== undefined) {
+          releaseMedia(original.element);
+          this.videos.delete(item.key);
+        }
         if (!this.syncDecoder(item, url, rate, active, nativePlayback)) settled = false;
         continue;
       }
       let slot = this.videos.get(item.key);
+      if (slot !== undefined && slot.url !== url) {
+        releaseMedia(slot.element);
+        slot = undefined;
+      }
       if (slot === undefined) {
         const element = document.createElement("video");
         element.muted = true;
@@ -380,7 +415,7 @@ export class PreviewEngine {
         element.src = url;
         element.addEventListener("seeked", () => this.invalidate());
         element.addEventListener("loadeddata", () => this.invalidate());
-        const created: VideoSlot = { element, wanted: Number.NaN, failed: false };
+        const created: VideoSlot = { element, url, wanted: Number.NaN, failed: false };
         element.addEventListener("error", () => {
           created.failed = true;
           this.invalidate();
@@ -456,13 +491,18 @@ export class PreviewEngine {
       if (!url) continue;
       liveAudio.add(item.key);
       let slot = this.audios.get(item.key);
+      if (slot !== undefined && slot.url !== url) {
+        slot.gain?.disconnect();
+        releaseMedia(slot.element);
+        slot = undefined;
+      }
       if (slot === undefined) {
         const created = new Audio();
         // Routing a cross-origin element into Web Audio needs CORS, or it plays silence.
         created.crossOrigin = "anonymous";
         created.preload = "auto";
         created.src = url;
-        slot = { element: created, gain: null };
+        slot = { element: created, url, gain: null };
         this.audios.set(item.key, slot);
       }
       const element = slot.element;
@@ -592,6 +632,83 @@ export class PreviewEngine {
     const height = scene.frame.height * pixels;
     const left = (this.canvas.width - width) / 2;
     const top = (this.canvas.height - height) / 2;
+
+    // Work out every layer first. On a display faster than the footage (120 Hz showing 60 fps)
+    // most animation frames have nothing new, and those skip the canvas entirely.
+    type Layer = { readonly item: LaidOutClip; readonly pose: ClipPose } & (
+      | { readonly kind: "text"; readonly words: string }
+      | { readonly kind: "offline" }
+      | {
+          readonly kind: "picture";
+          readonly drawable: CanvasImageSource;
+          readonly width: number;
+          readonly height: number;
+        }
+    );
+    const layers: Array<Layer> = [];
+    let signature = `${this.canvas.width}x${this.canvas.height}/${scene.frame.width}x${scene.frame.height}`;
+    for (const { item, active } of this.clipsNear(scene, "Video")) {
+      if (!active) continue;
+      const { offset, source: sourceTime } = clipTimes(item, scene.layout.rate, this.frameNumber);
+      const pose = poseAt(transformOf(item), offset);
+      const source = this.source(scene, item);
+      const posed = `|${item.key}@${pose.x},${pose.y},${pose.scale},${pose.rotation},${pose.opacity}`;
+      if (source === undefined) {
+        const words = graphicText(item);
+        if (words === "") continue;
+        layers.push({ item, pose, kind: "text", words });
+        signature += `${posed}t${words}`;
+        continue;
+      }
+      let drawable: CanvasImageSource | null = null;
+      let naturalWidth = source.width ?? 0;
+      let naturalHeight = source.height ?? 0;
+      let stamp = "";
+      if (source.still) {
+        const still = this.image(source.still);
+        drawable = still?.bitmap ?? null;
+        naturalWidth ||= still?.width ?? 0;
+        naturalHeight ||= still?.height ?? 0;
+        stamp = "s";
+      } else {
+        const decoder = this.decoders.get(item.key);
+        const slot = this.videos.get(item.key);
+        const frame = decoder?.frameAt(sourceTime) ?? null;
+        if (frame !== null) {
+          drawable = frame;
+          naturalWidth ||= frame.displayWidth;
+          naturalHeight ||= frame.displayHeight;
+          stamp = `f${frame.timestamp}`;
+        } else if (slot && slot.element.readyState >= 2) {
+          drawable = slot.element;
+          naturalWidth ||= slot.element.videoWidth;
+          naturalHeight ||= slot.element.videoHeight;
+          stamp = `e${slot.element.currentTime}`;
+        }
+      }
+      if (drawable === null || naturalWidth === 0) {
+        const failed =
+          this.videos.get(item.key)?.failed === true ||
+          this.decoders.get(item.key)?.broken === true;
+        if (failed || (!source.video && !source.still)) {
+          layers.push({ item, pose, kind: "offline" });
+          signature += `${posed}o`;
+        }
+        continue;
+      }
+      layers.push({
+        item,
+        pose,
+        kind: "picture",
+        drawable,
+        width: naturalWidth,
+        height: naturalHeight,
+      });
+      signature += `${posed}${stamp}`;
+    }
+    if (signature === this.drawn) return;
+    this.drawn = signature;
+
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.globalAlpha = 1;
     context.fillStyle = "#000";
@@ -600,64 +717,26 @@ export class PreviewEngine {
     context.beginPath();
     context.rect(left, top, width, height);
     context.clip();
-
-    for (const { item, active } of this.clipsNear(scene, "Video")) {
-      if (!active) continue;
-      const { offset } = clipTimes(item, scene.layout.rate, this.frameNumber);
-      const pose = poseAt(transformOf(item), offset);
-      const source = this.source(scene, item);
+    for (const layer of layers) {
+      const { pose } = layer;
       context.setTransform(1, 0, 0, 1, 0, 0);
       context.globalAlpha = Math.min(1, Math.max(0, pose.opacity));
       context.translate(left + pose.x * width, top + pose.y * height);
       context.rotate((pose.rotation * Math.PI) / 180);
-
-      if (source === undefined) {
-        const words = graphicText(item);
-        if (words !== "") {
-          this.drawText(context, words, {
-            scale: pose.scale,
-            width,
-            height,
-            anchor: graphicTextPosition(item),
-          });
-        }
-        continue;
-      }
-      let drawable: CanvasImageSource | null = null;
-      let naturalWidth = source.width ?? 0;
-      let naturalHeight = source.height ?? 0;
-      if (source.still) {
-        const still = this.image(source.still);
-        drawable = still?.bitmap ?? null;
-        naturalWidth ||= still?.width ?? 0;
-        naturalHeight ||= still?.height ?? 0;
+      if (layer.kind === "text") {
+        this.drawText(context, layer.words, {
+          scale: pose.scale,
+          width,
+          height,
+          anchor: graphicTextPosition(layer.item),
+        });
+      } else if (layer.kind === "offline") {
+        this.drawOffline(context, layer.item.clip.name, height);
       } else {
-        const decoder = this.decoders.get(item.key);
-        const slot = this.videos.get(item.key);
-        const { source: sourceTime } = clipTimes(item, scene.layout.rate, this.frameNumber);
-        const frame = decoder?.frameAt(sourceTime) ?? null;
-        if (frame !== null) {
-          drawable = frame;
-          naturalWidth ||= frame.displayWidth;
-          naturalHeight ||= frame.displayHeight;
-        } else if (slot && slot.element.readyState >= 2) {
-          drawable = slot.element;
-          naturalWidth ||= slot.element.videoWidth;
-          naturalHeight ||= slot.element.videoHeight;
-        }
+        const w = layer.width * pose.scale * pixels;
+        const h = layer.height * pose.scale * pixels;
+        context.drawImage(layer.drawable, -w / 2, -h / 2, w, h);
       }
-      if (drawable === null || naturalWidth === 0) {
-        const failed =
-          this.videos.get(item.key)?.failed === true ||
-          this.decoders.get(item.key)?.broken === true;
-        if (failed || (!source.video && !source.still)) {
-          this.drawOffline(context, item.clip.name, height);
-        }
-        continue;
-      }
-      const w = naturalWidth * pose.scale * pixels;
-      const h = naturalHeight * pose.scale * pixels;
-      context.drawImage(drawable, -w / 2, -h / 2, w, h);
     }
     context.restore();
     context.setTransform(1, 0, 0, 1, 0, 0);

@@ -21,7 +21,10 @@ export interface ProxyEntry {
   readonly width: number;
   readonly height: number;
   readonly duration: number;
+  /** H.264 in MP4, or VP9 with an alpha channel in WebM when the source has transparency. */
   readonly video?: string;
+  /** Absent on entries from builds that didn't check; those are made again. */
+  readonly alpha?: boolean;
   readonly audio?: string;
   readonly strip?: ProxyStrip;
   /** JSON of `{ perSecond, peaks }`, peaks 0–100. */
@@ -31,6 +34,10 @@ export interface ProxyEntry {
 export interface ProxyIndex {
   readonly version: 1;
   readonly media: Readonly<Record<string, ProxyEntry>>;
+  /** Present while a build is running; the index is rewritten as each file finishes. */
+  readonly building?: { readonly done: number; readonly total: number };
+  /** Media files the last build could not make proxies for. */
+  readonly failed?: number;
 }
 
 export interface ProxyPeaks {

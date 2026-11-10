@@ -11,22 +11,79 @@ interface LoadedProxy {
   readonly index: Mp4VideoIndex;
 }
 
-// Proxies are a few MB each; a session keeps every one it has opened.
-const proxies = new Map<string, Promise<LoadedProxy | null>>();
+// Proxies are a few MB each. The most recently used stay in memory up to this many bytes (about
+// 40 minutes of footage), so an hour-long project doesn't hold every proxy at once.
+const PROXY_CACHE_BYTES = 768 * 1024 * 1024;
+// Background fetches run a few at a time: dozens at once starve the clip under the playhead,
+// which loads straight away, on a slow drive or a remote connection.
+const PREFETCH_PARALLEL = 3;
+
+interface CachedProxy {
+  pending: Promise<LoadedProxy | null>;
+  bytes: number;
+}
+// In least-recently-used order.
+const proxies = new Map<string, CachedProxy>();
+let cachedBytes = 0;
+let prefetchQueue: Array<string> = [];
+let prefetching = 0;
 
 export const loadProxy = (url: string): Promise<LoadedProxy | null> => {
-  let pending = proxies.get(url);
-  if (pending === undefined) {
-    pending = fetch(url)
-      .then((response) => (response.ok ? response.arrayBuffer() : null))
-      .then((buffer) => {
-        const index = buffer === null ? null : indexMp4Video(buffer);
-        return buffer !== null && index !== null ? { buffer, index } : null;
-      })
-      .catch(() => null);
-    proxies.set(url, pending);
+  const cached = proxies.get(url);
+  if (cached !== undefined) {
+    proxies.delete(url);
+    proxies.set(url, cached);
+    return cached.pending;
   }
-  return pending;
+  const entry: CachedProxy = { pending: Promise.resolve(null), bytes: 0 };
+  entry.pending = fetch(url)
+    .then((response) => (response.ok ? response.arrayBuffer() : null))
+    .then((buffer) => {
+      const index = buffer === null ? null : indexMp4Video(buffer);
+      return buffer !== null && index !== null ? { buffer, index } : null;
+    })
+    .catch(() => null)
+    .then((loaded) => {
+      if (proxies.get(url) !== entry) return loaded;
+      if (loaded === null) {
+        // Not cached, so a proxy that wasn't ready yet loads the next time it's needed.
+        proxies.delete(url);
+        return null;
+      }
+      entry.bytes = loaded.buffer.byteLength;
+      cachedBytes += entry.bytes;
+      for (const [oldUrl, old] of proxies) {
+        if (cachedBytes <= PROXY_CACHE_BYTES) break;
+        if (old === entry || old.bytes === 0) continue;
+        // Decoders using this proxy keep their own reference; it is refetched if needed again.
+        proxies.delete(oldUrl);
+        cachedBytes -= old.bytes;
+      }
+      return loaded;
+    });
+  proxies.set(url, entry);
+  return entry.pending;
+};
+
+const pumpPrefetch = () => {
+  while (prefetching < PREFETCH_PARALLEL) {
+    // Half the budget stays free for what the playhead reaches on its own.
+    if (cachedBytes >= PROXY_CACHE_BYTES / 2) return;
+    const url = prefetchQueue.shift();
+    if (url === undefined) return;
+    if (proxies.has(url)) continue;
+    prefetching += 1;
+    void loadProxy(url).finally(() => {
+      prefetching -= 1;
+      pumpPrefetch();
+    });
+  }
+};
+
+/** Fetches proxies in the background, in the order given; a new call replaces what's waiting. */
+export const prefetchProxies = (urls: ReadonlyArray<string>) => {
+  prefetchQueue = urls.filter((url) => !proxies.has(url));
+  pumpPrefetch();
 };
 
 export const webCodecsAvailable = () => typeof VideoDecoder !== "undefined";

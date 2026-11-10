@@ -245,21 +245,26 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-/* Timeline clip label colours, after the editors users know (Premiere's defaults): footage and
-   its own audio in blue, text and graphics in magenta, images in violet, audio files in green.
-   The same in light and dark themes, as an editor's labels are. */
 @theme {
   /* Premiere's own colours, for the badge that marks what only Premiere renders. */
   --color-premiere: #9999ff;
   --color-premiere-bg: #00005b;
-  --color-clip-footage: #2c6390;
-  --color-clip-footage-accent: #84c8f7;
-  --color-clip-graphic: #8a2f9a;
-  --color-clip-graphic-accent: #e07ef0;
-  --color-clip-still: #5c3fa6;
-  --color-clip-still-accent: #b69af5;
-  --color-clip-audio: #4a7a2a;
-  --color-clip-audio-accent: #bce686;
+}
+
+/* Timeline clip labels keep editors' convention (footage blue, images indigo, graphics warm,
+   audio green) but take their hues from the theme, so they follow each palette. They stay
+   dark in every theme: clip names are white on them. */
+@theme inline {
+  /* The light theme's sky behind the planet backdrop: the app background with a little blue. */
+  --color-hero-paper: color-mix(in oklab, var(--info) 9%, var(--background));
+  --color-clip-footage: color-mix(in oklab, var(--info) 38%, oklch(0.27 0.02 260));
+  --color-clip-footage-accent: color-mix(in oklab, var(--info) 55%, white);
+  --color-clip-graphic: color-mix(in oklab, var(--warning) 30%, oklch(0.27 0.02 260));
+  --color-clip-graphic-accent: color-mix(in oklab, var(--warning) 55%, white);
+  --color-clip-still: color-mix(in oklab, var(--primary) 38%, oklch(0.27 0.02 260));
+  --color-clip-still-accent: color-mix(in oklab, var(--primary) 55%, white);
+  --color-clip-audio: color-mix(in oklab, var(--success) 30%, oklch(0.27 0.02 260));
+  --color-clip-audio-accent: color-mix(in oklab, var(--success) 55%, white);
 }
 
 @theme inline {

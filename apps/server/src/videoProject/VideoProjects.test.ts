@@ -13,11 +13,13 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as VideoProjects from "./VideoProjects.ts";
 
 // The smallest project Premiere's reader accepts: one sequence with an empty video track group.
-const prproj = NodeZlib.gzipSync(`<?xml version="1.0" encoding="UTF-8" ?>
+const prprojWithFrame = (frame: string) =>
+  NodeZlib.gzipSync(`<?xml version="1.0" encoding="UTF-8" ?>
 <PremiereData Version="3">
-<VideoTrackGroup ObjectID="1"><TrackGroup><FrameRate>4237833600</FrameRate></TrackGroup><FrameRect>0,0,1080,1920</FrameRect></VideoTrackGroup>
+<VideoTrackGroup ObjectID="1"><TrackGroup><FrameRate>4237833600</FrameRate></TrackGroup><FrameRect>0,0,${frame}</FrameRect></VideoTrackGroup>
 <Sequence ObjectUID="seq-1"><TrackGroups><TrackGroup Index="0"><First>v</First><Second ObjectRef="1"/></TrackGroup></TrackGroups><Name>Polish v1</Name></Sequence>
 </PremiereData>`);
+const prproj = prprojWithFrame("1080,1920");
 
 const withProjects = (created: Array<string>) =>
   Layer.mock(ProjectService.ProjectService)({
@@ -96,6 +98,124 @@ it.live("pulls the sequence into the project folder and reuses the project next 
     ),
   );
 });
+
+it.live("syncs Premiere's saves without overwriting edits made here", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const { fs, path, root, premiereProjectPath } = yield* setup;
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot, timelinePath } = yield* videoProjects.createFromPremiere({
+      premiereProjectPath,
+      sequenceId: "seq-1",
+    });
+    const timelineFile = path.join(workspaceRoot, timelinePath);
+    const frameWidth = Effect.map(
+      fs.readFileString(timelineFile),
+      (text) => JSON.parse(text).metadata.stellar.frame.width as number,
+    );
+    const sync = (usePremiere?: boolean) =>
+      Effect.map(
+        videoProjects.sync({ workspaceRoot, ...(usePremiere ? { usePremiere } : {}) }),
+        ({ state, updated, kept }) => ({ state, updated, kept }),
+      );
+
+    assert.deepStrictEqual(yield* sync(), { state: "current", updated: [], kept: [] });
+
+    // Each save has a different byte length, so the change shows even within one clock tick.
+    yield* fs.writeFile(premiereProjectPath, prprojWithFrame("540,960"));
+    assert.deepStrictEqual(yield* sync(), { state: "updated", updated: [timelinePath], kept: [] });
+    assert.strictEqual(yield* frameWidth, 540);
+    assert.deepStrictEqual(yield* sync(), { state: "current", updated: [], kept: [] });
+
+    const edited = `${yield* fs.readFileString(timelineFile)}\n`;
+    yield* fs.writeFileString(timelineFile, edited);
+    assert.deepStrictEqual(yield* sync(), { state: "edited", updated: [], kept: [timelinePath] });
+
+    yield* fs.writeFile(premiereProjectPath, prprojWithFrame("3840,2160,0"));
+    assert.deepStrictEqual(yield* sync(), { state: "conflict", updated: [], kept: [timelinePath] });
+    assert.strictEqual(yield* fs.readFileString(timelineFile), edited);
+    // The conflict is remembered, so an unchanged save still reports it.
+    assert.deepStrictEqual(yield* sync(), { state: "conflict", updated: [], kept: [timelinePath] });
+
+    assert.deepStrictEqual(yield* sync(true), {
+      state: "updated",
+      updated: [timelinePath],
+      kept: [],
+    });
+    assert.strictEqual(yield* frameWidth, 3840);
+    assert.strictEqual(
+      yield* fs.readFileString(
+        path.join(workspaceRoot, "timelines", "replaced", path.basename(timelinePath)),
+      ),
+      edited,
+    );
+
+    yield* fs.remove(premiereProjectPath);
+    assert.strictEqual((yield* sync()).state, "offline");
+
+    const elsewhere = yield* videoProjects.sync({ workspaceRoot: root }).pipe(Effect.flip);
+    assert.strictEqual(elsewhere.message, "That folder isn't a project here.");
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      ),
+    ),
+  );
+});
+
+it.live(
+  "starts a project from an idea, and a Premiere project saved into it joins the same one",
+  () => {
+    const created: Array<string> = [];
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-idea-" });
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const project = yield* videoProjects.createFromIdea({
+        title: "Jollibee: lần đầu",
+        parentFolder: root,
+      });
+      const folder = path.join(root, "Jollibee lần đầu");
+      assert.strictEqual(project.workspaceRoot, path.join(folder, "Stellar"));
+      assert.isFalse(project.existed);
+      for (const name of ["Footage", "Audio", "B-roll", "Graphics", "Premiere", "Exports"]) {
+        assert.isTrue(yield* fs.exists(path.join(folder, name)));
+      }
+      assert.isTrue(yield* fs.exists(path.join(folder, "Stellar", "timelines")));
+      assert.strictEqual(
+        (yield* videoProjects.sync({ workspaceRoot: project.workspaceRoot })).state,
+        "unlinked",
+      );
+
+      const premiereProjectPath = path.join(folder, "Premiere", "Jollibee.prproj");
+      yield* fs.writeFile(premiereProjectPath, prproj);
+      const pulled = yield* videoProjects.createFromPremiere({
+        premiereProjectPath,
+        sequenceId: "seq-1",
+      });
+      assert.strictEqual(pulled.workspaceRoot, project.workspaceRoot);
+      assert.isTrue(pulled.existed);
+      assert.deepStrictEqual(created, [project.workspaceRoot]);
+
+      const missing = yield* videoProjects
+        .createFromIdea({ title: "Nowhere", parentFolder: path.join(root, "missing") })
+        .pipe(Effect.flip);
+      assert.strictEqual(missing.message, "Choose an existing folder to create it in.");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        VideoProjects.layer.pipe(
+          Layer.provideMerge(withProjects(created)),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
+    );
+  },
+);
 
 it.live("rejects files that aren't Premiere projects", () =>
   Effect.gen(function* () {

@@ -565,6 +565,39 @@ export const VideoProjectCreateResult = Schema.Struct({
 });
 export type VideoProjectCreateResult = typeof VideoProjectCreateResult.Type;
 
+export const VideoProjectCreateFromIdeaInput = Schema.Struct({
+  title: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  /** An existing folder on the host; the project's folder is created inside it. */
+  parentFolder: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+});
+export type VideoProjectCreateFromIdeaInput = typeof VideoProjectCreateFromIdeaInput.Type;
+
+export const VideoProjectCreateFromIdeaResult = Schema.Struct({
+  projectId: ProjectId,
+  workspaceRoot: TrimmedNonEmptyString,
+  /** True when the folder already belonged to a project, which was reused. */
+  existed: Schema.Boolean,
+});
+export type VideoProjectCreateFromIdeaResult = typeof VideoProjectCreateFromIdeaResult.Type;
+
+export const VideoProjectSyncInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** Replace timelines edited here with Premiere's version; the replaced files are kept. */
+  usePremiere: Schema.optional(Schema.Boolean),
+});
+export type VideoProjectSyncInput = typeof VideoProjectSyncInput.Type;
+
+export const VideoProjectSyncResult = Schema.Struct({
+  state: Schema.Literals(["current", "updated", "edited", "conflict", "offline", "unlinked"]),
+  /** When Premiere last saved the project, in epoch milliseconds. */
+  premiereSavedAt: Schema.NullOr(Schema.Number),
+  /** Timeline paths this sync rewrote from Premiere. */
+  updated: Schema.Array(Schema.String),
+  /** Timeline paths that differ from Premiere's save and were left alone. */
+  kept: Schema.Array(Schema.String),
+});
+export type VideoProjectSyncResult = typeof VideoProjectSyncResult.Type;
+
 export const ProjectCreateFromThreadInput = Schema.Struct({
   threadId: ThreadId,
 });

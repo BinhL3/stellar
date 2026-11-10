@@ -3,7 +3,11 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, VideoProjectInspectPremiereResult } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  VideoProjectInspectPremiereResult,
+} from "@t3tools/contracts";
 import { ChevronLeftIcon, ClapperboardIcon, FolderIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -19,6 +23,7 @@ import {
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { Spinner } from "~/components/ui/spinner";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
@@ -31,6 +36,26 @@ import { useAtomCommand } from "~/state/use-atom-command";
 
 const PREMIERE_EXTENSIONS = [".prproj"];
 
+// Projects usually sit side by side on one drive, so the browser reopens where the last one was.
+const lastFolderKey = (environmentId: EnvironmentId) =>
+  `stellar.videoProject.folder.${environmentId}`;
+
+const readLastFolder = (environmentId: EnvironmentId) => {
+  try {
+    return window.localStorage.getItem(lastFolderKey(environmentId)) ?? "~/";
+  } catch {
+    return "~/";
+  }
+};
+
+const writeLastFolder = (environmentId: EnvironmentId, folder: string) => {
+  try {
+    window.localStorage.setItem(lastFolderKey(environmentId), folder);
+  } catch {
+    // Storage is a convenience; the browser just starts from home next time.
+  }
+};
+
 const errorMessage = (error: unknown) =>
   error instanceof Error && error.message.trim().length > 0
     ? error.message
@@ -42,17 +67,28 @@ const parentOf = (folder: string) => {
   return index <= 0 ? "/" : `${trimmed.slice(0, index)}/`;
 };
 
+type Mode = "idea" | "premiere";
+
 /**
- * Starts a video project from a Premiere project: pick the .prproj on the machine running Stellar,
- * pick a sequence, and the server creates the Stellar folder beside it, pulls the timeline and
- * builds proxies in the background.
+ * Starts a video project on the machine running Stellar, either way round:
+ * - from an idea: a name and a folder, before any footage or Premiere project exists;
+ * - from a Premiere project: pick the .prproj and a sequence, and the server pulls the timeline
+ *   into the Stellar folder beside it and builds proxies in the background.
  */
 export function NewVideoProjectDialog(props: {
   readonly environmentId: EnvironmentId;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
+  /** Opens straight on picking a Premiere project in this folder, for a project that has none. */
+  readonly premiereFolder?: string;
+  /** Called instead of opening a new thread, when the project is already open. */
+  readonly onPulled?: () => void;
 }) {
-  const [folder, setFolder] = useState("~/");
+  const [mode, setMode] = useState<Mode>(props.premiereFolder === undefined ? "idea" : "premiere");
+  const [title, setTitle] = useState("");
+  const [folder, setFolder] = useState(
+    () => props.premiereFolder ?? readLastFolder(props.environmentId),
+  );
   const [typed, setTyped] = useState<string | null>(null);
   const [chosen, setChosen] = useState<{
     readonly path: string;
@@ -62,6 +98,9 @@ export function NewVideoProjectDialog(props: {
   const [busy, setBusy] = useState<"inspecting" | "creating" | null>(null);
   const inspect = useAtomCommand(projectEnvironment.inspectPremiere, { reportFailure: false });
   const create = useAtomCommand(projectEnvironment.createVideoProject, { reportFailure: false });
+  const createFromIdea = useAtomCommand(projectEnvironment.createVideoProjectFromIdea, {
+    reportFailure: false,
+  });
   const handleNewThread = useNewThreadHandler();
   const listing = useEnvironmentQuery(
     props.open && chosen === null
@@ -97,7 +136,7 @@ export function NewVideoProjectDialog(props: {
   const go = (value: string) => {
     const path = value.trim();
     if (path === "") return;
-    if (path.toLowerCase().endsWith(".prproj")) void choose(path);
+    if (mode === "premiere" && path.toLowerCase().endsWith(".prproj")) void choose(path);
     else setFolder(path.endsWith("/") ? path : `${path}/`);
     setTyped(null);
   };
@@ -116,16 +155,62 @@ export function NewVideoProjectDialog(props: {
       }
       return;
     }
-    const projectRef = scopeProjectRef(props.environmentId, result.value.projectId);
+    // The folder holding this project's folder: out of "Premiere" if it's in one, then up one.
+    const holder = parentOf(chosen.path);
+    writeLastFolder(
+      props.environmentId,
+      parentOf(/\/premiere\/$/i.test(holder) ? parentOf(holder) : holder),
+    );
     toastManager.add(
       stackedThreadToast({
         type: "success",
         title: result.value.existed
-          ? `Updated ${chosen.inspected.title}`
+          ? `Pulled ${chosen.inspected.title}`
           : `Created ${chosen.inspected.title}`,
         description: `Previews are building in the background. ${result.value.workspaceRoot}`,
       }),
     );
+    if (props.onPulled) {
+      setBusy(null);
+      props.onOpenChange(false);
+      setChosen(null);
+      props.onPulled();
+      return;
+    }
+    await openProject(result.value.projectId);
+  };
+
+  // The folder being browsed, as the host resolved it ("~/" becomes an absolute path).
+  const parentFolder = listing.data?.parentPath ?? null;
+  const createIdeaProject = async () => {
+    const name = title.trim();
+    if (name === "" || parentFolder === null) return;
+    setBusy("creating");
+    const result = await createFromIdea({
+      environmentId: props.environmentId,
+      input: { title: name, parentFolder },
+    });
+    if (result._tag === "Failure") {
+      setBusy(null);
+      if (!isAtomCommandInterrupted(result)) {
+        fail("Couldn't create the video project", squashAtomCommandFailure(result));
+      }
+      return;
+    }
+    writeLastFolder(props.environmentId, folder);
+    toastManager.add(
+      stackedThreadToast({
+        type: "success",
+        title: result.value.existed ? `Opened ${name}` : `Created ${name}`,
+        description: parentOf(result.value.workspaceRoot),
+      }),
+    );
+    setTitle("");
+    await openProject(result.value.projectId);
+  };
+
+  const openProject = async (projectId: ProjectId) => {
+    const projectRef = scopeProjectRef(props.environmentId, projectId);
     // Drafts are keyed by the stored project path, so wait for the project before opening one.
     const project = await waitForProject(projectRef).catch((error: unknown) => {
       fail("Created the project, but couldn't open it", error);
@@ -141,19 +226,45 @@ export function NewVideoProjectDialog(props: {
     }
   };
 
-  const entries = listing.data?.entries ?? [];
+  const entries = (listing.data?.entries ?? []).filter(
+    (entry) => mode === "premiere" || entry.kind !== "file",
+  );
+  const ideaName = title.trim();
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogPopup className="max-w-lg">
         <DialogHeader>
           <DialogTitle>New video project</DialogTitle>
           <DialogDescription>
-            Start from a Premiere project. Stellar keeps its files in a Stellar folder beside it, so
-            they stay with your footage.
+            {mode === "idea"
+              ? "Start from an idea. Stellar makes the project's folders, so the script and footage have a home before Premiere does."
+              : "Start from a Premiere project. Stellar keeps its files in a Stellar folder beside it, so they stay with your footage."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
           <div className="flex flex-col gap-3">
+            {chosen === null && props.premiereFolder === undefined ? (
+              <ToggleGroup
+                aria-label="Start from"
+                className="w-full *:flex-1"
+                value={[mode]}
+                onValueChange={(next) => {
+                  const value = next[0];
+                  if (value === "idea" || value === "premiere") setMode(value);
+                }}
+              >
+                <Toggle value="idea">An idea</Toggle>
+                <Toggle value="premiere">A Premiere project</Toggle>
+              </ToggleGroup>
+            ) : null}
+            {chosen === null && mode === "idea" ? (
+              <Input
+                aria-label="Project name"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Project name, such as Jollibee lần đầu"
+              />
+            ) : null}
             {chosen === null ? (
               <>
                 <div className="flex items-center gap-2">
@@ -166,13 +277,15 @@ export function NewVideoProjectDialog(props: {
                     <ChevronLeftIcon />
                   </Button>
                   <Input
-                    aria-label="Folder or Premiere project path"
+                    aria-label={
+                      mode === "idea" ? "Folder to create it in" : "Folder or Premiere project path"
+                    }
                     value={typed ?? folder}
                     onChange={(event) => setTyped(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") go(event.currentTarget.value);
                     }}
-                    placeholder="~/Movies or a path to a .prproj"
+                    placeholder={mode === "idea" ? "~/Movies" : "~/Movies or a path to a .prproj"}
                   />
                 </div>
                 <div className="overflow-hidden rounded-lg border border-border/60">
@@ -183,7 +296,10 @@ export function NewVideoProjectDialog(props: {
                       </div>
                     ) : entries.length === 0 ? (
                       <p className="p-4 text-sm text-muted-foreground">
-                        {listing.error ?? "No folders or Premiere projects here."}
+                        {listing.error ??
+                          (mode === "idea"
+                            ? "No folders in here. The project can still be created here."
+                            : "No folders or Premiere projects here.")}
                       </p>
                     ) : (
                       <ul className="p-1">
@@ -214,6 +330,15 @@ export function NewVideoProjectDialog(props: {
                     )}
                   </ScrollArea>
                 </div>
+                {mode === "idea" && parentFolder !== null ? (
+                  <p className="text-xs text-muted-foreground">
+                    Creates{" "}
+                    <span className="text-foreground">
+                      {parentFolder.replace(/\/+$/, "")}/{ideaName === "" ? "…" : ideaName}
+                    </span>{" "}
+                    with Footage, Audio, B-roll, Graphics, Premiere, Exports and Stellar folders.
+                  </p>
+                ) : null}
               </>
             ) : (
               <>
@@ -260,12 +385,25 @@ export function NewVideoProjectDialog(props: {
               Back
             </Button>
           ) : null}
-          <Button
-            disabled={chosen === null || sequenceId === null || busy !== null}
-            onClick={() => void createProject()}
-          >
-            {busy === "creating" ? "Creating…" : "Create project"}
-          </Button>
+          {mode === "idea" ? (
+            <Button
+              disabled={ideaName === "" || parentFolder === null || busy !== null}
+              onClick={() => void createIdeaProject()}
+            >
+              {busy === "creating" ? "Creating…" : "Create project"}
+            </Button>
+          ) : (
+            <Button
+              disabled={chosen === null || sequenceId === null || busy !== null}
+              onClick={() => void createProject()}
+            >
+              {busy === "creating"
+                ? "Pulling…"
+                : props.onPulled
+                  ? "Pull sequence"
+                  : "Create project"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogPopup>
     </Dialog>

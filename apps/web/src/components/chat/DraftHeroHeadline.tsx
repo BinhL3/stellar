@@ -52,6 +52,8 @@ import { DraftProjectName } from "./DraftProjectName";
 import { DraftHeroProjectHeading } from "./DraftHeroProjectHeading";
 import { TriageDraftHero } from "./TriageDraftHero";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
+import { VideoStageSelect } from "../videoProject/VideoStageSelect";
+import { useVideoProject } from "~/hooks/useVideoProject";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveProjectDefaultProviderModelSelection } from "../../providerInstances";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
@@ -156,6 +158,10 @@ export function DraftHeroHeadline({
             project.environmentId === activeProjectRef.environmentId &&
             project.id === activeProjectRef.projectId,
         ) ?? null);
+  const { isVideoProject, timelinePaths } = useVideoProject(
+    activeProject?.environmentId ?? null,
+    activeProject?.workspaceRoot,
+  );
   const scratchTargetEnvironmentId = scratchEnvironmentId(activeProjectRef?.environmentId ?? null);
   const isScratchDraft =
     activeProject !== null &&
@@ -377,7 +383,11 @@ export function DraftHeroHeadline({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
       {hasResolvedProject && !isScratchDraft ? (
-        <DraftHeroProjectHeading projectName={activeProjectTitle ?? "Choose a project"}>
+        <DraftHeroProjectHeading
+          projectName={activeProjectTitle ?? "Choose a project"}
+          lead={isVideoProject ? "What's next" : "What should we build"}
+          joiner={isVideoProject ? "for" : "in"}
+        >
           {projectSelector}
         </DraftHeroProjectHeading>
       ) : (
@@ -392,9 +402,18 @@ export function DraftHeroHeadline({
         </h1>
       )}
       {isScratchDraft || orNewVideoProject !== null ? (
-        <p className="mt-2 flex h-6 w-full items-center justify-center text-sm">
+        <div className="mt-2 flex h-6 w-full items-center justify-center gap-3 text-sm">
+          {isVideoProject && activeProject !== null && !isScratchDraft ? (
+            <span className="pointer-events-auto">
+              <VideoStageSelect
+                environmentId={activeProject.environmentId}
+                workspaceRoot={activeProject.workspaceRoot}
+                hasTimeline={timelinePaths.length > 0}
+              />
+            </span>
+          ) : null}
           {isScratchDraft ? projectSelector : orNewVideoProject}
-        </p>
+        </div>
       ) : null}
       {videoProjectEnvironmentId !== null ? (
         <NewVideoProjectDialog

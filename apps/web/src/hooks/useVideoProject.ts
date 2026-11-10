@@ -8,11 +8,18 @@ const TIMELINES_DIRECTORY = "timelines";
 
 const EMPTY_TIMELINES: ReadonlyArray<string> = [];
 
-/** A project is a video project when `timelines/` holds at least one `.otio` file. */
+/**
+ * A project is a video project when it has a `timelines/` folder. One started from an idea has
+ * the folder and nothing in it yet, until a Premiere sequence is pulled.
+ */
 export function useVideoProject(
   environmentId: EnvironmentId | null,
   workspaceRoot: string | null | undefined,
-): { readonly isVideoProject: boolean; readonly timelinePaths: ReadonlyArray<string> } {
+): {
+  readonly isVideoProject: boolean;
+  readonly timelinePaths: ReadonlyArray<string>;
+  readonly refresh: () => void;
+} {
   const { canReadFiles } = useFilesystemReadAccess(environmentId);
   const result = useEnvironmentQuery(
     environmentId !== null && workspaceRoot && canReadFiles
@@ -33,5 +40,5 @@ export function useVideoProject(
       )
       .map((entry) => entry.path)
       .toSorted() ?? EMPTY_TIMELINES;
-  return { isVideoProject: timelinePaths.length > 0, timelinePaths };
+  return { isVideoProject: result.data !== null, timelinePaths, refresh: result.refresh };
 }

@@ -123,6 +123,8 @@ export function RightPanelSurfaceContent(props: {
       return (
         <Suspense fallback={null}>
           <TimelinePanel
+            // Sync state belongs to one project; another project starts fresh and syncs on open.
+            key={`${props.environmentId}:${props.files.workspaceRoot}`}
             environmentId={props.environmentId}
             workspaceRoot={props.files.workspaceRoot}
           />

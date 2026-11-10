@@ -27,6 +27,10 @@
       "types": "./src/premiere/shortcuts.ts",
       "import": "./src/premiere/shortcuts.ts"
     },
+    "./premiereSync": {
+      "types": "./src/premiereSync.ts",
+      "import": "./src/premiereSync.ts"
+    },
     "./proxies": {
       "types": "./src/proxies.ts",
       "import": "./src/proxies.ts"

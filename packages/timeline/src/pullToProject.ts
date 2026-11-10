@@ -32,12 +32,13 @@ export const pullToProject = Effect.fn("timeline.pullToProject")(function* (inpu
     "timelines",
     timelineFileName(pulled.timeline.name),
   );
-  yield* fs.writeFileString(timelinePath, serializeTimeline(pulled.timeline));
+  const text = serializeTimeline(pulled.timeline);
+  yield* fs.writeFileString(timelinePath, text);
   for (const [ref, blob] of pulled.blobs) {
     yield* fs.writeFileString(
       path.join(input.projectDir, "effects", `${ref.slice("sha256:".length)}.premiere.json`),
       serializeJson(blob),
     );
   }
-  return { ...pulled, timelinePath };
+  return { ...pulled, timelinePath, text };
 });

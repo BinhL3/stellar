@@ -1,13 +1,19 @@
 import {
   CommandId,
   ProjectId,
+  type VideoProjectCreateFromIdeaInput,
+  type VideoProjectCreateFromIdeaResult,
   type VideoProjectCreateInput,
   type VideoProjectCreateResult,
   type VideoProjectInspectPremiereInput,
   type VideoProjectInspectPremiereResult,
+  type VideoProjectSyncInput,
+  type VideoProjectSyncResult,
 } from "@t3tools/contracts";
 import { parsePrproj } from "@t3tools/timeline/premiere/prproj";
-import { buildProjectProxies } from "@t3tools/timeline/proxyBuilder";
+import { recordPull, syncFromPremiere } from "@t3tools/timeline/premiereSync";
+import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
+import { buildProjectProxies, markProxiesBuilding } from "@t3tools/timeline/proxyBuilder";
 import { pullToProject } from "@t3tools/timeline/pullToProject";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -19,6 +25,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import * as ProjectService from "../project/ProjectService.ts";
 
@@ -34,8 +41,23 @@ export class VideoProjectError extends Schema.TaggedError<VideoProjectError>()(
   }
 }
 
+const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+
 /** Stellar's own files for a video project sit in this folder beside the Premiere project. */
 const STELLAR_FOLDER = "Stellar";
+/**
+ * What a project folder starts with. A Premiere project saved into `Premiere` is then found
+ * from the Stellar folder beside it, the same layout `mediaRootFor` reads.
+ */
+const PROJECT_FOLDERS = [
+  "Footage",
+  "Audio",
+  "B-roll",
+  "Graphics",
+  "Premiere",
+  "Exports",
+  `${STELLAR_FOLDER}/timelines`,
+];
 // Proxies are encoded a few files at a time so a big import doesn't starve the machine.
 const PROXY_CONCURRENCY = 3;
 
@@ -53,6 +75,21 @@ export class VideoProjects extends Context.Service<
     readonly createFromPremiere: (
       input: VideoProjectCreateInput,
     ) => Effect.Effect<VideoProjectCreateResult, VideoProjectError>;
+    /**
+     * Starts a video project from an idea, before any footage or Premiere project exists:
+     * makes the project's folders and adds the project, so the script and intake have a home.
+     */
+    readonly createFromIdea: (
+      input: VideoProjectCreateFromIdeaInput,
+    ) => Effect.Effect<VideoProjectCreateFromIdeaResult, VideoProjectError>;
+    /**
+     * Pulls Premiere's latest save into the project's timelines when the `.prproj` changed, and
+     * (re)starts the proxy build when new media arrived or an earlier build never finished.
+     * Cheap enough to call whenever a client comes back into focus.
+     */
+    readonly sync: (
+      input: VideoProjectSyncInput,
+    ) => Effect.Effect<VideoProjectSyncResult, VideoProjectError>;
   }
 >()("t3/videoProject/VideoProjects") {}
 
@@ -63,6 +100,62 @@ const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const background = yield* FiberSet.make();
+  const syncing = yield* Semaphore.make(1);
+  const building = new Set<string>();
+  const queued = new Set<string>();
+
+  /**
+   * Builds a project's proxies in the background, one build per project at a time. A request
+   * that arrives mid-build (a pull brought new media) runs another build when this one ends.
+   */
+  const startProxies = (projectFolder: string): Effect.Effect<void> =>
+    Effect.suspend(() => {
+      if (building.has(projectFolder)) {
+        queued.add(projectFolder);
+        return Effect.void;
+      }
+      building.add(projectFolder);
+      const build = FiberSet.run(
+        background,
+        buildProjectProxies({ projectDir: projectFolder, concurrency: PROXY_CONCURRENCY }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.tap((result) =>
+            Effect.logInfo("Video project proxies ready", {
+              projectFolder,
+              files: result.count,
+              failed: result.failed,
+            }),
+          ),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Video project proxies failed", { projectFolder, cause }),
+          ),
+          Effect.ensuring(
+            Effect.suspend(() => {
+              building.delete(projectFolder);
+              return queued.delete(projectFolder) ? startProxies(projectFolder) : Effect.void;
+            }),
+          ),
+        ),
+      );
+      return markProxiesBuilding(projectFolder).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.ignore,
+        Effect.andThen(build),
+        Effect.asVoid,
+      );
+    });
+
+  /** True when no build is running and the index is missing or was left mid-build. */
+  const proxiesUnfinished = (projectFolder: string) =>
+    fileSystem.readFileString(path.join(projectFolder, PROXY_INDEX_PATH)).pipe(
+      Effect.flatMap(decodeJson),
+      Effect.map((index) => (index as ProxyIndex).building !== undefined),
+      Effect.orElseSucceed(() => true),
+      Effect.map((unfinished) => unfinished && !building.has(projectFolder)),
+    );
 
   /**
    * The folder that holds a Premiere project's footage: the `.prproj`'s own folder, or its parent
@@ -159,30 +252,125 @@ const make = Effect.gen(function* () {
           ),
         );
 
-    yield* FiberSet.run(
-      background,
-      buildProjectProxies({ projectDir: projectFolder, concurrency: PROXY_CONCURRENCY }).pipe(
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-        Effect.provideService(Path.Path, path),
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.tap((result) =>
-          Effect.logInfo("Video project proxies ready", { projectFolder, files: result.count }),
-        ),
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Video project proxies failed", { projectFolder, cause }),
-        ),
+    const timelinePath = path.relative(projectFolder, pulled.timelinePath);
+    yield* recordPull({
+      projectDir: projectFolder,
+      premiereProject: input.premiereProjectPath,
+      timelinePath,
+      sequenceId: input.sequenceId,
+      text: pulled.text,
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.mapError(
+        (cause) => new VideoProjectError({ reason: "Could not link the Premiere project.", cause }),
       ),
     );
+    yield* startProxies(projectFolder);
 
     return {
       projectId: project.id,
       workspaceRoot: projectFolder,
-      timelinePath: path.relative(projectFolder, pulled.timelinePath),
+      timelinePath,
       existed: Option.isSome(existing),
     };
   });
 
-  return VideoProjects.of({ inspectPremiere, createFromPremiere });
+  const createFromIdea: VideoProjects["Service"]["createFromIdea"] = Effect.fn(
+    "VideoProjects.createFromIdea",
+  )(function* (input) {
+    // The title names a folder, so anything a path would read as a separator comes out.
+    const folderName = input.title
+      .replace(/[/\\:]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (folderName === "" || folderName.startsWith(".")) {
+      return yield* new VideoProjectError({ reason: "Give the project a name." });
+    }
+    const parent = yield* fileSystem.stat(input.parentFolder).pipe(Effect.option);
+    if (
+      !path.isAbsolute(input.parentFolder) ||
+      Option.isNone(parent) ||
+      parent.value.type !== "Directory"
+    ) {
+      return yield* new VideoProjectError({ reason: "Choose an existing folder to create it in." });
+    }
+    const root = path.join(input.parentFolder, folderName);
+    for (const folder of PROJECT_FOLDERS) {
+      yield* fileSystem.makeDirectory(path.join(root, folder), { recursive: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new VideoProjectError({
+              reason: `Could not create ${path.join(root, folder)}.`,
+              cause,
+            }),
+        ),
+      );
+    }
+    const projectFolder = path.join(root, STELLAR_FOLDER);
+    const existing = yield* projects
+      .getByWorkspaceRoot(projectFolder)
+      .pipe(
+        Effect.mapError(
+          (cause) => new VideoProjectError({ reason: "Could not look up projects.", cause }),
+        ),
+      );
+    const project = Option.isSome(existing)
+      ? existing.value
+      : yield* random.uuidV4().pipe(
+          Effect.flatMap((id) =>
+            projects.create({
+              commandId: CommandId.make(`video-project:${id}`),
+              projectId: ProjectId.make(id),
+              title: input.title,
+              workspaceRoot: projectFolder,
+              createWorkspaceRootIfMissing: true,
+            }),
+          ),
+          Effect.mapError(
+            (cause) => new VideoProjectError({ reason: "Could not add the project.", cause }),
+          ),
+        );
+    return {
+      projectId: project.id,
+      workspaceRoot: projectFolder,
+      existed: Option.isSome(existing),
+    };
+  });
+
+  const sync: VideoProjects["Service"]["sync"] = Effect.fn("VideoProjects.sync")(function* (input) {
+    const known = yield* projects
+      .getByWorkspaceRoot(input.workspaceRoot)
+      .pipe(
+        Effect.mapError(
+          (cause) => new VideoProjectError({ reason: "Could not look up projects.", cause }),
+        ),
+      );
+    if (Option.isNone(known)) {
+      return yield* new VideoProjectError({ reason: "That folder isn't a project here." });
+    }
+    // One at a time: two clients coming into focus together must not both rewrite a timeline.
+    const result = yield* syncing.withPermits(1)(
+      syncFromPremiere({
+        projectDir: input.workspaceRoot,
+        ...(input.usePremiere === undefined ? {} : { usePremiere: input.usePremiere }),
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.mapError(
+          (cause) => new VideoProjectError({ reason: "Could not sync with Premiere.", cause }),
+        ),
+      ),
+    );
+    if (result.state !== "unlinked") {
+      if (result.updated.length > 0 || (yield* proxiesUnfinished(input.workspaceRoot))) {
+        yield* startProxies(input.workspaceRoot);
+      }
+    }
+    return result;
+  });
+
+  return VideoProjects.of({ inspectPremiere, createFromPremiere, createFromIdea, sync });
 });
 
 export const layer = Layer.effect(VideoProjects, make);

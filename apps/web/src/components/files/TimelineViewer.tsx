@@ -37,6 +37,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  type ReactNode,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -142,13 +143,13 @@ const EXTENSION = /\.[a-z0-9]{2,5}$/i;
 
 type ClipKind = "video" | "still" | "text" | "audio" | "footageAudio";
 
-// Solid label colours with black edges like Premiere's, so every cut reads at a glance.
+// Theme-tinted label colours; edges in the panel's own colour so every cut reads as a gap.
 const CLIP_CLASS: Record<ClipKind, string> = {
-  video: "border-black bg-clip-footage",
-  still: "border-black bg-clip-still",
-  text: "border-black bg-clip-graphic",
-  audio: "border-black bg-clip-audio",
-  footageAudio: "border-black bg-clip-footage",
+  video: "border-background bg-clip-footage",
+  still: "border-background bg-clip-still",
+  text: "border-background bg-clip-graphic",
+  audio: "border-background bg-clip-audio",
+  footageAudio: "border-background bg-clip-footage",
 };
 
 const WAVEFORM_CLASS: Record<ClipKind, string> = {
@@ -432,8 +433,12 @@ export default function TimelineViewer(props: {
   readonly onCommit?: (contents: string) => Promise<boolean>;
   /** Present where a chat is open: right-click "Add to chat" hands it a clip's description. */
   readonly onReference?: (description: string) => void;
+  /** Told whether uncommitted edits exist, each time that changes. */
+  readonly onPendingEdits?: (pending: boolean) => void;
+  /** The editing app's sync badge, shown in the transport row. */
+  readonly premiere?: ReactNode;
 }) {
-  const [pending, setPending] = useState<{
+  const [pending, setPendingState] = useState<{
     readonly base: string;
     readonly edits: ReadonlyArray<TimelineEdit>;
     readonly undone: ReadonlyArray<TimelineEdit>;
@@ -712,6 +717,10 @@ export default function TimelineViewer(props: {
       });
   };
 
+  const setPending = (next: typeof pending) => {
+    setPendingState(next);
+    props.onPendingEdits?.(next.edits.length > 0);
+  };
   const pushEdit = (edit: TimelineEdit) =>
     setPending({ base: props.text, edits: [...edits, edit], undone: [] });
   const undoEdit = () => {
@@ -728,7 +737,8 @@ export default function TimelineViewer(props: {
   const commitEdits = async () => {
     if (typeof pulled === "string" || !props.onCommit || edits.length === 0) return;
     setCommitting(true);
-    await props.onCommit(serializeTimeline(applyEdits(pulled, edits)));
+    const saved = await props.onCommit(serializeTimeline(applyEdits(pulled, edits)));
+    if (saved) props.onPendingEdits?.(false);
     setCommitting(false);
   };
 
@@ -1247,24 +1257,7 @@ export default function TimelineViewer(props: {
                   </TooltipPopup>
                 </Tooltip>
               ) : null}
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span
-                      role="img"
-                      aria-label="Draft preview"
-                      className="flex h-5 items-center gap-1 rounded-sm bg-premiere-bg px-1 text-2xs font-bold text-premiere"
-                    />
-                  }
-                >
-                  Pr
-                  <span aria-hidden className="size-1.5 rounded-full bg-warning" />
-                </TooltipTrigger>
-                <TooltipPopup side="top">
-                  Draft preview{props.media.proxied ? "" : " from original files"}. Presets and
-                  plugin effects render in Premiere.
-                </TooltipPopup>
-              </Tooltip>
+              {props.premiere}
               <Tooltip>
                 <TooltipTrigger
                   render={

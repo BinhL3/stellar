@@ -6,15 +6,23 @@ import {
   type AssetResource,
   AuthFilesystemWriteScope,
   type EnvironmentId,
+  type VideoProjectSyncResult,
 } from "@t3tools/contracts";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 
 import { useAssetUrls } from "~/assets/assetUrls";
 import { useComposerHandleContext } from "~/composerHandleContext";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
+import { Button } from "~/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "~/components/ui/empty";
 import {
   Select,
   SelectItem,
@@ -29,6 +37,9 @@ import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useProjectFileQuery } from "../files/projectFilesQueryState";
+import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
+import { VideoStageSelect } from "../videoProject/VideoStageSelect";
+import { PremiereSyncBadge } from "./PremiereSyncBadge";
 import type { PreviewMedia, PreviewMediaSource } from "./TimelinePreview";
 
 const TimelineViewer = lazy(() => import("../files/TimelineViewer"));
@@ -115,8 +126,11 @@ const planMedia = (
         video: at(plan.video),
         audio: at(plan.audio),
         still: at(plan.still),
-        // Proxies decode through WebCodecs; originals fall back to a media element.
-        ...(entry?.video !== undefined && plan.still < 0 ? { videoProxy: true } : {}),
+        // Proxies decode through WebCodecs. Originals, and transparent proxies (VP9 with alpha,
+        // which WebCodecs hands back opaque), play through a media element instead.
+        ...(entry?.video !== undefined && entry.alpha !== true && plan.still < 0
+          ? { videoProxy: true }
+          : {}),
         ...(entry ? { width: entry.width, height: entry.height } : {}),
         ...(entry?.peaks ? { peaks: at(plan.peaks) } : {}),
       });
@@ -126,6 +140,9 @@ const planMedia = (
   return { paths, build };
 };
 
+// While proxies build, the index is re-read this often so finished ones start playing.
+const PROXY_POLL_MS = 2500;
+
 const timelineLabel = (path: string) =>
   path.slice(path.lastIndexOf("/") + 1).replace(/\.otio$/i, "");
 
@@ -133,7 +150,11 @@ export default function TimelinePanel(props: {
   readonly environmentId: EnvironmentId;
   readonly workspaceRoot: string;
 }) {
-  const { timelinePaths } = useVideoProject(props.environmentId, props.workspaceRoot);
+  const { timelinePaths, refresh: refreshTimelines } = useVideoProject(
+    props.environmentId,
+    props.workspaceRoot,
+  );
+  const [pulling, setPulling] = useState(false);
   const [chosenPath, setChosenPath] = useState<string | null>(null);
   const selectedPath =
     chosenPath !== null && timelinePaths.includes(chosenPath)
@@ -152,11 +173,8 @@ export default function TimelinePanel(props: {
     PROXY_INDEX_PATH,
     selectedPath !== null,
   );
-  const plan = planMedia(
-    mediaTargets(file.data?.contents),
-    parseProxyIndex(proxyFile.data?.contents),
-    props.workspaceRoot,
-  );
+  const proxyIndex = parseProxyIndex(proxyFile.data?.contents);
+  const plan = planMedia(mediaTargets(file.data?.contents), proxyIndex, props.workspaceRoot);
   const resources = plan.paths.map((path): AssetResource => ({
     _tag: "draft-workspace-file",
     cwd: props.workspaceRoot,
@@ -190,6 +208,65 @@ export default function TimelinePanel(props: {
       });
     }
   };
+  const syncProject = useAtomCommand(projectEnvironment.syncVideoProject, { reportFailure: false });
+  const [link, setLink] = useState<VideoProjectSyncResult | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  // Pending edits belong to the text they were made on, so a pull that lands under them would
+  // drop them. Coming back into focus doesn't pull while there are any; "Sync now" still does.
+  const hasPendingEdits = useRef(false);
+  const sync = async (options?: { readonly usePremiere?: boolean; readonly quiet?: boolean }) => {
+    setSyncing(true);
+    const result = await syncProject({
+      environmentId: props.environmentId,
+      input: {
+        workspaceRoot: props.workspaceRoot,
+        ...(options?.usePremiere ? { usePremiere: true } : {}),
+      },
+    });
+    setSyncing(false);
+    if (result._tag !== "Success") {
+      if (options?.quiet !== true && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Could not sync with Premiere",
+          description: error instanceof Error ? error.message : "Try again in a moment.",
+        });
+      }
+      return;
+    }
+    setLink(result.value);
+    // The sync may have started a proxy build; the index says so, and polling follows it.
+    proxyFile.refresh();
+    if (result.value.updated.length > 0) {
+      file.refresh();
+      toastManager.add({
+        type: "success",
+        title: "Pulled your Premiere save",
+        description: result.value.updated.map(timelineLabel).join(", "),
+      });
+    }
+  };
+  const syncOnFocus = useEffectEvent(() => {
+    if (canWriteFiles && !hasPendingEdits.current && !syncing) void sync({ quiet: true });
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Premiere saves outside the app; coming back into focus is when a new save is most likely.
+  useEffect(() => {
+    syncOnFocus();
+    window.addEventListener("focus", syncOnFocus);
+    return () => window.removeEventListener("focus", syncOnFocus);
+  }, []);
+
+  const building = proxyIndex?.building ?? null;
+  const isBuilding = building !== null;
+  const refreshProxies = useEffectEvent(() => proxyFile.refresh());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- The server rewrites the proxy index as its background build finishes each file; nothing pushes that to clients.
+  useEffect(() => {
+    if (!isBuilding) return;
+    const timer = window.setInterval(refreshProxies, PROXY_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [isBuilding]);
+
   const writeFile = useAtomCommand(projectEnvironment.writeFile, { reportFailure: false });
   // Committing writes the edited timeline over the .otio, then reloads it, which clears the
   // pending edits. Sending the change on to Premiere is the adapter's push, not this.
@@ -201,6 +278,8 @@ export default function TimelinePanel(props: {
     });
     if (result._tag === "Success") {
       file.refresh();
+      // The timeline now differs from Premiere's save; the badge should say so.
+      void sync({ quiet: true });
       toastManager.add({ type: "success", title: "Timeline saved", description: selectedPath });
       return true;
     }
@@ -215,24 +294,48 @@ export default function TimelinePanel(props: {
     return false;
   };
 
+  const stageSelect = (
+    <VideoStageSelect
+      environmentId={props.environmentId}
+      workspaceRoot={props.workspaceRoot}
+      hasTimeline={timelinePaths.length > 0}
+    />
+  );
+
   if (selectedPath === null) {
     return (
       <Empty>
+        {stageSelect}
         <EmptyHeader>
           <EmptyTitle>No timeline yet</EmptyTitle>
           <EmptyDescription>
-            Ask the agent to pull a sequence from your editing app. Timelines appear here from the
-            project's timelines folder.
+            When the rough cut exists, save the Premiere project in this project's Premiere folder
+            and pull a sequence. It shows up here and follows your saves.
           </EmptyDescription>
         </EmptyHeader>
+        {canWriteFiles ? (
+          <EmptyContent>
+            <Button variant="outline" onClick={() => setPulling(true)}>
+              Pull from Premiere
+            </Button>
+          </EmptyContent>
+        ) : null}
+        <NewVideoProjectDialog
+          environmentId={props.environmentId}
+          open={pulling}
+          onOpenChange={setPulling}
+          premiereFolder={`${props.workspaceRoot.replace(/\/+$/, "").replace(/\/[^/]+$/, "")}/Premiere/`}
+          onPulled={refreshTimelines}
+        />
       </Empty>
     );
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {timelinePaths.length > 1 ? (
-        <div className="flex shrink-0 items-center gap-2 px-3 pt-2">
+      <div className="flex shrink-0 items-center gap-2 px-3 pt-2">
+        {stageSelect}
+        {timelinePaths.length > 1 ? (
           <Select value={selectedPath} onValueChange={(value) => setChosenPath(value)}>
             <SelectTrigger size="sm" aria-label="Timeline">
               <SelectValue>{(value: string) => timelineLabel(value)}</SelectValue>
@@ -245,8 +348,8 @@ export default function TimelinePanel(props: {
               ))}
             </SelectPopup>
           </Select>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       {file.data ? (
         <Suspense fallback={null}>
           <TimelineViewer
@@ -254,6 +357,24 @@ export default function TimelinePanel(props: {
             text={file.data.contents}
             media={media}
             onReference={reference}
+            onPendingEdits={(pending) => {
+              hasPendingEdits.current = pending;
+            }}
+            premiere={
+              <PremiereSyncBadge
+                link={link}
+                syncing={syncing}
+                building={building}
+                failedProxies={proxyIndex?.failed ?? 0}
+                proxied={media.proxied}
+                {...(canWriteFiles
+                  ? {
+                      onSync: () => void sync(),
+                      onUsePremiere: () => void sync({ usePremiere: true }),
+                    }
+                  : {})}
+              />
+            }
             {...(canWriteFiles ? { onCommit: commit } : {})}
           />
         </Suspense>

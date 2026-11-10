@@ -276,6 +276,33 @@ Built from the past threads: it targets where time and failures actually went, a
 - **New video project: done.** The new-thread screen offers "start a new video project": pick a
   `.prproj` on the host and a sequence. The server's `VideoProjects` service creates the folder,
   pulls the sequence, adds (or reuses) the project, and builds proxies in the background.
+- **Starting from an idea: done (milestone 1).** The same dialog also takes a name and a folder
+  and makes the project's folders (`Footage`, `Audio`, `B-roll`, `Graphics`, `Premiere`,
+  `Exports`, `Stellar/timelines`). A project is a video project once it has `timelines/`, so
+  the Timeline tab opens empty with "Pull from Premiere", which starts in the project's own
+  `Premiere` folder. A `.prproj` saved there resolves to the same Stellar folder, so pulling
+  joins the existing project instead of making a second one. Agents can't call either start
+  yet; that comes with the toolkit in milestone 4.
+- **Stage: started.** A video project has a stage (Scripting, Footage in, Rough cut, Polish,
+  Posted), kept as `stage` in `project.json` in the project folder, so the person, an agent
+  editing the file and every client read the same thing. Unset, it reads Rough cut once a
+  timeline is pulled and Scripting before. It shows on the new-thread screen and the Timeline
+  tab. This is the catalog pill from Decision 7 without the catalog: nothing writes the
+  Google Doc yet, and the agent doesn't propose moves.
+- **Following Premiere's saves: done, one way.** `premiere.json` in the project folder records
+  which `.prproj` the project follows and, per timeline, a hash of the text last pulled and of
+  what Premiere's latest save reads as.
+  - A `.prproj` only changes when Premiere saves, so its size and modified time say whether
+    there is anything to pull. An unchanged save costs one `stat` (2–3 ms on SF Uniqlo); a
+    changed one is re-read and re-pulled whole (about 260 ms). Pulling was never the slow part,
+    so there is no incremental pull.
+  - The Timeline tab syncs when it opens, when the window comes back into focus (the moment
+    after a save in Premiere) and after a commit. The Premiere badge shows the result.
+  - A timeline edited here is never overwritten. It shows as **Edited here**, or **Conflict**
+    once Premiere saves something different. "Use Premiere's version" replaces it and keeps the
+    replaced file in `timelines/replaced/`.
+  - Projects pulled before the link existed are linked on first sync when their media root
+    holds exactly one `.prproj`.
 - **Pull, from the `.prproj`: done** (`packages/timeline`).
   - Reads clips, gaps, source ranges, media relative to the media root, the effect stack in order as
     content-addressed native refs with preset names, static Motion, Opacity and gain, transitions,
@@ -291,7 +318,8 @@ Built from the past threads: it targets where time and failures actually went, a
   pending, drawn as dashed outlines with ghosts and played by the preview, until a commit writes
   the `.otio`. They are the same pure operations an agent's toolkit will call
   (`packages/timeline/src/edits.ts`). A commit does not reach Premiere yet: that is the push in
-  Decision 4, and it should honour the baton.
+  Decision 4, and it should honour the baton. Until then a committed timeline reads **Edited
+  here** on the Premiere badge.
 - **Not read yet:** Premiere's caption track (empty in SF Uniqlo, whose subtitles are V7 text
   graphics, now read), linked audio and video, and disabled clips.
 
@@ -332,8 +360,18 @@ thousands of clips.
   is the upgrade path if shaders or long reverse play need it. The timeline renders only the clips
   near the visible range and shows thumbnail strips and waveforms made with the proxies.
 - **Proxies today** come from `packages/timeline` (`proxies <project>`), keyed by each file's path,
-  size and modification time, with `proxies/index.json` mapping clips to them. Without proxies the
-  player falls back to the original files. Making proxies automatically at import is still to do.
+  size and modification time, with `proxies/index.json` mapping clips to them. The server builds
+  them when a project is created, when a pull brings new media, and when a sync finds a build
+  that never finished.
+  - One ffmpeg run per file makes the proxy, thumbnail strip, audio and waveform, with hardware
+    decode where the machine has it. The source is read and decoded once instead of four times:
+    a 43 s 4K HEVC clip on the SSD took 56 s before and 23 s after, with the same output.
+  - The index is rewritten as each file finishes and the Timeline tab re-reads it while a build
+    runs, so clips switch from their original file to their proxy one by one.
+  - Outputs are written under `.part` names and renamed, so a killed build leaves no truncated
+    proxy that later counts as done.
+  - The player keeps the most recently used proxies in memory up to 768 MB and fetches the rest
+    three at a time, nearest the playhead first.
 - **Controls follow editors.** Space plays and pauses. J, K and L shuttle, with repeated presses
   speeding up. Left and right step a frame, Shift steps ten. Up and down jump between edits.
   Home and End go to the ends. I and O mark a range, and there's loop playback and full screen.
@@ -410,6 +448,38 @@ later turns know it was a choice. An auth failure links straight to the connecto
   own sign-in (checked in preflight). On web and mobile clients there is no built-in browser, so
   the agent posts the doc as a link that opens in Google Docs.
 
+**Order and hand-offs, from script to footage on the timeline.** The table reads as a line, but
+the first steps don't depend on each other, and today the app only enters at step 6.
+
+- **The project starts at the idea, not at the `.prproj`.** "New video project" gets a second
+  start: a title and a folder. It creates the folder skeleton (`Footage`, `Audio`, `B-roll`,
+  `Graphics`, `Premiere`, `Exports`, `Stellar`) and adds the project, so the script, the intake
+  card and the preflight strip have a thread and a place for files. Starting from an existing
+  `.prproj` stays for projects already under way.
+- **Script and intake run side by side.** Neither needs the other. Preflight comes first; then
+  the script child and the intake scan start together. The intake gate (Approve) unblocks setup
+  and transcription. The script only has to exist by the hook pick.
+- **Google Docs is the script's source (decided).** Binh writes and edits there, in the
+  Browser tab beside the chat wherever the client has one. `/video-script-catalog` creates the
+  doc and its catalog entry, and can run at either end: before recording, from the idea alone,
+  or after import, written against the footage.
+- **The project keeps a snapshot, never a second source.** At each gate the agent saves the doc
+  as `Stellar/script.md`, one heading per beat with its id. Transcript alignment and beat
+  markers read the snapshot, so they are checkpointed with the timeline and show what the
+  script said when a cut was made. Edits always go to the doc; the snapshot is only refreshed.
+- **Proxies start at intake.** Once files are copied and verified, the server builds proxies
+  for everything in `Footage`, not only for what a timeline already uses. They are keyed by
+  file, so the first pull finds them ready and the rough cut plays at once.
+- **The link is made when the rough cut is saved.** The agent creates the `.prproj`, saves it,
+  and links it through the same service the dialog uses. From then on the Timeline tab follows
+  Premiere's saves (see Build status), and new sequences (`v2`, `v3`) are offered as they
+  appear instead of needing the dialog again.
+- **Every gate is a save point.** Approve, Pick one and Done refining each end with the agent
+  saving the Premiere project, so what Binh sees in the Timeline tab is what the next step
+  starts from.
+
+Built so far: the last bullet's sync. The rest is proposed.
+
 **3. Intake card.** The agent posts it; Binh approves it.
 
 - Files are grouped by capture session (shoot date and time gaps), with a thumbnail strip per
@@ -456,6 +526,124 @@ skill steps (script, intake scan, transcription, generators) and report files an
 Cards are where a gate waits for Binh. While a card is open, nothing past that gate starts, and the
 thread shows it as waiting on him rather than working.
 
+## Milestones
+
+All seven are in scope. Premiere stays the finishing tool, so Stellar never needs its own
+renderer; "done" is checked through Premiere's export.
+
+1. **A project before Premiere.** Start from a title and a folder; create the folder skeleton;
+   link the `.prproj` when it exists. Done when a new idea's script, footage and timeline land
+   in one project without the dialog again.
+2. **Intake.** The approve card, copy and verify, proxies for everything in `Footage`, frame
+   timestamp tables and whole-clip conforming. Done when footage plays in Stellar minutes after
+   approval, before any Premiere project exists.
+3. **Script and transcript as project data.** The Google Doc in the Browser tab, its snapshot
+   with beat ids, word timings attached to clips, and Vietnamese transcription that survives
+   restaurant noise. Done when a script beat jumps to its words in the footage and back.
+4. **Agents edit through Stellar, and edits reach Premiere.** The `timeline` toolkit with its
+   invariants, push as a rebuilt sequence, the baton, and a diff of the hand pass. Done when
+   the agent's next change keeps every hand edit.
+5. **Voice-over.** Record or import takes per beat, align them to the script, conform picture
+   to the voice. Done when re-recording one line re-times only that beat.
+6. **A preview to trust.** Crop, speed, transitions, easing, caption styling, browser-unfriendly
+   stills, ranged proxy reads, audio crossfades. Done when a cut can be approved without
+   opening Premiere to check it.
+7. **Finish.** Render check, contact sheets, catalog to Posted, and the preflight strip. Done
+   when one short goes from idea to posted with no step living only in chat.
+
+**Order by flow.**
+
+- Script, then record, then edit: 1, 3 (script), 2, 3 (transcript), 4, 6, 7.
+- Import, then script, then voice-over, then edit: 1, 2, 3, 5, 4, 6, 7.
+
+Build order: 1, 2 and 4 first, with the transcript half of 3 alongside. They remove the most
+manual work from a run like Jollibee.
+
+## Holes
+
+What the design promises and the code doesn't do yet, and what the code does that the design
+hasn't faced. Grouped by where they bite; the first item in each group is the one to fix first.
+
+**From script to import**
+
+1. A project started from an idea is only folders. The script, intake and preflight steps
+   still have no surfaces in it (hole 2), and the Premiere link is made by hand from the
+   Timeline tab rather than when the agent saves the rough cut.
+2. None of Decision 7's surfaces are built: no preflight strip, intake card, job rows, hook card,
+   catalog pill or beat markers. The run is still chat text.
+3. Agents can't reach any of it. Creating, linking and syncing a video project are UI-only, and
+   the `timeline` toolkit doesn't exist. Agents edit Premiere through its own MCP, so the
+   `.otio` is a mirror of Premiere today, not the thing agents edit.
+4. The script exists only in Google Docs. That needs the connector signed in, a built-in
+   browser (desktop only), and an undecided way to watch the doc (open questions 9 and 10).
+5. Proxies cover only media a pulled timeline uses, so previews start building after the rough
+   cut instead of at intake.
+6. New sequences aren't discovered. Each `vN+1` needs the new-project dialog again, and the
+   timeline picker doesn't say which version is the latest.
+7. Frame timestamp tables aren't in the model. Source ranges assume a constant rate, and a
+   conformed copy (`IMG_8152_5994.mov`) has no recorded tie to its original.
+8. Transcripts aren't timeline data. `*.words.json` sits in `Audio/` and nothing links it to
+   clips, so "cut by words" and beat alignment have nothing to stand on.
+9. Nothing checks for ffmpeg and ffprobe. A machine without them builds no proxies; the badge
+   now reports how many files failed, but not why.
+10. The dialog browses host folders (it now reopens where the last project was). No recent
+    projects, no drag and drop, one sequence at a time.
+
+**Sync with Premiere**
+
+11. It is one way. Commits made in the Timeline tab never reach Premiere: push, the baton and
+    the parity report are unbuilt. A conflict offers one side or the other, never a merge.
+12. Only saved state is seen. Unsaved work in Premiere is invisible, and nothing asks Premiere
+    to save.
+13. Sync runs when a web or desktop client opens the tab, regains focus or commits. An agent
+    turn, a phone, or a server with no client open never triggers it, so an agent can read a
+    stale `.otio`.
+14. A pull replaces the whole file. What changed isn't shown (step 7's dashed diff), the user's
+    hand pass isn't recorded as their turn, and "Sync now" drops uncommitted edits without
+    asking. Focus sync holds off while there are any.
+15. A sequence deleted or renamed in Premiere silently stops updating its timeline.
+16. A read that lands while Premiere is writing shows as Offline until the next sync.
+17. The pull doesn't read speed changes, the caption track, linked audio and video, or nested
+    sequences. Transitions are read but only kept as metadata.
+
+**Playback**
+
+18. A proxy is fetched whole into memory before it plays. Fine for shorts; a one-hour camera
+    file's proxy is over a gigabyte and won't load. Long-form needs ranged reads.
+19. The preview draws Motion, Opacity, gain and plain text. It doesn't draw crop, speed,
+    transitions, blend modes or easing (keyframes are linear), and text uses a system font at
+    a guessed size. App renders for plugin effects (kind 3) are unbuilt.
+20. Audio is one media element per clip: no crossfades, steering by small rate changes, muted
+    above 2×, silent in reverse.
+21. Stills are served as the original file. PSD, TIFF and HEIC don't decode in a browser, so
+    those layers draw nothing.
+22. Proxy keys include the absolute path. Moving the drive to another machine or mount point
+    orphans every proxy, which is the opposite of "proxies travel". Orphans are never cleaned.
+23. Without proxies the player uses the 4K originals through video elements. It now switches
+    over file by file, but the first minutes of a new project still stutter.
+24. Remote clients fetch the same 960 px proxies over the relay, with no smaller rendition.
+    Firefox and Safari fall back to video elements where WebCodecs is missing.
+25. Proxy progress reaches clients by re-reading the index every 2.5 s during a build. There
+    is no event for it.
+
+**The Timeline tab**
+
+26. It exists on web and desktop only. Mobile has no timeline or preview.
+27. "Timeline saved" is true of the `.otio` and nothing else. The badge now says so, but
+    nothing reads the commit downstream.
+28. No markers, beat markers, suggestion cards or version history. Undo stops at a commit.
+29. `TimelineViewer.tsx` is one 2,100-line component under `components/files/`.
+
+**The model**
+
+30. Native blobs are stored by hash, but there is no fingerprint or stale detection, no preset
+    library and no tier guard on writes, because nothing writes yet.
+31. The invariants in Decision 3 are prose. Only "items stay in time order" is checked, as a
+    warning on pull.
+32. The render check (Decision 4) is unbuilt, so "done" still means "looked right in playback".
+33. The namespace is `stellar` in code; this document still says `<product>` and lists the name
+    as open.
+
 ## Open questions
 
 4. Preview engine details: proxy codec and size, and whether app renders run on the user's machine
@@ -471,5 +659,3 @@ thread shows it as waiting on him rather than working.
    (`metadata.<name>`) takes the product name.
 9. Watching the script doc: poll its revision (simple, works anywhere) or use Drive push
    notifications (needs a public endpoint, which a local server doesn't have).
-10. Script docs off Google: whether a local Markdown script in the project folder should be a
-    first-class alternative, so the flow works without a connector.
