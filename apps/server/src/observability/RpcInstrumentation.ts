@@ -160,6 +160,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.videoProjectsInspectPremiere]: "orchestration",
   [WS_METHODS.videoProjectsCreate]: "orchestration",
   [WS_METHODS.videoProjectsCreateFromIdea]: "orchestration",
+  [WS_METHODS.videoProjectsScanIntake]: "orchestration",
+  [WS_METHODS.videoProjectsImportFootage]: "orchestration",
   [WS_METHODS.videoProjectsSync]: "orchestration",
   [WS_METHODS.projectsCreateFromThread]: "orchestration",
   [WS_METHODS.shellOpenInEditor]: "workspace",

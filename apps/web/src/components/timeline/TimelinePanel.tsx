@@ -6,8 +6,10 @@ import {
   type AssetResource,
   AuthFilesystemWriteScope,
   type EnvironmentId,
+  type VideoProjectIntakeStatus,
   type VideoProjectSyncResult,
 } from "@t3tools/contracts";
+import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 
@@ -37,6 +39,7 @@ import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useProjectFileQuery } from "../files/projectFilesQueryState";
+import { ImportFootageButton } from "../videoProject/ImportFootageButton";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
 import { VideoStageSelect } from "../videoProject/VideoStageSelect";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
@@ -140,8 +143,19 @@ const planMedia = (
   return { paths, build };
 };
 
-// While proxies build, the index is re-read this often so finished ones start playing.
+// While footage copies or proxies build, their status files are re-read this often.
 const PROXY_POLL_MS = 2500;
+const INTAKE_STATUS_PATH = "intake.json";
+
+const parseIntakeStatus = (text: string | undefined): VideoProjectIntakeStatus | null => {
+  if (text === undefined) return null;
+  try {
+    const value = JSON.parse(text) as VideoProjectIntakeStatus;
+    return typeof value.state === "string" ? value : null;
+  } catch {
+    return null;
+  }
+};
 
 const timelineLabel = (path: string) =>
   path.slice(path.lastIndexOf("/") + 1).replace(/\.otio$/i, "");
@@ -159,7 +173,8 @@ export default function TimelinePanel(props: {
   const selectedPath =
     chosenPath !== null && timelinePaths.includes(chosenPath)
       ? chosenPath
-      : (timelinePaths[0] ?? null);
+      : // A pulled sequence comes before the generated footage timeline.
+        (timelinePaths.find((path) => path !== FOOTAGE_TIMELINE_PATH) ?? timelinePaths[0] ?? null);
   const file = useProjectFileQuery(
     props.environmentId,
     props.workspaceRoot,
@@ -258,13 +273,27 @@ export default function TimelinePanel(props: {
   }, []);
 
   const building = proxyIndex?.building ?? null;
-  const isBuilding = building !== null;
-  const refreshProxies = useEffectEvent(() => proxyFile.refresh());
+  const intakeFile = useProjectFileQuery(
+    props.environmentId,
+    props.workspaceRoot,
+    INTAKE_STATUS_PATH,
+  );
+  const intake = parseIntakeStatus(intakeFile.data?.contents);
+  const isBuilding = building !== null || intake?.state === "copying";
+  const refreshProxies = useEffectEvent(() => {
+    proxyFile.refresh();
+    intakeFile.refresh();
+  });
+  // The footage timeline is written when a build ends, so the list is read again then.
+  const refreshAfterBuild = useEffectEvent(() => refreshTimelines());
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- The server rewrites the proxy index as its background build finishes each file; nothing pushes that to clients.
   useEffect(() => {
     if (!isBuilding) return;
     const timer = window.setInterval(refreshProxies, PROXY_POLL_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      refreshAfterBuild();
+    };
   }, [isBuilding]);
 
   const writeFile = useAtomCommand(projectEnvironment.writeFile, { reportFailure: false });
@@ -302,6 +331,23 @@ export default function TimelinePanel(props: {
     />
   );
 
+  const importFootage = (size?: "sm") => (
+    <ImportFootageButton
+      environmentId={props.environmentId}
+      workspaceRoot={props.workspaceRoot}
+      onStarted={() => intakeFile.refresh()}
+      {...(size ? { size } : {})}
+    />
+  );
+  const intakeNote =
+    intake?.state === "copying" ? (
+      <span className="text-xs text-muted-foreground">
+        Copying footage: {intake.done} of {intake.total}
+      </span>
+    ) : intake?.state === "failed" ? (
+      <span className="text-xs text-destructive">Import failed: {intake.error}</span>
+    ) : null;
+
   if (selectedPath === null) {
     return (
       <Empty>
@@ -309,12 +355,15 @@ export default function TimelinePanel(props: {
         <EmptyHeader>
           <EmptyTitle>No timeline yet</EmptyTitle>
           <EmptyDescription>
-            When the rough cut exists, save the Premiere project in this project's Premiere folder
-            and pull a sequence. It shows up here and follows your saves.
+            {isBuilding
+              ? "Footage is on its way. It plays here as soon as its previews are made."
+              : "Import the footage you shot and it plays here. Once a rough cut exists, save the Premiere project in this project's Premiere folder and pull a sequence."}
           </EmptyDescription>
         </EmptyHeader>
+        {intakeNote}
         {canWriteFiles ? (
           <EmptyContent>
+            {importFootage()}
             <Button variant="outline" onClick={() => setPulling(true)}>
               Pull from Premiere
             </Button>
@@ -349,6 +398,8 @@ export default function TimelinePanel(props: {
             </SelectPopup>
           </Select>
         ) : null}
+        {intakeNote}
+        {canWriteFiles ? <span className="ml-auto">{importFootage("sm")}</span> : null}
       </div>
       {file.data ? (
         <Suspense fallback={null}>

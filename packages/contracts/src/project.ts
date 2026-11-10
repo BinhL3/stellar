@@ -580,6 +580,53 @@ export const VideoProjectCreateFromIdeaResult = Schema.Struct({
 });
 export type VideoProjectCreateFromIdeaResult = typeof VideoProjectCreateFromIdeaResult.Type;
 
+export const VideoProjectScanIntakeInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+});
+export type VideoProjectScanIntakeInput = typeof VideoProjectScanIntakeInput.Type;
+
+export const VideoProjectIntakeFile = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  size: Schema.Number,
+  /** When the file was shot, in epoch milliseconds: AirDrop keeps the camera's dates. */
+  capturedAt: Schema.Number,
+});
+export type VideoProjectIntakeFile = typeof VideoProjectIntakeFile.Type;
+
+export const VideoProjectScanIntakeResult = Schema.Struct({
+  /** The folder that was scanned (the host's Downloads). */
+  source: TrimmedNonEmptyString,
+  /** Videos and photos that arrived there in the last few days, oldest shot first. */
+  files: Schema.Array(VideoProjectIntakeFile),
+});
+export type VideoProjectScanIntakeResult = typeof VideoProjectScanIntakeResult.Type;
+
+export const VideoProjectImportFootageInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** Paths from a scan; anything outside the scanned folder is refused. */
+  paths: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(4096))).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(2000),
+  ),
+  /** The folder inside Footage to copy into, such as "00 Raw iPhone (Oct 10)". */
+  folder: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+});
+export type VideoProjectImportFootageInput = typeof VideoProjectImportFootageInput.Type;
+
+/**
+ * Progress of the last footage import, written to `intake.json` in the project folder as the
+ * copy runs so every client can follow it.
+ */
+export const VideoProjectIntakeStatus = Schema.Struct({
+  state: Schema.Literals(["copying", "done", "failed"]),
+  folder: Schema.String,
+  done: Schema.Number,
+  total: Schema.Number,
+  error: Schema.optional(Schema.String),
+});
+export type VideoProjectIntakeStatus = typeof VideoProjectIntakeStatus.Type;
+
 export const VideoProjectSyncInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   /** Replace timelines edited here with Premiere's version; the replaced files are kept. */

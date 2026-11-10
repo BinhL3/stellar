@@ -240,8 +240,11 @@ import {
   VideoProjectCreateFromIdeaResult,
   VideoProjectCreateInput,
   VideoProjectCreateResult,
+  VideoProjectImportFootageInput,
   VideoProjectInspectPremiereInput,
   VideoProjectInspectPremiereResult,
+  VideoProjectScanIntakeInput,
+  VideoProjectScanIntakeResult,
   VideoProjectSyncInput,
   VideoProjectSyncResult,
   ProjectCreateFromThreadInput,
@@ -429,6 +432,8 @@ export const WS_METHODS = {
   videoProjectsInspectPremiere: "videoProjects.inspectPremiere",
   videoProjectsCreate: "videoProjects.create",
   videoProjectsCreateFromIdea: "videoProjects.createFromIdea",
+  videoProjectsScanIntake: "videoProjects.scanIntake",
+  videoProjectsImportFootage: "videoProjects.importFootage",
   videoProjectsSync: "videoProjects.sync",
 
   shellOpenInEditor: "shell.openInEditor",
@@ -1392,6 +1397,18 @@ const WsVideoProjectsCreateFromIdeaRpc = Rpc.make(WS_METHODS.videoProjectsCreate
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVideoProjectsScanIntakeRpc = Rpc.make(WS_METHODS.videoProjectsScanIntake, {
+  payload: VideoProjectScanIntakeInput,
+  success: VideoProjectScanIntakeResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsImportFootageRpc = Rpc.make(WS_METHODS.videoProjectsImportFootage, {
+  payload: VideoProjectImportFootageInput,
+  success: Schema.Void,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsVideoProjectsSyncRpc = Rpc.make(WS_METHODS.videoProjectsSync, {
   payload: VideoProjectSyncInput,
   success: VideoProjectSyncResult,
@@ -2171,6 +2188,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsInspectPremiereRpc,
   WsVideoProjectsCreateRpc,
   WsVideoProjectsCreateFromIdeaRpc,
+  WsVideoProjectsScanIntakeRpc,
+  WsVideoProjectsImportFootageRpc,
   WsVideoProjectsSyncRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,

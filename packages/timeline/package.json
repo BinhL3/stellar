@@ -11,6 +11,10 @@
       "types": "./src/edits.ts",
       "import": "./src/edits.ts"
     },
+    "./footage": {
+      "types": "./src/footage.ts",
+      "import": "./src/footage.ts"
+    },
     "./layout": {
       "types": "./src/layout.ts",
       "import": "./src/layout.ts"

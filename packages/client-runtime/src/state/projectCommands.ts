@@ -219,6 +219,21 @@ export function createProjectEnvironmentAtoms<R, E>(
       scheduler: projectScheduler,
       concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
     }),
+    scanVideoIntake: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:scan-intake",
+      tag: WS_METHODS.videoProjectsScanIntake,
+      scheduler: projectScheduler,
+      concurrency: { mode: "parallel" },
+    }),
+    importVideoFootage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:import-footage",
+      tag: WS_METHODS.videoProjectsImportFootage,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
     syncVideoProject: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:video-projects:sync",
       tag: WS_METHODS.videoProjectsSync,

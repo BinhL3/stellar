@@ -157,6 +157,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.videoProjectsInspectPremiere]: AuthFilesystemReadScope,
   [WS_METHODS.videoProjectsCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.videoProjectsCreateFromIdea]: AuthOrchestrationOperateScope,
+  [WS_METHODS.videoProjectsScanIntake]: AuthFilesystemReadScope,
+  [WS_METHODS.videoProjectsImportFootage]: AuthFilesystemWriteScope,
   [WS_METHODS.videoProjectsSync]: AuthFilesystemWriteScope,
   [WS_METHODS.shellOpenInEditor]: AuthOrchestrationOperateScope,
   [WS_METHODS.filesystemBrowse]: AuthFilesystemReadScope,

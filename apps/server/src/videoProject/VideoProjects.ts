@@ -5,16 +5,24 @@ import {
   type VideoProjectCreateFromIdeaResult,
   type VideoProjectCreateInput,
   type VideoProjectCreateResult,
+  type VideoProjectImportFootageInput,
   type VideoProjectInspectPremiereInput,
   type VideoProjectInspectPremiereResult,
+  type VideoProjectIntakeStatus,
+  type VideoProjectScanIntakeInput,
+  type VideoProjectScanIntakeResult,
   type VideoProjectSyncInput,
   type VideoProjectSyncResult,
 } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { copyFootage, FOOTAGE_DIRECTORY, writeFootageStringout } from "@t3tools/timeline/footage";
+import { serializeJson } from "@t3tools/timeline/otio";
 import { parsePrproj } from "@t3tools/timeline/premiere/prproj";
 import { recordPull, syncFromPremiere } from "@t3tools/timeline/premiereSync";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import { buildProjectProxies, markProxiesBuilding } from "@t3tools/timeline/proxyBuilder";
 import { pullToProject } from "@t3tools/timeline/pullToProject";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -23,6 +31,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -60,6 +69,11 @@ const PROJECT_FOLDERS = [
 ];
 // Proxies are encoded a few files at a time so a big import doesn't starve the machine.
 const PROXY_CONCURRENCY = 3;
+/** Progress of a footage import, in the project folder; clients re-read it while it copies. */
+const INTAKE_STATUS_FILE = "intake.json";
+// How far back a scan looks for files that arrived in Downloads.
+const INTAKE_DAYS = 3;
+const INTAKE_FILE = /\.(mov|mp4|m4v|heic|jpe?g|png)$/i;
 
 export class VideoProjects extends Context.Service<
   VideoProjects,
@@ -82,6 +96,18 @@ export class VideoProjects extends Context.Service<
     readonly createFromIdea: (
       input: VideoProjectCreateFromIdeaInput,
     ) => Effect.Effect<VideoProjectCreateFromIdeaResult, VideoProjectError>;
+    /** Lists the videos and photos that recently arrived in the host's Downloads folder. */
+    readonly scanIntake: (
+      input: VideoProjectScanIntakeInput,
+    ) => Effect.Effect<VideoProjectScanIntakeResult, VideoProjectError>;
+    /**
+     * Copies scanned files into the project's Footage folder in the background, checking each
+     * copy's size, then builds proxies. The originals are left where they are. Progress is
+     * written to `intake.json` in the project folder.
+     */
+    readonly importFootage: (
+      input: VideoProjectImportFootageInput,
+    ) => Effect.Effect<void, VideoProjectError>;
     /**
      * Pulls Premiere's latest save into the project's timelines when the `.prproj` changed, and
      * (re)starts the proxy build when new media arrived or an earlier build never finished.
@@ -102,6 +128,8 @@ const make = Effect.gen(function* () {
   const background = yield* FiberSet.make();
   const syncing = yield* Semaphore.make(1);
   const building = new Set<string>();
+  const importing = new Set<string>();
+  const downloads = path.join(yield* HostProcess.HomeDirectory, "Downloads");
   const queued = new Set<string>();
 
   /**
@@ -121,6 +149,14 @@ const make = Effect.gen(function* () {
           Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.provideService(Path.Path, path),
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          // The footage timeline needs each clip's length, which the proxy index now has.
+          Effect.tap(() =>
+            writeFootageStringout(projectFolder).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.ignore,
+            ),
+          ),
           Effect.tap((result) =>
             Effect.logInfo("Video project proxies ready", {
               projectFolder,
@@ -338,9 +374,12 @@ const make = Effect.gen(function* () {
     };
   });
 
-  const sync: VideoProjects["Service"]["sync"] = Effect.fn("VideoProjects.sync")(function* (input) {
+  /** Clients name a project by its folder; only folders that are projects here are acted on. */
+  const requireProject = Effect.fn("VideoProjects.requireProject")(function* (
+    workspaceRoot: string,
+  ) {
     const known = yield* projects
-      .getByWorkspaceRoot(input.workspaceRoot)
+      .getByWorkspaceRoot(workspaceRoot)
       .pipe(
         Effect.mapError(
           (cause) => new VideoProjectError({ reason: "Could not look up projects.", cause }),
@@ -349,6 +388,100 @@ const make = Effect.gen(function* () {
     if (Option.isNone(known)) {
       return yield* new VideoProjectError({ reason: "That folder isn't a project here." });
     }
+  });
+
+  const scanIntake: VideoProjects["Service"]["scanIntake"] = Effect.fn("VideoProjects.scanIntake")(
+    function* (input) {
+      yield* requireProject(input.workspaceRoot);
+      const since = (yield* Clock.currentTimeMillis) - INTAKE_DAYS * 24 * 60 * 60 * 1000;
+      // AirDrop keeps a file's original dates, so only Spotlight knows when it arrived. Without
+      // Spotlight (other systems), fall back to files modified recently.
+      const arrived = yield* spawner
+        .string(
+          ChildProcess.make("mdfind", [
+            "-onlyin",
+            downloads,
+            `kMDItemDateAdded >= $time.today(-${INTAKE_DAYS})`,
+          ]),
+        )
+        .pipe(
+          Effect.map((output) => new Set(output.split("\n").filter((line) => line !== ""))),
+          // No answer also covers Spotlight being off for the folder.
+          Effect.map((found) => (found.size === 0 ? null : found)),
+          Effect.orElseSucceed(() => null),
+        );
+      const names = yield* fileSystem
+        .readDirectory(downloads)
+        .pipe(Effect.orElseSucceed((): Array<string> => []));
+      const files: Array<VideoProjectScanIntakeResult["files"][number]> = [];
+      for (const name of names) {
+        if (!INTAKE_FILE.test(name) || name.startsWith(".")) continue;
+        const file = path.join(downloads, name);
+        if (arrived !== null && !arrived.has(file)) continue;
+        const stat = yield* fileSystem.stat(file).pipe(Effect.option);
+        if (Option.isNone(stat) || stat.value.type !== "File") continue;
+        const capturedAt = Option.match(stat.value.mtime, {
+          onNone: () => 0,
+          onSome: (date) => date.getTime(),
+        });
+        if (arrived === null && capturedAt < since) continue;
+        files.push({ path: file, name, size: Number(stat.value.size), capturedAt });
+      }
+      return {
+        source: downloads,
+        files: files.toSorted(
+          (a, b) => a.capturedAt - b.capturedAt || a.name.localeCompare(b.name),
+        ),
+      };
+    },
+  );
+
+  const importFootage: VideoProjects["Service"]["importFootage"] = Effect.fn(
+    "VideoProjects.importFootage",
+  )(function* (input) {
+    yield* requireProject(input.workspaceRoot);
+    const folder = input.folder.replace(/[/\\:]+/g, " ").trim();
+    if (folder === "" || folder.startsWith(".")) {
+      return yield* new VideoProjectError({ reason: "Name the folder the footage goes in." });
+    }
+    if (input.paths.some((file) => path.dirname(path.resolve(file)) !== downloads)) {
+      return yield* new VideoProjectError({ reason: `Footage is imported from ${downloads}.` });
+    }
+    if (importing.has(input.workspaceRoot)) {
+      return yield* new VideoProjectError({ reason: "An import is already running." });
+    }
+    const destination = path.join(path.dirname(input.workspaceRoot), FOOTAGE_DIRECTORY, folder);
+    const total = input.paths.length;
+    const report = (status: Omit<VideoProjectIntakeStatus, "folder" | "total">) =>
+      fileSystem
+        .writeFileString(
+          path.join(input.workspaceRoot, INTAKE_STATUS_FILE),
+          serializeJson({ ...status, folder: destination, total }),
+        )
+        .pipe(Effect.ignore);
+    const copy = copyFootage({
+      sources: input.paths,
+      destination,
+      onCopied: (done) => report({ state: "copying", done }),
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.tap((done) => report({ state: "done", done })),
+      Effect.andThen(startProxies(input.workspaceRoot)),
+      Effect.catch((error) =>
+        report({ state: "failed", done: 0, error: error.message }).pipe(
+          Effect.andThen(Effect.logWarning("Footage import failed", { destination, error })),
+        ),
+      ),
+      Effect.ensuring(Effect.sync(() => importing.delete(input.workspaceRoot))),
+    );
+    importing.add(input.workspaceRoot);
+    yield* report({ state: "copying", done: 0 });
+    yield* FiberSet.run(background, copy);
+  });
+
+  const sync: VideoProjects["Service"]["sync"] = Effect.fn("VideoProjects.sync")(function* (input) {
+    yield* requireProject(input.workspaceRoot);
     // One at a time: two clients coming into focus together must not both rewrite a timeline.
     const result = yield* syncing.withPermits(1)(
       syncFromPremiere({
@@ -362,15 +495,20 @@ const make = Effect.gen(function* () {
         ),
       ),
     );
-    if (result.state !== "unlinked") {
-      if (result.updated.length > 0 || (yield* proxiesUnfinished(input.workspaceRoot))) {
-        yield* startProxies(input.workspaceRoot);
-      }
+    if (result.updated.length > 0 || (yield* proxiesUnfinished(input.workspaceRoot))) {
+      yield* startProxies(input.workspaceRoot);
     }
     return result;
   });
 
-  return VideoProjects.of({ inspectPremiere, createFromPremiere, createFromIdea, sync });
+  return VideoProjects.of({
+    inspectPremiere,
+    createFromPremiere,
+    createFromIdea,
+    scanIntake,
+    importFootage,
+    sync,
+  });
 });
 
 export const layer = Layer.effect(VideoProjects, make);

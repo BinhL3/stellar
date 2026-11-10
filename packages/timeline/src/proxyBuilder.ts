@@ -10,6 +10,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
+import { listFootage } from "./footage.ts";
 import { serializeJson, TIMELINE_NAMESPACE, type Timeline } from "./otio.ts";
 import {
   PEAKS_PER_SECOND,
@@ -328,7 +329,9 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
   const path = yield* Path.Path;
   const projectDir = path.resolve(input.projectDir);
   const timelineDir = path.join(projectDir, "timelines");
-  const files = (yield* fs.readDirectory(timelineDir)).filter((f) => f.endsWith(".otio"));
+  const files = (yield* fs
+    .readDirectory(timelineDir)
+    .pipe(Effect.orElseSucceed((): Array<string> => []))).filter((f) => f.endsWith(".otio"));
   const targets = new Map<string, string>();
   for (const file of files) {
     const timeline = (yield* decodeJson(
@@ -345,6 +348,12 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
         else if (root !== undefined) targets.set(target, path.join(root, target));
       }
     }
+  }
+  // Footage gets proxies as soon as it lands, before any timeline uses it. Its keys are the
+  // same media-root-relative paths a pulled timeline stores, so both share one proxy.
+  const mediaRoot = path.dirname(projectDir);
+  for (const target of yield* listFootage(mediaRoot)) {
+    if (!targets.has(target)) targets.set(target, path.join(mediaRoot, target));
   }
   yield* fs.makeDirectory(path.join(projectDir, PROXY_DIRECTORY), { recursive: true });
   const indexPath = path.join(projectDir, PROXY_INDEX_PATH);

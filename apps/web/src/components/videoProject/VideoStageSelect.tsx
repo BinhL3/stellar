@@ -97,7 +97,9 @@ export function VideoStageSelect(props: {
     >
       <SelectTrigger size="sm" aria-label="Stage">
         <SelectValue>
-          {(value: string) => STAGES.find((candidate) => candidate.value === value)?.label}
+          {(value: string) =>
+            `Stage: ${STAGES.find((candidate) => candidate.value === value)?.label ?? value}`
+          }
         </SelectValue>
       </SelectTrigger>
       <SelectPopup align="start" alignItemWithTrigger={false}>

@@ -276,6 +276,11 @@ Built from the past threads: it targets where time and failures actually went, a
 - **New video project: done.** The new-thread screen offers "start a new video project": pick a
   `.prproj` on the host and a sequence. The server's `VideoProjects` service creates the folder,
   pulls the sequence, adds (or reuses) the project, and builds proxies in the background.
+- **Video-only: decided.** Stellar has no code projects. Every project is a video project
+  (`VIDEO_ONLY` in `apps/web/src/branding.ts`), git surfaces stay off (`SHOW_GIT_SURFACES`), and
+  a server no longer adds the folder it starts in as a project. The code behind those surfaces
+  is switched off, not deleted, so merges from upstream stay small. The cost is that Stellar
+  can't be used to work on a repository, including its own.
 - **Starting from an idea: done (milestone 1).** The same dialog also takes a name and a folder
   and makes the project's folders (`Footage`, `Audio`, `B-roll`, `Graphics`, `Premiere`,
   `Exports`, `Stellar/timelines`). A project is a video project once it has `timelines/`, so
@@ -283,6 +288,18 @@ Built from the past threads: it targets where time and failures actually went, a
   `Premiere` folder. A `.prproj` saved there resolves to the same Stellar folder, so pulling
   joins the existing project instead of making a second one. Agents can't call either start
   yet; that comes with the toolkit in milestone 4.
+- **Intake: the copy and the preview are done (milestone 2, first half).**
+  - "Import footage" in the Timeline tab lists the videos and photos that arrived in the
+    host's Downloads in the last three days, by Spotlight's date added, grouped by the day they
+    were shot. The chosen files are copied into `Footage/<folder>` in the background, each
+    copy checked against its source's size. The originals stay in Downloads.
+  - Progress is `intake.json` in the project folder, re-read by clients while it copies.
+  - The proxy build now covers everything under `Footage`, not only what a timeline uses.
+  - When a build ends, `timelines/Footage.otio` is rewritten: every clip back to back, so the
+    footage plays in the Timeline tab before a Premiere project exists. A pulled sequence is
+    still the one shown first.
+  - Not built: the card in chat (it is a dialog), flagging overlap with a neighbouring
+    project, deleting from Downloads after the copy, frame timestamp tables and conforming.
 - **Stage: started.** A video project has a stage (Scripting, Footage in, Rough cut, Polish,
   Posted), kept as `stage` in `project.json` in the project folder, so the person, an agent
   editing the file and every client read the same thing. Unset, it reads Rough cut once a
@@ -576,8 +593,8 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
    `.otio` is a mirror of Premiere today, not the thing agents edit.
 4. The script exists only in Google Docs. That needs the connector signed in, a built-in
    browser (desktop only), and an undecided way to watch the doc (open questions 9 and 10).
-5. Proxies cover only media a pulled timeline uses, so previews start building after the rough
-   cut instead of at intake.
+5. Intake is a dialog the person opens. An agent can't run it or post it as a card, and it
+   never removes the originals from Downloads.
 6. New sequences aren't discovered. Each `vN+1` needs the new-project dialog again, and the
    timeline picker doesn't say which version is the latest.
 7. Frame timestamp tables aren't in the model. Source ranges assume a constant rate, and a

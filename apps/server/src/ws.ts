@@ -2931,6 +2931,22 @@ export const layerWsRpc = (
                 (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
               ),
             ),
+        [WS_METHODS.videoProjectsScanIntake]: (input) =>
+          videoProjects
+            .scanIntake(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.videoProjectsImportFootage]: (input) =>
+          videoProjects
+            .importFootage(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
         [WS_METHODS.videoProjectsSync]: (input) =>
           videoProjects
             .sync(input)

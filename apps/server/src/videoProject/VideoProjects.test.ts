@@ -7,10 +7,17 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as NodeOS from "node:os";
 import * as NodeZlib from "node:zlib";
+
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { copyFootage, listFootage } from "@t3tools/timeline/footage";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as VideoProjects from "./VideoProjects.ts";
+
+// Tests close their scope after the service's layer, so background proxy builds have stopped
+// before the temporary folder they write into is removed.
 
 // The smallest project Premiere's reader accepts: one sequence with an empty video track group.
 const prprojWithFrame = (frame: string) =>
@@ -57,13 +64,13 @@ it.live("lists sequences and places the project beside the Premiere folder's par
       projectFolder: path.join(root, "SFUniqlo", "Stellar"),
     });
   }).pipe(
-    Effect.scoped,
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects([])),
         Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
+    Effect.scoped,
   ),
 );
 
@@ -89,13 +96,13 @@ it.live("pulls the sequence into the project folder and reuses the project next 
     assert.isTrue(again.existed);
     assert.deepStrictEqual(created, [folder]);
   }).pipe(
-    Effect.scoped,
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
         Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
+    Effect.scoped,
   );
 });
 
@@ -156,13 +163,13 @@ it.live("syncs Premiere's saves without overwriting edits made here", () => {
     const elsewhere = yield* videoProjects.sync({ workspaceRoot: root }).pipe(Effect.flip);
     assert.strictEqual(elsewhere.message, "That folder isn't a project here.");
   }).pipe(
-    Effect.scoped,
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
         Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
+    Effect.scoped,
   );
 });
 
@@ -206,16 +213,108 @@ it.live(
         .pipe(Effect.flip);
       assert.strictEqual(missing.message, "Choose an existing folder to create it in.");
     }).pipe(
-      Effect.scoped,
       Effect.provide(
         VideoProjects.layer.pipe(
           Layer.provideMerge(withProjects(created)),
           Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
       ),
+      Effect.scoped,
     );
   },
 );
+
+it.live("copies footage in, replacing a cut-short copy and leaving the originals", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-footage-" });
+    const downloads = path.join(root, "Downloads");
+    yield* fs.makeDirectory(downloads);
+    const sources = ["IMG_2.MOV", "IMG_1.MOV", "IMG_3.HEIC"].map((name) =>
+      path.join(downloads, name),
+    );
+    for (const source of sources) yield* fs.writeFileString(source, `clip ${source}`);
+    const destination = path.join(root, "Jollibee", "Footage", "00 Raw");
+    yield* fs.makeDirectory(destination, { recursive: true });
+    yield* fs.writeFileString(path.join(destination, "IMG_1.MOV"), "cl");
+
+    const progress: Array<number> = [];
+    const copy = copyFootage({
+      sources,
+      destination,
+      onCopied: (done) => Effect.sync(() => void progress.push(done)),
+    });
+    assert.strictEqual(yield* copy, 3);
+    assert.deepStrictEqual(progress, [1, 2, 3]);
+    assert.strictEqual(
+      yield* fs.readFileString(path.join(destination, "IMG_1.MOV")),
+      `clip ${sources[1]}`,
+    );
+    assert.deepStrictEqual((yield* fs.readDirectory(destination)).toSorted(), [
+      "IMG_1.MOV",
+      "IMG_2.MOV",
+      "IMG_3.HEIC",
+    ]);
+    assert.isTrue(yield* fs.exists(sources[0]!));
+    assert.deepStrictEqual(yield* listFootage(path.join(root, "Jollibee")), [
+      "Footage/00 Raw/IMG_1.MOV",
+      "Footage/00 Raw/IMG_2.MOV",
+    ]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+// The service reads the home folder when it is built, so the test's home has a fixed path.
+const intakeHome = `${NodeOS.tmpdir()}/stellar-intake-home-${process.pid}`;
+
+it.live("scans Downloads for new footage and only imports from there", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const downloads = path.join(intakeHome, "Downloads");
+    yield* fs.makeDirectory(downloads, { recursive: true });
+    yield* Effect.addFinalizer(() =>
+      fs.remove(intakeHome, { recursive: true }).pipe(Effect.ignore),
+    );
+    yield* fs.writeFileString(path.join(downloads, "IMG_8139.MOV"), "clip");
+    yield* fs.writeFileString(path.join(downloads, "notes.txt"), "not footage");
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot } = yield* videoProjects.createFromIdea({
+      title: "Jollibee",
+      parentFolder: intakeHome,
+    });
+
+    const scan = yield* videoProjects.scanIntake({ workspaceRoot });
+    assert.strictEqual(scan.source, downloads);
+    assert.deepStrictEqual(
+      scan.files.map((file) => [file.path, file.size]),
+      [[path.join(downloads, "IMG_8139.MOV"), 4]],
+    );
+
+    const outside = yield* videoProjects
+      .importFootage({
+        workspaceRoot,
+        paths: [path.join(intakeHome, "secret.mov")],
+        folder: "00 Raw",
+      })
+      .pipe(Effect.flip);
+    assert.strictEqual(outside.message, `Footage is imported from ${downloads}.`);
+    const unnamed = yield* videoProjects
+      .importFootage({ workspaceRoot, paths: [scan.files[0]!.path], folder: ".." })
+      .pipe(Effect.flip);
+    assert.strictEqual(unnamed.message, "Name the folder the footage goes in.");
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.succeed(HostProcess.HomeDirectory, intakeHome)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
 
 it.live("rejects files that aren't Premiere projects", () =>
   Effect.gen(function* () {
