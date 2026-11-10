@@ -1,0 +1,58 @@
+{
+  "name": "@t3tools/timeline",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./compactView": {
+      "types": "./src/compactView.ts",
+      "import": "./src/compactView.ts"
+    },
+    "./edits": {
+      "types": "./src/edits.ts",
+      "import": "./src/edits.ts"
+    },
+    "./layout": {
+      "types": "./src/layout.ts",
+      "import": "./src/layout.ts"
+    },
+    "./otio": {
+      "types": "./src/otio.ts",
+      "import": "./src/otio.ts"
+    },
+    "./premiere/prproj": {
+      "types": "./src/premiere/prproj.ts",
+      "import": "./src/premiere/prproj.ts"
+    },
+    "./premiere/shortcuts": {
+      "types": "./src/premiere/shortcuts.ts",
+      "import": "./src/premiere/shortcuts.ts"
+    },
+    "./proxies": {
+      "types": "./src/proxies.ts",
+      "import": "./src/proxies.ts"
+    },
+    "./proxyBuilder": {
+      "types": "./src/proxyBuilder.ts",
+      "import": "./src/proxyBuilder.ts"
+    },
+    "./pullToProject": {
+      "types": "./src/pullToProject.ts",
+      "import": "./src/pullToProject.ts"
+    }
+  },
+  "scripts": {
+    "proxies": "node src/bin/proxies.ts",
+    "pull": "node src/bin/pull.ts",
+    "test": "vp test run --config ../../vite.config.ts --dir .",
+    "typecheck": "effect-tsgo tsrs --noEmit"
+  },
+  "dependencies": {
+    "@effect/platform-node": "catalog:",
+    "effect": "catalog:",
+    "fast-xml-parser": "5.7.3"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

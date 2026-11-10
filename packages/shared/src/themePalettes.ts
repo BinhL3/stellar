@@ -1,0 +1,356 @@
+export const BUILT_IN_THEME_IDS = ["stellar", "night-edit", "darkroom", "studio"] as const;
+
+export const MOBILE_DEFAULT_THEME_ID = "t3-code";
+
+export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...BUILT_IN_THEME_IDS] as const;
+
+/** Reserve appearance keywords, built-ins, and legacy aliases so custom themes cannot capture stored preferences. */
+export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
+  "system",
+  "light",
+  "dark",
+  ...BUILT_IN_THEME_IDS,
+  "t3-code",
+  "t3-chat",
+  "grove",
+  "ocean",
+  "ember",
+  "iris",
+  "t3-chat-dark",
+  "t3-grove",
+  "t3-ocean",
+  "t3-ember",
+  "t3-iris",
+]);
+
+/** The mobile default id is valid in saved themes but cannot be published because web/desktop cannot resolve it. */
+export const UNPUBLISHABLE_THEME_IDS: ReadonlySet<string> = new Set([
+  ...RESERVED_THEME_IDS,
+  MOBILE_DEFAULT_THEME_ID,
+]);
+
+export type BuiltInThemeId = (typeof BUILT_IN_THEME_IDS)[number];
+export type MobileThemeId = (typeof MOBILE_THEME_IDS)[number];
+export type ThemeAppearance = "light" | "dark";
+
+export const THEME_COLOR_ROLES = [
+  "canvas",
+  "chrome",
+  "toolbar",
+  "toolbarForeground",
+  "toolbarBorder",
+  "toolbarControl",
+  "toolbarControlForeground",
+  "toolbarControlHover",
+  "surface",
+  "surfaceRaised",
+  "surfaceOverlay",
+  "text",
+  "textMuted",
+  "border",
+  "input",
+  "focus",
+  "accent",
+  "accentForeground",
+  "secondary",
+  "secondaryForeground",
+  "muted",
+  "mutedForeground",
+  "placeholder",
+  "secondaryLabel",
+  "iconMuted",
+  "error",
+  "errorForeground",
+  "errorSurface",
+  "warning",
+  "warningForeground",
+  "warningSurface",
+  "update",
+  "updateForeground",
+  "updateSurface",
+  "accentSurface",
+  "accentSurfaceForeground",
+  "messageSurface",
+  "messageForeground",
+  "messageAction",
+  "messageActionForeground",
+  "messageActionHover",
+  "codeBackground",
+  "codeForeground",
+  "searchMatchBackground",
+  "searchMatchForeground",
+  "searchMatchActiveBackground",
+  "searchMatchActiveForeground",
+  "sidebar",
+  "sidebarForeground",
+  "sidebarMutedForeground",
+  "sidebarControlSurface",
+  "sidebarRowHover",
+  "sidebarRowActive",
+  "sidebarRowSelected",
+  "sidebarBorder",
+  "terminalBackground",
+  "terminalForeground",
+  "terminalCursor",
+  "terminalSelection",
+  "terminalScrollbar",
+  "terminalScrollbarHover",
+] as const;
+
+export type ThemeColorRole = (typeof THEME_COLOR_ROLES)[number];
+export type ThemeColors = Readonly<Record<ThemeColorRole, string>>;
+export type ThemeVariants = Readonly<Partial<Record<ThemeAppearance, ThemeColors>>>;
+export type ThemeDefinition = Readonly<{
+  id: string;
+  label: string;
+  appearance: ThemeAppearance;
+  colors: ThemeColors;
+  variants?: ThemeVariants;
+  collection?: Readonly<{ id: string; label: string }>;
+  sidebarArtwork?: boolean;
+  managed?: boolean;
+}>;
+
+export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {
+  searchMatchBackground: "#ffde8b",
+  searchMatchForeground: "#21180a",
+  searchMatchActiveBackground: "#eea52b",
+  searchMatchActiveForeground: "#21180a",
+  canvas: "#fcfcfc",
+  chrome: "#fcfcfc",
+  toolbar: "#fcfcfc",
+  toolbarForeground: "#27272a",
+  toolbarBorder: "#e4e4e7",
+  toolbarControl: "#ffffff",
+  toolbarControlForeground: "#27272a",
+  toolbarControlHover: "#f4f4f5",
+  surface: "#ffffff",
+  surfaceRaised: "#fcfcfc",
+  surfaceOverlay: "#ffffff",
+  text: "#27272a",
+  textMuted: "#71717b",
+  border: "#e4e4e7",
+  input: "#d4d4d8",
+  focus: "#1b4ed8",
+  accent: "#1b4ed8",
+  accentForeground: "#ffffff",
+  secondary: "#fafafa",
+  secondaryForeground: "#27272a",
+  muted: "#fafafa",
+  mutedForeground: "#71717b",
+  placeholder: "#71717b",
+  secondaryLabel: "#71717b",
+  iconMuted: "#71717b",
+  error: "#fb2c36",
+  errorForeground: "#c10007",
+  errorSurface: "#fcebec",
+  warning: "#fe9a00",
+  warningForeground: "#bb4d00",
+  warningSurface: "#fcf4e8",
+  update: "#1b4ed8",
+  updateForeground: "#1b4ed8",
+  updateSurface: "#e0e6f7",
+  accentSurface: "#f4f4f5",
+  accentSurfaceForeground: "#18181b",
+  messageSurface: "#f4f4f5",
+  messageForeground: "#27272a",
+  messageAction: "#1b4ed8",
+  messageActionForeground: "#ffffff",
+  messageActionHover: "#3160db",
+  codeBackground: "#ffffff",
+  codeForeground: "#27272a",
+  sidebar: "#fafafa",
+  sidebarForeground: "#27272a",
+  sidebarMutedForeground: "#71717b",
+  sidebarControlSurface: "#f4f4f5",
+  sidebarRowHover: "#fcfcfc",
+  sidebarRowActive: "#ffffff",
+  sidebarRowSelected: "#ffffff",
+  sidebarBorder: "#e4e4e7",
+  terminalBackground: "#fcfcfc",
+  terminalForeground: "#27272a",
+  terminalCursor: "#26384e",
+  terminalSelection: "#d0d6dd",
+  terminalScrollbar: "#d6d6d6",
+  terminalScrollbarHover: "#bdbdbd",
+};
+
+export const T3_CODE_DARK_THEME_COLORS: ThemeColors = {
+  searchMatchBackground: "#8c6c1f",
+  searchMatchForeground: "#f5f5f5",
+  searchMatchActiveBackground: "#eea52b",
+  searchMatchActiveForeground: "#21180a",
+  canvas: "#0a0a0a",
+  chrome: "#0a0a0a",
+  toolbar: "#0a0a0a",
+  toolbarForeground: "#f5f5f5",
+  toolbarBorder: "#191919",
+  toolbarControl: "#111111",
+  toolbarControlForeground: "#f5f5f5",
+  toolbarControlHover: "#141414",
+  surface: "#111111",
+  surfaceRaised: "#111111",
+  surfaceOverlay: "#111111",
+  text: "#f5f5f5",
+  textMuted: "#818181",
+  border: "#191919",
+  input: "#1e1e1e",
+  focus: "#346bf1",
+  accent: "#346bf1",
+  accentForeground: "#ffffff",
+  secondary: "#111111",
+  secondaryForeground: "#f5f5f5",
+  muted: "#111111",
+  mutedForeground: "#818181",
+  placeholder: "#818181",
+  secondaryLabel: "#818181",
+  iconMuted: "#818181",
+  error: "#fb414a",
+  errorForeground: "#ff6467",
+  errorSurface: "#301214",
+  warning: "#fe9a00",
+  warningForeground: "#ffb900",
+  warningSurface: "#312108",
+  update: "#346bf1",
+  updateForeground: "#51a2ff",
+  updateSurface: "#121b34",
+  accentSurface: "#141414",
+  accentSurfaceForeground: "#f5f5f5",
+  messageSurface: "#141414",
+  messageForeground: "#f5f5f5",
+  messageAction: "#346bf1",
+  messageActionForeground: "#ffffff",
+  messageActionHover: "#3061d9",
+  codeBackground: "#111111",
+  codeForeground: "#f5f5f5",
+  sidebar: "#000000",
+  sidebarForeground: "#f1f3f7",
+  sidebarMutedForeground: "#a3a3a3",
+  sidebarControlSurface: "#0a0a0a",
+  sidebarRowHover: "#131313",
+  sidebarRowActive: "#1a1b1b",
+  sidebarRowSelected: "#111111",
+  sidebarBorder: "#141414",
+  terminalBackground: "#0a0a0a",
+  terminalForeground: "#f5f5f5",
+  terminalCursor: "#b4cbff",
+  terminalSelection: "#343a47",
+  terminalScrollbar: "#222222",
+  terminalScrollbarHover: "#363636",
+};
+
+function editorPalette(
+  appearance: ThemeAppearance,
+  canvas: string,
+  surface: string,
+  raised: string,
+  border: string,
+  accent: string,
+): ThemeColors {
+  const dark = appearance === "dark";
+  const text = dark ? "#eeeeee" : "#202020";
+  const muted = dark ? "#aaaaaa" : "#595959";
+  const accentForeground = dark ? "#101010" : "#ffffff";
+  return {
+    ...(dark ? T3_CODE_DARK_THEME_COLORS : T3_CODE_LIGHT_THEME_COLORS),
+    warningForeground: dark ? "#ffb900" : "#a84400",
+    canvas,
+    chrome: canvas,
+    toolbar: canvas,
+    toolbarForeground: text,
+    toolbarBorder: border,
+    toolbarControl: surface,
+    toolbarControlForeground: text,
+    toolbarControlHover: raised,
+    surface,
+    surfaceRaised: raised,
+    surfaceOverlay: raised,
+    text,
+    textMuted: muted,
+    border,
+    input: border,
+    focus: accent,
+    accent,
+    accentForeground,
+    secondary: surface,
+    secondaryForeground: text,
+    muted: surface,
+    mutedForeground: muted,
+    placeholder: muted,
+    secondaryLabel: muted,
+    iconMuted: muted,
+    update: accent,
+    updateForeground: accent,
+    updateSurface: raised,
+    accentSurface: raised,
+    accentSurfaceForeground: text,
+    messageSurface: raised,
+    messageForeground: text,
+    messageAction: accent,
+    messageActionForeground: accentForeground,
+    messageActionHover: accent,
+    codeBackground: surface,
+    codeForeground: text,
+    sidebar: canvas,
+    sidebarForeground: text,
+    sidebarMutedForeground: muted,
+    sidebarControlSurface: surface,
+    sidebarRowHover: surface,
+    sidebarRowActive: raised,
+    sidebarRowSelected: raised,
+    sidebarBorder: border,
+    terminalBackground: canvas,
+    terminalForeground: text,
+    terminalCursor: accent,
+    terminalSelection: raised,
+    terminalScrollbar: border,
+    terminalScrollbarHover: muted,
+  };
+}
+
+export const STELLAR_THEME: ThemeDefinition = {
+  id: "stellar",
+  label: "Stellar",
+  appearance: "light",
+  colors: editorPalette("light", "#fafafa", "#ffffff", "#ebebeb", "#cecece", "#262626"),
+  variants: { dark: editorPalette("dark", "#0a0a0a", "#141414", "#242424", "#383838", "#eeeeee") },
+};
+
+export const NIGHT_EDIT_THEME: ThemeDefinition = {
+  id: "night-edit",
+  label: "Night Edit",
+  appearance: "light",
+  colors: editorPalette("light", "#f4f6f8", "#ffffff", "#e4e8ee", "#c5cbd4", "#34577c"),
+  variants: { dark: editorPalette("dark", "#0d1219", "#171d25", "#252e39", "#3c4755", "#a2bfdc") },
+};
+
+export const DARKROOM_THEME: ThemeDefinition = {
+  id: "darkroom",
+  label: "Darkroom",
+  appearance: "light",
+  colors: editorPalette("light", "#f7f5f1", "#fffefa", "#eae6de", "#ccc5b9", "#79531d"),
+  variants: { dark: editorPalette("dark", "#151310", "#201d18", "#302b23", "#4b4337", "#d8b575") },
+};
+
+export const STUDIO_THEME: ThemeDefinition = {
+  id: "studio",
+  label: "Studio",
+  appearance: "light",
+  colors: editorPalette("light", "#e7e7e7", "#f2f2f2", "#d8d8d8", "#b2b2b2", "#353535"),
+  variants: { dark: editorPalette("dark", "#252525", "#303030", "#3b3b3b", "#555555", "#dedede") },
+};
+
+export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
+  STELLAR_THEME,
+  NIGHT_EDIT_THEME,
+  DARKROOM_THEME,
+  STUDIO_THEME,
+];
+
+export function getThemeColorsForAppearance(
+  theme: ThemeDefinition,
+  appearance: ThemeAppearance,
+): ThemeColors | null {
+  if (theme.appearance === appearance) return theme.colors;
+  return theme.variants?.[appearance] ?? null;
+}

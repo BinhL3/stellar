@@ -1,0 +1,9 @@
+<!-- The Stellar star, full bleed, so it renders as large as other apps' status bar icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="120" android:viewportHeight="120">
+    <group>
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M60,0C63.5,32 88,56.5 120,60C88,63.5 63.5,88 60,120C56.5,88 32,63.5 0,60C32,56.5 56.5,32 60,0Z" />
+    </group>
+</vector>
