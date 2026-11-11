@@ -4,12 +4,18 @@ import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
+import type { PremierePull } from "./premiereChanges";
+import { DROPPED_EDITS_TITLE, PremiereChangeList, pullTitle } from "./PremierePullNotice";
 
 export interface PremiereSyncStatus {
   readonly link: Pick<
     VideoProjectSyncResult,
-    "state" | "premiereSavedAt" | "premiereRunning"
+    "state" | "premiereSavedAt" | "premiereRunning" | "pending"
   > | null;
+  /** The last sync that changed anything, still listed here after its notice is dismissed. */
+  readonly lastPull: PremierePull | null;
+  /** Edits in the viewer that aren't saved to the timeline file; replacing the file drops them. */
+  readonly uncommittedEdits: boolean;
   readonly syncing: boolean;
   /** Proxies still being made, or null when none are. */
   readonly building: { readonly done: number; readonly total: number } | null;
@@ -21,6 +27,7 @@ export interface PremiereSyncStatus {
   /** Absent when this connection can't write to the project. */
   readonly onSync?: () => void;
   readonly onUsePremiere?: () => void;
+  readonly onMerge?: () => void;
   /** Null until the project's transcript status has been written. */
   readonly transcripts: VideoTranscriptStatus | null;
   /** Absent when this connection can't write to the project. */
@@ -61,7 +68,7 @@ const explain = (state: State, time: number | null): string => {
   switch (state) {
     case "current":
     case "updated":
-      return `This timeline matches Premiere's last save${savedAt(time)}. Save in Premiere and come back here to pull your changes.`;
+      return `This timeline matches Premiere's last save${savedAt(time)}.`;
     case "edited":
       return "This timeline has edits made here that aren't in Premiere yet. Premiere hasn't changed since the last pull.";
     case "conflict":
@@ -85,6 +92,10 @@ const transcriptLine = (status: VideoTranscriptStatus | null): string => {
 /** The Premiere pill in the preview's transport row: sync state at a glance, details on click. */
 export function PremiereSyncBadge(props: PremiereSyncStatus) {
   const state = props.link?.state ?? null;
+  const inSync = state === "current" || state === "updated";
+  const diverged = state === "edited" || state === "conflict";
+  const pending = props.link?.pending ?? [];
+  const { lastPull } = props;
   const short = props.syncing ? "Syncing" : state === null ? null : SHORT[state];
   const { building, transcripts } = props;
   const failedTranscripts = transcripts?.failed.length ?? 0;
@@ -123,17 +134,55 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
               ? "Checking Premiere for a newer save."
               : explain(state, props.link?.premiereSavedAt ?? null)}
           </p>
+          {inSync ? (
+            <p className="text-muted-foreground">
+              {props.link?.premiereRunning === true
+                ? "Premiere is open. Saves there are pulled in when you come back here."
+                : "Save in Premiere and come back here to pull your changes."}
+            </p>
+          ) : null}
           {props.link?.premiereRunning === false ? (
             <p className="text-warning">
               Premiere isn't open on this machine. An agent can read and edit this timeline, but
               can't change the Premiere sequence until you open it.
             </p>
           ) : null}
-          {state === "edited" || state === "conflict" ? (
+          {diverged && pending.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">Not in Premiere yet</span>
+              <PremiereChangeList items={pending} limit={4} />
+            </div>
+          ) : null}
+          {state === "edited" ? (
             <p className="text-muted-foreground">
-              Sending edits to Premiere isn't built yet. Taking Premiere's version keeps yours in
-              timelines/replaced.
+              An agent can apply these to the open Premiere sequence. Ask it to push the timeline to
+              Premiere. Taking Premiere's version keeps yours in timelines/replaced.
             </p>
+          ) : null}
+          {state === "conflict" ? (
+            <p className="text-muted-foreground">
+              Merge takes Premiere's save and puts your edits back on top. The file from before the
+              merge is kept in timelines/replaced, as it is when you take Premiere's version.
+            </p>
+          ) : null}
+          {diverged && props.uncommittedEdits && props.onUsePremiere ? (
+            <p className="text-warning">
+              Save or discard your pending edits first. Replacing the timeline would drop them.
+            </p>
+          ) : null}
+          {lastPull !== null ? (
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">{pullTitle(lastPull)}</span>
+              {lastPull.changes.length > 0 ? (
+                <PremiereChangeList items={lastPull.changes} limit={3} />
+              ) : null}
+              {lastPull.conflicts.length > 0 ? (
+                <>
+                  <span className="text-warning">{DROPPED_EDITS_TITLE}</span>
+                  <PremiereChangeList items={lastPull.conflicts} limit={3} />
+                </>
+              ) : null}
+            </div>
           ) : null}
           <p className="text-muted-foreground">
             {building !== null
@@ -162,6 +211,15 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
           </p>
           {props.onSync || canTranscribe ? (
             <div className="flex flex-wrap gap-1">
+              {state === "conflict" && props.onMerge ? (
+                <Button
+                  size="xs"
+                  disabled={props.syncing || props.uncommittedEdits}
+                  onClick={props.onMerge}
+                >
+                  Merge
+                </Button>
+              ) : null}
               {props.onSync ? (
                 <Button
                   size="xs"
@@ -172,11 +230,11 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
                   Sync now
                 </Button>
               ) : null}
-              {(state === "edited" || state === "conflict") && props.onUsePremiere ? (
+              {diverged && props.onUsePremiere ? (
                 <Button
                   size="xs"
                   variant="ghost"
-                  disabled={props.syncing}
+                  disabled={props.syncing || props.uncommittedEdits}
                   onClick={props.onUsePremiere}
                 >
                   Use Premiere's version

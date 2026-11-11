@@ -1,6 +1,7 @@
 import {
   OrchestratorMcpFailure,
   VideoProjectCreateFromIdeaResult,
+  VideoPremierePushPlan,
   VideoProjectScanIntakeResult,
   VideoScriptSaveInput,
   VideoTimelineEdit,
@@ -42,7 +43,7 @@ const TimelineReadTool = Tool.make("video_timeline_read", {
 
 const TimelineEditTool = Tool.make("video_timeline_edit", {
   description:
-    "Edit a timeline in Stellar. `edits` run in order, in whole frames, naming clips by `#clipId` from `video_timeline_read`: move (clipId, toTrack, startFrame; `magnetic` closes the gap and pushes clips instead of overwriting), trim (clipId, edge, frame), delete, rippleDelete, split (frame, tracks), removeRange (start, end, ripple), removeWords (fromWord, toWord, ripple), setEnabled, setText. A split's later piece is `<clipId>~<frame>`. removeWords takes word numbers from `video_timeline_words` as they were before this call, so one call can hold several word cuts; put them before other edits. One bad edit refuses the whole call. Edits change Stellar's timeline only; `video_premiere_export` sends the result to Premiere.",
+    "Edit a timeline in Stellar. `edits` run in order, in whole frames, naming clips by `#clipId` from `video_timeline_read`: move (clipId, toTrack, startFrame; `magnetic` closes the gap and pushes clips instead of overwriting), trim (clipId, edge, frame), delete, rippleDelete, split (frame, tracks), removeRange (start, end, ripple), removeWords (fromWord, toWord, ripple), setEnabled, setText. A split's later piece is `<clipId>~<frame>`. removeWords takes word numbers from `video_timeline_words` as they were before this call, so one call can hold several word cuts; put them before other edits. One bad edit refuses the whole call. Edits change Stellar's timeline only; `video_premiere_push` plans how to make them in the Premiere sequence it came from, and `video_premiere_export` sends a first cut as a new sequence.",
   parameters: Schema.Struct({
     timeline: Schema.String,
     edits: Schema.Array(VideoTimelineEdit),
@@ -117,7 +118,7 @@ const ScriptTool = Tool.make("video_script", {
 
 const PremiereExportTool = Tool.make("video_premiere_export", {
   description:
-    "Send a Stellar timeline to Premiere: writes it as an XML file in the project's Premiere folder and returns the `path`. Import that file with a Premiere tool; it arrives as a new sequence named `sequenceName`, never replacing one. Only the cut travels (tracks, positions, source ranges, enabled state). Effects, text graphics and clips without a media file are left out and listed in `skipped`: tell the user what didn't come across.",
+    "Send a first cut to Premiere as a new sequence; when the sequence already exists in Premiere, use `video_premiere_push`, which keeps its effects and polish. Writes the timeline as an XML file in the project's Premiere folder and returns the `path`. Import that file with a Premiere tool; it arrives as a new sequence named `sequenceName`, never replacing one. Only the cut travels (tracks, positions, source ranges, enabled state). Effects, text graphics and clips without a media file are left out and listed in `skipped`: tell the user what didn't come across.",
   parameters: Schema.Struct({ timeline: Schema.optional(Schema.String) }),
   success: VideoTimelineExportResult,
   failure: OrchestratorMcpFailure,
@@ -128,6 +129,21 @@ const PremiereExportTool = Tool.make("video_premiere_export", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const PremierePushTool = Tool.make("video_premiere_push", {
+  description:
+    "Plan how to bring the sequence open in Premiere up to the timeline edited in Stellar, changing only what differs so effects, titles and hand polish stay. Use this, not `video_premiere_export`, whenever the sequence already exists in Premiere. Changes nothing itself: `plan` is numbered steps (ripple-remove a range, remove, trim, move, enable or disable, split) in seconds and frames, each at the position it has when that step runs. Apply them in order with the Premiere tools, reading clip ids from the sequence again after each step; then save the project in Premiere and call `video_timeline_read`, whose `premiere` is `current` once Premiere matches and whose `changes` say what still differs. `manual` lists what no step does safely (new clips, effects, text, tracks). When `refused` is set there is no plan: it says why, such as Premiere holding a newer save to pull first. When `premiereRunning` is false, apply nothing and tell the user to open Premiere. `instructions` repeats what applies to this plan.",
+  parameters: Schema.Struct({ timeline: Schema.optional(Schema.String) }),
+  success: VideoPremierePushPlan,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Plan the push to Premiere")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
 const ProjectStartTool = Tool.make("video_project_start", {
@@ -195,6 +211,7 @@ export const VideoToolkit = Toolkit.make(
   TranscribeTool,
   ScriptTool,
   PremiereExportTool,
+  PremierePushTool,
   ProjectStartTool,
   PremierePullTool,
   FootageTool,

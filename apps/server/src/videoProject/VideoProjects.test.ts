@@ -31,6 +31,47 @@ const prprojWithFrame = (frame: string) =>
 </PremiereData>`);
 const prproj = prprojWithFrame("1080,1920");
 
+// A project whose sequences each hold one video track of clips, placed in frames at 30 fps.
+const FRAME_TICKS = 8467200000;
+interface FixtureClip {
+  readonly name: string;
+  readonly start: number;
+  readonly end: number;
+}
+const prprojWithSequences = (
+  sequences: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly clips: ReadonlyArray<FixtureClip>;
+  }>,
+) => {
+  let nextId = 100;
+  const objects = sequences.flatMap((sequence) => {
+    const items = sequence.clips.map((clip) => {
+      const [source, video, sub, item] = [nextId++, nextId++, nextId++, nextId++];
+      const media = `${sequence.id}-${clip.name}`;
+      return {
+        item,
+        xml: `<Media ObjectUID="${media}"><FilePath>/media/Footage/${clip.name}</FilePath></Media>
+<VideoMediaSource ObjectID="${source}"><MediaSource><Media ObjectURef="${media}"/></MediaSource></VideoMediaSource>
+<VideoClip ObjectID="${video}"><Clip><Source ObjectRef="${source}"/><InPoint>0</InPoint><OutPoint>${(clip.end - clip.start) * FRAME_TICKS}</OutPoint></Clip></VideoClip>
+<SubClip ObjectID="${sub}"><Clip ObjectRef="${video}"/><Name>${clip.name}</Name></SubClip>
+<VideoClipTrackItem ObjectID="${item}"><ClipTrackItem><TrackItem><Node><ID>${clip.name.charCodeAt(0)}</ID></Node><Start>${clip.start * FRAME_TICKS}</Start><End>${clip.end * FRAME_TICKS}</End></TrackItem><SubClip ObjectRef="${sub}"/></ClipTrackItem></VideoClipTrackItem>`,
+      };
+    });
+    const group = nextId++;
+    return [
+      ...items.map((entry) => entry.xml),
+      `<VideoClipTrack ObjectUID="track-${sequence.id}"><ClipTrack><ClipItems><TrackItems>${items.map((entry, index) => `<TrackItem Index="${index}" ObjectRef="${entry.item}"/>`).join("")}</TrackItems></ClipItems></ClipTrack></VideoClipTrack>`,
+      `<VideoTrackGroup ObjectID="${group}"><TrackGroup><FrameRate>${FRAME_TICKS}</FrameRate><Tracks><Track Index="0" ObjectURef="track-${sequence.id}"/></Tracks></TrackGroup><FrameRect>0,0,1080,1920</FrameRect></VideoTrackGroup>`,
+      `<Sequence ObjectUID="${sequence.id}"><TrackGroups><TrackGroup Index="0"><First>v</First><Second ObjectRef="${group}"/></TrackGroup></TrackGroups><Name>${sequence.name}</Name></Sequence>`,
+    ];
+  });
+  return NodeZlib.gzipSync(
+    `<?xml version="1.0" encoding="UTF-8" ?>\n<PremiereData Version="3">\n${objects.join("\n")}\n</PremiereData>`,
+  );
+};
+
 // Background work transcribes what it finds, so no test may reach a real transcriber on the PATH.
 const missingTranscriber = "/nonexistent/stellar-test-stt";
 const noTranscriber = ServerSettings.ServerSettingsService.layerTest({
@@ -188,6 +229,162 @@ it.live("syncs Premiere's saves without overwriting edits made here", () => {
     Effect.scoped,
   );
 });
+
+it.live(
+  "says what Premiere changed, merges edits made on both sides, and finds new sequences",
+  () => {
+    const created: Array<string> = [];
+    return Effect.gen(function* () {
+      const { fs, path, premiereProjectPath } = yield* setup;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      let saves = 0;
+      // Each save gets its own modified time, so it reads as new whatever its size.
+      const save = (cEnd: number, more: ReadonlyArray<{ id: string; name: string }> = []) =>
+        Effect.gen(function* () {
+          const clips = [
+            { name: "a.MOV", start: 0, end: 100 },
+            { name: "b.MOV", start: 100, end: 200 },
+            { name: "c.MOV", start: 200, end: cEnd },
+          ];
+          yield* fs.writeFile(
+            premiereProjectPath,
+            prprojWithSequences([
+              { id: "seq-1", name: "Polish v1", clips },
+              ...more.map((sequence) => ({ ...sequence, clips: clips.slice(0, 1) })),
+            ]),
+          );
+          saves += 1;
+          yield* fs.utimes(premiereProjectPath, 1_000_000 + saves, 1_000_000 + saves);
+        });
+      yield* save(300);
+      const { workspaceRoot, timelinePath } = yield* videoProjects.createFromPremiere({
+        premiereProjectPath,
+        sequenceId: "seq-1",
+      });
+      const timelineFile = path.join(workspaceRoot, timelinePath);
+      const baseFile = path.join(workspaceRoot, "timelines", ".base", path.basename(timelinePath));
+      const sync = (merge?: boolean) =>
+        videoProjects.sync({ workspaceRoot, ...(merge ? { merge } : {}) });
+      const clipLines = (text: string) =>
+        text
+          .split("\n")
+          .slice(1)
+          .map((line) => line.replace(/ #\S+/, ""));
+      const clipId = (text: string, name: string) =>
+        text
+          .split("\n")
+          .find((line) => line.includes(name))
+          ?.match(/#(\S+)/)?.[1] ?? "";
+
+      assert.strictEqual(
+        yield* fs.readFileString(baseFile),
+        yield* fs.readFileString(timelineFile),
+      );
+      assert.strictEqual((yield* sync()).state, "current");
+
+      // A pull says what it brought in and moves the base with it.
+      yield* save(260);
+      const pulled = yield* sync();
+      assert.strictEqual(pulled.state, "updated");
+      assert.deepStrictEqual(pulled.changes, ["Trimmed c.MOV on V1 at 0:06: cut 1.3s off its end"]);
+      assert.deepStrictEqual([pulled.pending, pulled.conflicts], [[], []]);
+      assert.strictEqual(
+        yield* fs.readFileString(baseFile),
+        yield* fs.readFileString(timelineFile),
+      );
+
+      // Edits made here are pending until they reach Premiere.
+      const read = yield* videoProjects.readTimeline({ workspaceRoot });
+      assert.strictEqual(read.changes, "");
+      const edited = yield* videoProjects.editTimeline({
+        workspaceRoot,
+        timeline: timelinePath,
+        edits: [
+          { kind: "setEnabled", clipId: clipId(read.text, "b.MOV"), enabled: false },
+          { kind: "trim", clipId: clipId(read.text, "c.MOV"), edge: "end", frame: 250 },
+        ],
+      });
+      assert.strictEqual(edited.premiere, "edited");
+      assert.include(edited.changes, `Edited here, not in Premiere yet (${timelinePath}):`);
+      const pending = (yield* sync()).pending;
+      assert.strictEqual(pending.length, 2);
+      const ours = yield* fs.readFileString(timelineFile);
+
+      // Premiere trims the same clip end: the UI sync leaves the choice to the user.
+      yield* save(240);
+      const conflict = yield* sync();
+      assert.strictEqual(conflict.state, "conflict");
+      assert.deepStrictEqual(conflict.pending, pending);
+      assert.strictEqual(yield* fs.readFileString(timelineFile), ours);
+
+      // Without the base there is nothing to merge against, and nothing is written.
+      const base = yield* fs.readFileString(baseFile);
+      yield* fs.remove(baseFile);
+      const refused = yield* sync(true).pipe(Effect.flip);
+      assert.include(refused.message, `Can't merge ${timelinePath}`);
+      const blocked = yield* videoProjects
+        .editTimeline({
+          workspaceRoot,
+          timeline: timelinePath,
+          edits: [{ kind: "split", frame: 50 }],
+        })
+        .pipe(Effect.flip);
+      assert.include(blocked.message, "Nothing was changed.");
+      assert.strictEqual(yield* fs.readFileString(timelineFile), ours);
+      yield* fs.writeFileString(baseFile, base);
+
+      // A merge takes Premiere's trim, keeps the clip switched off here, and lists the lost trim.
+      const merged = yield* sync(true);
+      assert.strictEqual(merged.state, "edited");
+      assert.deepStrictEqual(merged.changes, ["Trimmed c.MOV on V1 at 0:06: cut 0.7s off its end"]);
+      assert.strictEqual(merged.conflicts.length, 1);
+      assert.strictEqual(merged.pending.length, 1);
+      assert.deepStrictEqual(
+        clipLines((yield* videoProjects.readTimeline({ workspaceRoot })).text),
+        ["V1 0-100 a.MOV", "V1 100-200 b.MOV (disabled)", "V1 200-240 c.MOV"],
+      );
+      assert.strictEqual(
+        yield* fs.readFileString(
+          path.join(workspaceRoot, "timelines", "replaced", path.basename(timelinePath)),
+        ),
+        ours,
+      );
+
+      // An agent's read merges on its own, and is told what the user did in Premiere.
+      yield* save(220);
+      assert.strictEqual((yield* sync()).state, "conflict");
+      const reread = yield* videoProjects.readTimeline({ workspaceRoot });
+      assert.strictEqual(reread.premiere, "edited");
+      assert.include(reread.changes, `Changed in Premiere since your last read (${timelinePath}):`);
+      assert.include(reread.changes, `Edited here, not in Premiere yet (${timelinePath}):`);
+      assert.deepStrictEqual(clipLines(reread.text).slice(1), [
+        "V1 100-200 b.MOV (disabled)",
+        "V1 200-220 c.MOV",
+      ]);
+
+      // A sequence made in Premiere becomes a timeline; one deleted there is said once and kept.
+      yield* save(220, [{ id: "seq-2", name: "Polish v2" }]);
+      const found = yield* sync();
+      assert.deepStrictEqual(found.changes, ["New sequence: Polish v2"]);
+      assert.deepStrictEqual(found.updated, ["timelines/Polish_v2.otio"]);
+      yield* save(220);
+      assert.deepStrictEqual((yield* sync()).changes, [
+        "Sequence Polish v2 was deleted in Premiere; timelines/Polish_v2.otio is kept here",
+      ]);
+      yield* save(220, []);
+      assert.deepStrictEqual((yield* sync()).changes, []);
+      assert.isTrue(yield* fs.exists(path.join(workspaceRoot, "timelines", "Polish_v2.otio")));
+    }).pipe(
+      Effect.provide(
+        VideoProjects.layer.pipe(
+          Layer.provideMerge(withProjects(created)),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        ),
+      ),
+      Effect.scoped,
+    );
+  },
+);
 
 it.live(
   "starts a project from an idea, and a Premiere project saved into it joins the same one",
@@ -668,3 +865,69 @@ it.live("rejects files that aren't Premiere projects", () =>
     ),
   ),
 );
+
+it.live("plans a push from Premiere's last save, and says why when it can't", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const { fs, path, premiereProjectPath } = yield* setup;
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const save = (cEnd: number, modified: number) =>
+      Effect.gen(function* () {
+        yield* fs.writeFile(
+          premiereProjectPath,
+          prprojWithSequences([
+            {
+              id: "seq-1",
+              name: "Polish v1",
+              clips: [
+                { name: "a.MOV", start: 0, end: 100 },
+                { name: "b.MOV", start: 100, end: 200 },
+                { name: "c.MOV", start: 200, end: cEnd },
+              ],
+            },
+          ]),
+        );
+        yield* fs.utimes(premiereProjectPath, modified, modified);
+      });
+    yield* save(300, 1_000_001);
+    const { workspaceRoot, timelinePath } = yield* videoProjects.createFromPremiere({
+      premiereProjectPath,
+      sequenceId: "seq-1",
+    });
+    const push = videoProjects.pushPlan({ workspaceRoot });
+    assert.deepStrictEqual([(yield* push).steps, (yield* push).refused], [0, null]);
+
+    yield* videoProjects.editTimeline({
+      workspaceRoot,
+      timeline: timelinePath,
+      edits: [{ kind: "removeRange", start: 100, end: 200, ripple: true }],
+    });
+    const planned = yield* push;
+    assert.deepStrictEqual(
+      [planned.linked, planned.premiereIsNewer, planned.refused, planned.plan],
+      [true, false, null, "1. ripple-remove 3.333333s-6.666667s (frames 100-200) on V1"],
+    );
+
+    // A newer save in Premiere must be merged in before anything is pushed onto it.
+    yield* save(260, 1_000_002);
+    const stale = yield* push;
+    assert.deepStrictEqual([stale.premiereIsNewer, stale.steps, stale.plan], [true, 0, ""]);
+    assert.match(stale.refused ?? "", /^Pull first/);
+    yield* videoProjects.readTimeline({ workspaceRoot });
+    assert.strictEqual((yield* push).plan, planned.plan);
+
+    yield* fs.remove(path.join(workspaceRoot, "timelines", ".base", path.basename(timelinePath)));
+    assert.strictEqual(
+      (yield* push).refused,
+      "No record of Premiere's version yet; sync once with Premiere open.",
+    );
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});

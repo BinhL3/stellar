@@ -60,7 +60,8 @@ interface Placed {
   readonly clip: Clip;
 }
 
-const STILL_PATH = /\.(png|jpe?g|heic|tiff?|psd|gif|webp|bmp)$/i;
+/** Stills and graphics have no source time: only their length means anything. */
+export const STILL_PATH = /\.(png|jpe?g|heic|tiff?|psd|gif|webp|bmp)$/i;
 
 const withMetadata = (clip: Clip, start: number, end: number, id?: string): Clip => {
   const premiere = clip.metadata["premiere"] as Record<string, unknown> | undefined;

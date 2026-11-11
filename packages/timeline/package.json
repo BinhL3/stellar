@@ -7,6 +7,10 @@
       "types": "./src/compactView.ts",
       "import": "./src/compactView.ts"
     },
+    "./diff": {
+      "types": "./src/diff.ts",
+      "import": "./src/diff.ts"
+    },
     "./edits": {
       "types": "./src/edits.ts",
       "import": "./src/edits.ts"
@@ -26,6 +30,10 @@
     "./premiere/fcpxml": {
       "types": "./src/premiere/fcpxml.ts",
       "import": "./src/premiere/fcpxml.ts"
+    },
+    "./premiere/pushPlan": {
+      "types": "./src/premiere/pushPlan.ts",
+      "import": "./src/premiere/pushPlan.ts"
     },
     "./premiere/prproj": {
       "types": "./src/premiere/prproj.ts",

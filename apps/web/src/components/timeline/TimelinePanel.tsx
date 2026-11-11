@@ -13,7 +13,7 @@ import {
 } from "@t3tools/contracts";
 import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
-import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useEffectEvent, useState } from "react";
 
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 
@@ -46,6 +46,8 @@ import { ImportFootageButton } from "../videoProject/ImportFootageButton";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
 import { RecordVoiceOverButton } from "../videoProject/RecordVoiceOverButton";
 import { VideoStageSelect } from "../videoProject/VideoStageSelect";
+import type { PremierePull } from "./premiereChanges";
+import { PremierePullNotice } from "./PremierePullNotice";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
 import { readScriptShown, writeScriptShown } from "./scriptBeats";
 import { ScriptPanel } from "./ScriptPanel";
@@ -248,14 +250,24 @@ export default function TimelinePanel(props: {
   const [syncing, setSyncing] = useState(false);
   // Pending edits belong to the text they were made on, so a pull that lands under them would
   // drop them. Coming back into focus doesn't pull while there are any; "Sync now" still does.
-  const hasPendingEdits = useRef(false);
-  const sync = async (options?: { readonly usePremiere?: boolean; readonly quiet?: boolean }) => {
+  // They are remembered with that text: once the file's contents change, the viewer has let them go.
+  const [editedContents, setEditedContents] = useState<string | null>(null);
+  const hasPendingEdits = editedContents !== null && editedContents === file.data?.contents;
+  const [pull, setPull] = useState<(PremierePull & { readonly dismissed: boolean }) | null>(null);
+  const sync = async (options?: {
+    readonly usePremiere?: boolean;
+    readonly merge?: boolean;
+    readonly quiet?: boolean;
+  }) => {
+    // Both replace the timeline file, which would drop edits the viewer hasn't saved.
+    if ((options?.merge || options?.usePremiere) && hasPendingEdits) return;
     setSyncing(true);
     const result = await syncProject({
       environmentId: props.environmentId,
       input: {
         workspaceRoot: props.workspaceRoot,
         ...(options?.usePremiere ? { usePremiere: true } : {}),
+        ...(options?.merge ? { merge: true } : {}),
       },
     });
     setSyncing(false);
@@ -273,20 +285,27 @@ export default function TimelinePanel(props: {
     setLink(result.value);
     // The sync may have started a proxy build; the index says so, and polling follows it.
     proxyFile.refresh();
-    if (result.value.updated.length > 0) {
-      file.refresh();
+    const { changes, conflicts, updated } = result.value;
+    const replaced = options?.merge === true || options?.usePremiere === true;
+    if (updated.length > 0 || replaced) file.refresh();
+    // A pull can bring a sequence that had no timeline here.
+    if (updated.length > 0 || changes.length > 0) refreshTimelines();
+    if (changes.length > 0 || conflicts.length > 0) {
+      setPull({ changes, conflicts, merged: options?.merge === true, dismissed: false });
+    } else if (updated.length > 0) {
       toastManager.add({
         type: "success",
         title: "Pulled your Premiere save",
-        description: result.value.updated.map(timelineLabel).join(", "),
+        description: updated.map(timelineLabel).join(", "),
       });
     }
   };
   const syncOnFocus = useEffectEvent(() => {
-    if (canWriteFiles && !hasPendingEdits.current && !syncing) void sync({ quiet: true });
+    if (canWriteFiles && !hasPendingEdits && !syncing) void sync({ quiet: true });
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Premiere saves outside the app; coming back into focus is when a new save is most likely.
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- The sync marks itself running before it awaits the server.
     syncOnFocus();
     window.addEventListener("focus", syncOnFocus);
     return () => window.removeEventListener("focus", syncOnFocus);
@@ -459,6 +478,9 @@ export default function TimelinePanel(props: {
           {canWriteFiles ? importFootage("sm") : null}
         </span>
       </div>
+      {pull !== null && !pull.dismissed ? (
+        <PremierePullNotice pull={pull} onDismiss={() => setPull({ ...pull, dismissed: true })} />
+      ) : null}
       {file.data ? (
         <Suspense fallback={null}>
           <TimelineViewer
@@ -467,11 +489,13 @@ export default function TimelinePanel(props: {
             media={media}
             onReference={reference}
             onPendingEdits={(pending) => {
-              hasPendingEdits.current = pending;
+              setEditedContents(pending ? (file.data?.contents ?? null) : null);
             }}
             premiere={
               <PremiereSyncBadge
                 link={link}
+                lastPull={pull}
+                uncommittedEdits={hasPendingEdits}
                 syncing={syncing}
                 building={building}
                 failedProxies={proxyIndex?.failed ?? 0}
@@ -486,6 +510,7 @@ export default function TimelinePanel(props: {
                   ? {
                       onSync: () => void sync(),
                       onUsePremiere: () => void sync({ usePremiere: true }),
+                      onMerge: () => void sync({ merge: true }),
                       onTranscribe: () => void transcribe(),
                     }
                   : {})}

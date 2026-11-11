@@ -7,8 +7,10 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import { diffTimelines, type MergeConflict, mergeTimelines, type TimelineDiff } from "./diff.ts";
 import { serializeJson, serializeTimeline, TIMELINE_NAMESPACE, type Timeline } from "./otio.ts";
 import { parsePrproj } from "./premiere/prproj.ts";
+import { BASE_DIRECTORY, timelineFileName, writeBase, writeBlobs } from "./pullToProject.ts";
 
 /**
  * Which Premiere project a Stellar project follows, and whose version each timeline holds.
@@ -33,6 +35,11 @@ interface PremiereLink {
   readonly saved: { readonly size: number; readonly modified: number } | null;
   /** By timeline path relative to the project folder. */
   readonly timelines: Readonly<Record<string, LinkedTimeline>>;
+  /**
+   * Name by id of every sequence in the save last read, so one made, renamed or deleted in
+   * Premiere since shows. Absent until a save has been read with this known.
+   */
+  readonly sequences?: Readonly<Record<string, string>>;
 }
 
 export type PremiereSyncState =
@@ -55,9 +62,39 @@ export interface PremiereSyncResult {
   readonly premiereSavedAt: number | null;
   /** Timelines this sync rewrote from Premiere. */
   readonly updated: ReadonlyArray<string>;
-  /** Timelines that differ from Premiere's save and were left alone. */
+  /** Timelines that differ from Premiere's save: left alone, or merged and still holding edits. */
   readonly kept: ReadonlyArray<string>;
+  /** What this sync brought in from Premiere, per timeline it rewrote. */
+  readonly changes: ReadonlyArray<TimelineChanges>;
+  /** Edits made here that aren't in Premiere yet. Absent for a timeline with no base on record. */
+  readonly pending: ReadonlyArray<TimelineChanges>;
+  /** Edits made here that a merge dropped because Premiere changed the same thing. */
+  readonly conflicts: ReadonlyArray<{
+    readonly timelinePath: string;
+    readonly conflicts: ReadonlyArray<MergeConflict>;
+  }>;
+  /** Sequences made, renamed or deleted in Premiere since the save last read. */
+  readonly sequences: ReadonlyArray<SequenceChange>;
+  /** Timelines a merge was asked for and refused: nothing on record says what both started from. */
+  readonly unmerged: ReadonlyArray<string>;
 }
+
+export interface TimelineChanges {
+  readonly timelinePath: string;
+  readonly diff: TimelineDiff;
+}
+
+export type SequenceChange =
+  /** `timelinePath` is null when it could not be pulled: unreadable, or its file name is taken. */
+  | { readonly kind: "added"; readonly name: string; readonly timelinePath: string | null }
+  | {
+      readonly kind: "renamed";
+      readonly before: string;
+      readonly name: string;
+      readonly timelinePath: string;
+    }
+  /** The timeline here is kept; it just stops following Premiere. */
+  | { readonly kind: "removed"; readonly name: string; readonly timelinePath: string };
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const sha = (text: string) => NodeCrypto.createHash("sha256").update(text).digest("hex");
@@ -87,6 +124,19 @@ const readTimeline = Effect.fn("timeline.premiereSync.readTimeline")(function* (
   const fs = yield* FileSystem.FileSystem;
   const text = yield* fs.readFileString(file);
   return { text, timeline: (yield* decodeJson(text)) as Timeline };
+});
+
+/** What both sides started from, or null when it isn't on record (pulled before bases were kept). */
+const readBase = Effect.fn("timeline.premiereSync.readBase")(function* (
+  projectDir: string,
+  timelinePath: string,
+  pulled: string,
+) {
+  const path = yield* Path.Path;
+  const read = yield* readTimeline(
+    path.join(projectDir, BASE_DIRECTORY, path.basename(timelinePath)),
+  ).pipe(Effect.option);
+  return Option.isSome(read) && sha(read.value.text) === pulled ? read.value.timeline : null;
 });
 
 const mediaRootOf = (timeline: Timeline) =>
@@ -163,24 +213,40 @@ export const recordPull = Effect.fn("timeline.recordPull")(function* (input: {
       ...kept?.timelines,
       [input.timelinePath]: { sequenceId: input.sequenceId, pulled: hash, premiere: hash },
     },
+    ...(kept?.sequences === undefined ? {} : { sequences: kept.sequences }),
   };
+  yield* writeBase(input);
   yield* fs.writeFileString(path.join(input.projectDir, PREMIERE_LINK_PATH), serializeJson(link));
 });
 
 /**
- * Brings a project's timelines up to Premiere's latest save. Unchanged saves cost one `stat`.
- * A timeline that was edited here is never overwritten unless `usePremiere` says to, and then
- * the replaced version is kept in `timelines/replaced/`.
+ * Brings timelines up to Premiere's latest save; an unchanged save costs one `stat`. One edited
+ * here is only overwritten by `usePremiere`, or by `merge`, which re-applies the edits made here
+ * on Premiere's save. Both keep the version that was here in `timelines/replaced/`.
  */
 export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function* (input: {
   readonly projectDir: string;
   readonly usePremiere?: boolean;
+  readonly merge?: boolean;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const none = (state: PremiereSyncState, premiereSavedAt: number | null = null) =>
-    ({ state, premiereSavedAt, updated: [], kept: [] }) satisfies PremiereSyncResult;
-  const link = (yield* readLink(input.projectDir)) ?? (yield* inferLink(input.projectDir));
+  const none = (
+    state: PremiereSyncState,
+    premiereSavedAt: number | null = null,
+  ): PremiereSyncResult => ({
+    state,
+    premiereSavedAt,
+    updated: [],
+    kept: [],
+    changes: [],
+    pending: [],
+    conflicts: [],
+    sequences: [],
+    unmerged: [],
+  });
+  const link: PremiereLink | null =
+    (yield* readLink(input.projectDir)) ?? (yield* inferLink(input.projectDir));
   if (link === null) return none("unlinked");
   const stat = yield* fs.stat(link.project).pipe(Effect.option);
   if (Option.isNone(stat)) return none("offline");
@@ -189,27 +255,78 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
     modified: Option.match(stat.value.mtime, { onNone: () => 0, onSome: (d) => d.getTime() }),
   };
 
-  const local = new Map<string, { readonly text: string; readonly timeline: Timeline }>();
+  const local = new Map<
+    string,
+    { readonly text: string; readonly timeline: Timeline; readonly hash: string }
+  >();
   for (const timelinePath of Object.keys(link.timelines)) {
     const read = yield* readTimeline(path.join(input.projectDir, timelinePath)).pipe(Effect.option);
-    if (Option.isSome(read)) local.set(timelinePath, read.value);
+    if (Option.isSome(read)) local.set(timelinePath, { ...read.value, hash: sha(read.value.text) });
   }
 
   const unchanged =
     link.saved !== null && link.saved.size === saved.size && link.saved.modified === saved.modified;
+  // A conflict found by an earlier sync is merged from the same save, which must be read again.
+  const mergeRemembered =
+    input.merge === true &&
+    Object.entries(link.timelines).some(([timelinePath, entry]) => {
+      const mine = local.get(timelinePath);
+      return mine !== undefined && mine.hash !== entry.pulled && entry.premiere !== entry.pulled;
+    });
   const timelines: Record<string, LinkedTimeline> = {};
+  let sequences = link.sequences;
   const updated: Array<string> = [];
   const kept: Array<string> = [];
+  const changes: Array<TimelineChanges> = [];
+  const pending: Array<TimelineChanges> = [];
+  const conflicts: Array<PremiereSyncResult["conflicts"][number]> = [];
+  const sequenceChanges: Array<SequenceChange> = [];
+  const unmerged: Array<string> = [];
   let conflict = false;
 
-  if (unchanged && input.usePremiere !== true) {
+  const note = (
+    list: Array<TimelineChanges>,
+    timelinePath: string,
+    from: Timeline,
+    to: Timeline,
+  ) => {
+    const diff = attempt(() => diffTimelines(from, to));
+    if (diff !== null && diff.changes.length > 0) list.push({ timelinePath, diff });
+  };
+  const notePending = (timelinePath: string, pulled: string, mine: Timeline) =>
+    Effect.map(readBase(input.projectDir, timelinePath, pulled), (base) => {
+      if (base !== null) note(pending, timelinePath, base, mine);
+    });
+  // A timeline pulled before bases were kept gets one while it still holds Premiere's text.
+  const ensureBase = Effect.fn("timeline.premiereSync.ensureBase")(function* (
+    timelinePath: string,
+    text: string,
+  ) {
+    const file = path.join(input.projectDir, BASE_DIRECTORY, path.basename(timelinePath));
+    if (yield* fs.exists(file).pipe(Effect.orElseSucceed(() => false))) return;
+    yield* writeBase({ projectDir: input.projectDir, timelinePath, text });
+  });
+  const keepReplaced = Effect.fn("timeline.premiereSync.keepReplaced")(function* (
+    timelinePath: string,
+    text: string,
+  ) {
+    const replaced = path.join(input.projectDir, REPLACED_DIRECTORY);
+    yield* fs.makeDirectory(replaced, { recursive: true });
+    yield* fs.writeFileString(path.join(replaced, path.basename(timelinePath)), text);
+  });
+
+  if (unchanged && input.usePremiere !== true && !mergeRemembered) {
     for (const [timelinePath, entry] of Object.entries(link.timelines)) {
       const mine = local.get(timelinePath);
       if (mine === undefined) continue;
       timelines[timelinePath] = entry;
-      if (sha(mine.text) === entry.pulled) continue;
+      if (mine.hash === entry.pulled) {
+        yield* ensureBase(timelinePath, mine.text);
+        continue;
+      }
       kept.push(timelinePath);
       if (entry.premiere !== entry.pulled) conflict = true;
+      yield* notePending(timelinePath, entry.pulled, mine.timeline);
     }
   } else {
     const bytes = yield* fs.readFile(link.project).pipe(Effect.option);
@@ -217,11 +334,25 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
     // Premiere replaces the file as it saves; a read that lands mid-save is retried next sync.
     const project = attempt(() => parsePrproj(bytes.value));
     if (project === null) return none("offline", saved.modified);
+    const names = new Map(project.sequences.map((sequence) => [sequence.id, sequence.name]));
     for (const [timelinePath, entry] of Object.entries(link.timelines)) {
       const mine = local.get(timelinePath);
       if (mine === undefined) continue;
+      const before = link.sequences?.[entry.sequenceId];
+      const name = names.get(entry.sequenceId);
+      if (name === undefined) {
+        // Said once: the next link no longer lists the sequence. The timeline stays as it was.
+        if (link.sequences === undefined || before !== undefined) {
+          sequenceChanges.push({
+            kind: "removed",
+            name: before ?? mine.timeline.name,
+            timelinePath,
+          });
+        }
+      } else if (before !== undefined && before !== name) {
+        sequenceChanges.push({ kind: "renamed", before, name, timelinePath });
+      }
       const mediaRoot = mediaRootOf(mine.timeline);
-      // A sequence deleted in Premiere leaves its timeline as it was.
       const pulled = attempt(() =>
         project.readSequence(entry.sequenceId, mediaRoot === undefined ? undefined : { mediaRoot }),
       );
@@ -231,37 +362,106 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
       }
       const text = serializeTimeline(pulled.timeline);
       const theirs = sha(text);
-      const ours = sha(mine.text);
-      if (ours === theirs) {
-        timelines[timelinePath] = { ...entry, pulled: theirs, premiere: theirs };
+      const current = { ...entry, pulled: theirs, premiere: theirs };
+      if (mine.hash === theirs) {
+        timelines[timelinePath] = current;
+        yield* ensureBase(timelinePath, text);
         continue;
       }
-      const editedHere = ours !== entry.pulled;
+      const editedHere = mine.hash !== entry.pulled;
+      const base = editedHere
+        ? yield* readBase(input.projectDir, timelinePath, entry.pulled)
+        : mine.timeline;
       if (editedHere && input.usePremiere !== true) {
-        timelines[timelinePath] = { ...entry, premiere: theirs };
-        kept.push(timelinePath);
-        if (theirs !== entry.pulled) conflict = true;
+        const premiereChanged = theirs !== entry.pulled;
+        const merged =
+          premiereChanged && input.merge === true && base !== null
+            ? attempt(() => mergeTimelines(base, mine.timeline, pulled.timeline))
+            : null;
+        if (merged === null || base === null) {
+          timelines[timelinePath] = { ...entry, premiere: theirs };
+          kept.push(timelinePath);
+          if (premiereChanged) {
+            conflict = true;
+            if (input.merge === true) unmerged.push(timelinePath);
+          }
+          if (base !== null) note(pending, timelinePath, base, mine.timeline);
+          continue;
+        }
+        const mergedText = serializeTimeline(merged.timeline);
+        yield* keepReplaced(timelinePath, mine.text);
+        yield* writeBlobs(input.projectDir, pulled.blobs);
+        yield* writeBase({ projectDir: input.projectDir, timelinePath, text });
+        yield* fs.writeFileString(path.join(input.projectDir, timelinePath), mergedText);
+        timelines[timelinePath] = current;
+        updated.push(timelinePath);
+        note(changes, timelinePath, base, pulled.timeline);
+        if (merged.conflicts.length > 0) {
+          conflicts.push({ timelinePath, conflicts: merged.conflicts });
+        }
+        if (sha(mergedText) !== theirs) {
+          kept.push(timelinePath);
+          note(pending, timelinePath, pulled.timeline, merged.timeline);
+        }
         continue;
       }
-      if (editedHere) {
-        const replaced = path.join(input.projectDir, REPLACED_DIRECTORY);
-        yield* fs.makeDirectory(replaced, { recursive: true });
-        yield* fs.writeFileString(path.join(replaced, path.basename(timelinePath)), mine.text);
-      }
-      yield* fs.makeDirectory(path.join(input.projectDir, "effects"), { recursive: true });
-      for (const [ref, blob] of pulled.blobs) {
-        yield* fs.writeFileString(
-          path.join(input.projectDir, "effects", `${ref.slice("sha256:".length)}.premiere.json`),
-          serializeJson(blob),
-        );
-      }
+      if (editedHere) yield* keepReplaced(timelinePath, mine.text);
+      yield* writeBlobs(input.projectDir, pulled.blobs);
       yield* fs.writeFileString(path.join(input.projectDir, timelinePath), text);
-      timelines[timelinePath] = { ...entry, pulled: theirs, premiere: theirs };
+      yield* writeBase({ projectDir: input.projectDir, timelinePath, text });
+      timelines[timelinePath] = current;
       updated.push(timelinePath);
+      note(changes, timelinePath, base ?? mine.timeline, pulled.timeline);
     }
+
+    // Only sequences made since a save was read with this known: the first read is the baseline,
+    // so the sequences a project already had when it was linked are not all pulled in.
+    if (link.sequences !== undefined) {
+      const linked = new Set(Object.values(link.timelines).map((entry) => entry.sequenceId));
+      const mediaRoot = [...local.values()]
+        .map((mine) => mediaRootOf(mine.timeline))
+        .find((root) => root !== undefined);
+      for (const sequence of project.sequences) {
+        if (link.sequences[sequence.id] !== undefined || linked.has(sequence.id)) continue;
+        const timelinePath = `timelines/${timelineFileName(sequence.name)}`;
+        const taken =
+          timelines[timelinePath] !== undefined ||
+          (yield* fs
+            .exists(path.join(input.projectDir, timelinePath))
+            .pipe(Effect.orElseSucceed(() => true)));
+        const pulled = taken
+          ? null
+          : attempt(() =>
+              project.readSequence(
+                sequence.id,
+                mediaRoot === undefined ? undefined : { mediaRoot },
+              ),
+            );
+        if (pulled === null) {
+          sequenceChanges.push({ kind: "added", name: sequence.name, timelinePath: null });
+          continue;
+        }
+        const text = serializeTimeline(pulled.timeline);
+        const hash = sha(text);
+        yield* writeBlobs(input.projectDir, pulled.blobs);
+        yield* fs.makeDirectory(path.join(input.projectDir, "timelines"), { recursive: true });
+        yield* fs.writeFileString(path.join(input.projectDir, timelinePath), text);
+        yield* writeBase({ projectDir: input.projectDir, timelinePath, text });
+        timelines[timelinePath] = { sequenceId: sequence.id, pulled: hash, premiere: hash };
+        updated.push(timelinePath);
+        sequenceChanges.push({ kind: "added", name: sequence.name, timelinePath });
+      }
+    }
+    sequences = Object.fromEntries(names);
   }
 
-  const next: PremiereLink = { version: 1, project: link.project, saved, timelines };
+  const next: PremiereLink = {
+    version: 1,
+    project: link.project,
+    saved,
+    timelines,
+    ...(sequences === undefined ? {} : { sequences }),
+  };
   const nextText = serializeJson(next);
   if (nextText !== serializeJson(link) || !unchanged) {
     yield* fs.writeFileString(path.join(input.projectDir, PREMIERE_LINK_PATH), nextText);
@@ -273,5 +473,16 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
       : updated.length > 0
         ? "updated"
         : "current";
-  return { state, premiereSavedAt: saved.modified, updated, kept } satisfies PremiereSyncResult;
+  const result: PremiereSyncResult = {
+    state,
+    premiereSavedAt: saved.modified,
+    updated,
+    kept,
+    changes,
+    pending,
+    conflicts,
+    sequences: sequenceChanges,
+    unmerged,
+  };
+  return result;
 });

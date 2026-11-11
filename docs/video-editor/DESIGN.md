@@ -309,7 +309,11 @@ Built from the past threads: it targets where time and failures actually went, a
   finding out. Export is the first form of push: an FCP 7 XML in the Premiere folder that
   imports as a new sequence. It carries the cut only (not effects, text or stills), so it
   suits a rough cut and not a polished sequence, and it has not been imported into a real
-  Premiere yet. The baton and native re-attach are not built. The tool text has not been through
+  Premiere yet. For a sequence that already exists in Premiere, `video_premiere_push` instead
+  returns an ordered plan (`packages/timeline/src/premiere/pushPlan.ts`) that the agent applies
+  to the live sequence with its Premiere tools, touching only what differs from Premiere's last
+  save; Stellar's server cannot drive Premiere itself, and the next read's sync is the check.
+  No plan has been applied to a real Premiere yet. The baton and native re-attach are not built. The tool text has not been through
   `evals/mcp-tool-use` yet.
 - **Cutting by words: built.** `video_timeline_words` numbers the words heard on a timeline and
   the `removeWords` edit cuts a run of them. It reads `Audio/<clip>.words.json` files, which a

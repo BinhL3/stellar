@@ -53,6 +53,7 @@ export type T3McpToolSummaryAction =
   | "video-premiere-pull"
   | "video-footage"
   | "video-premiere-export"
+  | "video-premiere-push"
   | "project-list"
   | "project-read"
   | "project-create"
@@ -216,6 +217,10 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   video_premiere_export: tool(
     ["Export", "Exporting", "Exported", "the timeline for Premiere"],
     "video-premiere-export",
+  ),
+  video_premiere_push: tool(
+    ["Plan", "Planning", "Planned", "the push to Premiere"],
+    "video-premiere-push",
   ),
   video_footage: tool(["Bring in", "Bringing in", "Brought in", "footage"], "video-footage"),
   preview_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),

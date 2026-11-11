@@ -14,6 +14,7 @@ import {
   type VideoProjectScanIntakeInput,
   type VideoProjectScanIntakeResult,
   type VideoProjectSyncInput,
+  type VideoPremierePushPlan,
   type VideoProjectSyncResult,
   type VideoScriptReadInput,
   type VideoScriptSaveInput,
@@ -30,6 +31,7 @@ import {
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveCommandPath } from "@t3tools/shared/shell";
 import { editableView } from "@t3tools/timeline/compactView";
+import { changeLine, diffSentences } from "@t3tools/timeline/diff";
 import { applyEdits, type TimelineEdit } from "@t3tools/timeline/edits";
 import {
   copyFootage,
@@ -42,10 +44,18 @@ import { layoutTimeline } from "@t3tools/timeline/layout";
 import { serializeJson, serializeTimeline, type Timeline } from "@t3tools/timeline/otio";
 import { toFcpXml } from "@t3tools/timeline/premiere/fcpxml";
 import { parsePrproj } from "@t3tools/timeline/premiere/prproj";
-import { PREMIERE_LINK_PATH, recordPull, syncFromPremiere } from "@t3tools/timeline/premiereSync";
+import { pushPlan as planPush } from "@t3tools/timeline/premiere/pushPlan";
+import {
+  PREMIERE_LINK_PATH,
+  type PremiereSyncResult,
+  recordPull,
+  type SequenceChange,
+  syncFromPremiere,
+  type TimelineChanges,
+} from "@t3tools/timeline/premiereSync";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import { buildProjectProxies, markProxiesBuilding } from "@t3tools/timeline/proxyBuilder";
-import { pullToProject } from "@t3tools/timeline/pullToProject";
+import { BASE_DIRECTORY, pullToProject } from "@t3tools/timeline/pullToProject";
 import { alignBeats, assignBeatIds, parseScript } from "@t3tools/timeline/script";
 import { timelineWords, type TranscriptWord, wordRange, wordsText } from "@t3tools/timeline/words";
 import * as Clock from "effect/Clock";
@@ -174,6 +184,61 @@ const toTimelineEdit = (
   }
 };
 
+const sequenceSentence = (change: SequenceChange) =>
+  change.kind === "added"
+    ? `New sequence: ${change.name}${change.timelinePath === null ? " (not pulled: it can't be read, or a timeline already has its file name)" : ""}`
+    : change.kind === "renamed"
+      ? `Sequence renamed in Premiere: ${change.before} is now ${change.name}`
+      : `Sequence ${change.name} was deleted in Premiere; ${change.timelinePath} is kept here`;
+
+const timelineLabel = (timelinePath: string) => timelinePath.replace(/^timelines\/|\.otio$/g, "");
+
+/** A sentence per change; each names its timeline when more than one timeline has any. */
+const sentencesOf = <A extends { readonly timelinePath: string }>(
+  entries: ReadonlyArray<A>,
+  sentences: (entry: A) => ReadonlyArray<string>,
+) =>
+  entries.flatMap((entry) =>
+    sentences(entry).map((sentence) =>
+      entries.length > 1 ? `${timelineLabel(entry.timelinePath)}: ${sentence}` : sentence,
+    ),
+  );
+
+const NO_BASE =
+  "Stellar has no copy of what it last pulled from Premiere to tell the two sets of edits apart.";
+
+// Tool output stays small: a long list is cut to this many lines and a count of the rest.
+const CHANGE_LINES = 12;
+const capped = (lines: ReadonlyArray<string>) =>
+  lines.length <= CHANGE_LINES
+    ? lines
+    : [...lines.slice(0, CHANGE_LINES), `+${lines.length - CHANGE_LINES} more`];
+
+/** What a sync found, as an agent reads it: lines in `editableView`'s vocabulary under headings. */
+const changesText = (synced: PremiereSyncResult) => {
+  const section = (heading: string, entries: ReadonlyArray<TimelineChanges>) =>
+    entries.flatMap((entry) => [
+      `${heading} (${entry.timelinePath}):`,
+      ...capped(entry.diff.changes.map(changeLine)),
+    ]);
+  return [
+    ...synced.sequences.map(sequenceSentence),
+    ...section("Changed in Premiere since your last read", synced.changes),
+    ...synced.conflicts.flatMap((entry) => [
+      `Edits made here that were dropped, Premiere's version stands (${entry.timelinePath}):`,
+      ...capped(entry.conflicts.map((conflict) => conflict.message)),
+    ]),
+    ...synced.unmerged.map(
+      (timelinePath) =>
+        `! ${timelinePath} was edited here and in Premiere and can't be merged: ${NO_BASE} The user chooses a version in Stellar.`,
+    ),
+    ...section(
+      "Edited here, not in Premiere yet",
+      synced.pending.filter((entry) => !synced.unmerged.includes(entry.timelinePath)),
+    ),
+  ].join("\n");
+};
+
 /** Stellar's own files for a video project sit in this folder beside the Premiere project. */
 const STELLAR_FOLDER = "Stellar";
 /**
@@ -252,6 +317,14 @@ export class VideoProjects extends Context.Service<
     readonly exportForPremiere: (
       input: VideoTimelineReadInput,
     ) => Effect.Effect<VideoTimelineExportResult, VideoProjectError>;
+    /**
+     * The ordered steps that change the sequence open in Premiere into the timeline edited
+     * here, touching only what differs from Premiere's last save. Nothing is changed: an agent
+     * applies the steps with its Premiere tools. Refused while Premiere holds a newer save.
+     */
+    readonly pushPlan: (
+      input: VideoTimelineReadInput,
+    ) => Effect.Effect<VideoPremierePushPlan, VideoProjectError>;
     /** A timeline as an agent reads it, synced with Premiere first so it is never stale. */
     readonly readTimeline: (
       input: VideoTimelineReadInput,
@@ -797,13 +870,16 @@ const make = Effect.gen(function* () {
     yield* FiberSet.run(background, copy);
   });
 
-  const sync: VideoProjects["Service"]["sync"] = Effect.fn("VideoProjects.sync")(function* (input) {
+  const syncWithPremiere = Effect.fn("VideoProjects.syncWithPremiere")(function* (
+    input: VideoProjectSyncInput,
+  ) {
     yield* requireProject(input.workspaceRoot);
     // One at a time: two clients coming into focus together must not both rewrite a timeline.
     const result = yield* syncing.withPermits(1)(
       syncFromPremiere({
         projectDir: input.workspaceRoot,
         ...(input.usePremiere === undefined ? {} : { usePremiere: input.usePremiere }),
+        ...(input.merge === undefined ? {} : { merge: input.merge }),
       }).pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),
@@ -815,8 +891,40 @@ const make = Effect.gen(function* () {
     if (result.updated.length > 0 || (yield* proxiesUnfinished(input.workspaceRoot))) {
       yield* startProxies(input.workspaceRoot);
     }
-    return { ...result, premiereRunning: yield* premiereRunning };
+    const view: VideoProjectSyncResult = {
+      state: result.state,
+      premiereSavedAt: result.premiereSavedAt,
+      updated: result.updated,
+      kept: result.kept,
+      premiereRunning: yield* premiereRunning,
+      changes: [
+        ...result.sequences.map(sequenceSentence),
+        ...sentencesOf(result.changes, (entry) => diffSentences(entry.diff)),
+      ],
+      pending: sentencesOf(result.pending, (entry) => diffSentences(entry.diff)),
+      conflicts: sentencesOf(result.conflicts, (entry) =>
+        entry.conflicts.map((conflict) => conflict.message),
+      ),
+    };
+    return { result, view };
   });
+
+  const sync: VideoProjects["Service"]["sync"] = Effect.fn("VideoProjects.sync")(function* (input) {
+    const { result, view } = yield* syncWithPremiere(input);
+    const [unmerged] = result.unmerged;
+    if (unmerged !== undefined) {
+      return yield* new VideoProjectError({
+        reason: `Can't merge ${unmerged}: ${NO_BASE} Take Premiere's version, or keep yours.`,
+      });
+    }
+    return view;
+  });
+
+  /**
+   * The sync agents read and edit behind: a timeline edited here and in Premiere is merged, so
+   * an agent never works on a copy that lacks the user's hand edits.
+   */
+  const syncForAgent = (workspaceRoot: string) => syncWithPremiere({ workspaceRoot, merge: true });
 
   const loadScript = Effect.fn("VideoProjects.loadScript")(function* (workspaceRoot: string) {
     const text = yield* fileSystem
@@ -979,7 +1087,8 @@ const make = Effect.gen(function* () {
 
   const readWords: VideoProjects["Service"]["readWords"] = Effect.fn("VideoProjects.readWords")(
     function* (input) {
-      yield* sync({ workspaceRoot: input.workspaceRoot });
+      // Merged first, as editTimeline does, so the word numbers here are the ones it cuts by.
+      yield* syncForAgent(input.workspaceRoot);
       const timelines = yield* listTimelines(input.workspaceRoot);
       const chosen =
         input.timeline ??
@@ -1084,7 +1193,7 @@ const make = Effect.gen(function* () {
   const readTimeline: VideoProjects["Service"]["readTimeline"] = Effect.fn(
     "VideoProjects.readTimeline",
   )(function* (input) {
-    const synced = yield* sync({ workspaceRoot: input.workspaceRoot });
+    const { result, view: synced } = yield* syncForAgent(input.workspaceRoot);
     const timelines = yield* listTimelines(input.workspaceRoot);
     const chosen =
       input.timeline ??
@@ -1097,6 +1206,7 @@ const make = Effect.gen(function* () {
         timeline: null,
         premiere: synced.state,
         project: yield* describeProject(input.workspaceRoot, synced),
+        changes: changesText(result),
         text: "",
       };
     }
@@ -1121,6 +1231,7 @@ const make = Effect.gen(function* () {
       timeline: chosen,
       premiere: synced.state,
       project: yield* describeProject(input.workspaceRoot, synced),
+      changes: changesText(result),
       text: [editableView(timeline), ...warnings].join("\n"),
     };
   });
@@ -1128,7 +1239,18 @@ const make = Effect.gen(function* () {
   const editTimeline: VideoProjects["Service"]["editTimeline"] = Effect.fn(
     "VideoProjects.editTimeline",
   )(function* (input) {
-    yield* requireProject(input.workspaceRoot);
+    const { result: before } = yield* syncForAgent(input.workspaceRoot);
+    if (before.unmerged.includes(input.timeline)) {
+      return yield* new VideoProjectError({
+        reason: `${input.timeline} was edited here and in Premiere, and they can't be merged: ${NO_BASE} Nothing was changed. Ask the user to choose a version in Stellar.`,
+      });
+    }
+    // The edits name clips and frames from the agent's last read, which this pull just outdated.
+    if (before.updated.includes(input.timeline)) {
+      return yield* new VideoProjectError({
+        reason: `${input.timeline} just changed: the user saved in Premiere and it was pulled in. None of your edits were applied. Read the timeline again and redo them against what is there now.`,
+      });
+    }
     const timeline = yield* loadTimeline(input.workspaceRoot, input.timeline);
     const layout = layoutTimeline(timeline);
     const clipIds = new Set(layout.tracks.flatMap((track) => track.clips.map((clip) => clip.key)));
@@ -1185,12 +1307,16 @@ const make = Effect.gen(function* () {
           ),
         ),
     );
-    const synced = yield* sync({ workspaceRoot: input.workspaceRoot });
+    const { result: after, view: synced } = yield* syncWithPremiere({
+      workspaceRoot: input.workspaceRoot,
+    });
     return {
       timelines: yield* listTimelines(input.workspaceRoot),
       timeline: input.timeline,
       premiere: synced.state,
       project: yield* describeProject(input.workspaceRoot, synced),
+      // What the sync before the edit pulled or merged in, then what is pending with the edit.
+      changes: changesText({ ...before, pending: after.pending }),
       text: editableView(edited),
     };
   });
@@ -1286,8 +1412,99 @@ const make = Effect.gen(function* () {
     };
   });
 
+  const pushPlan: VideoProjects["Service"]["pushPlan"] = Effect.fn("VideoProjects.pushPlan")(
+    function* (input) {
+      // Not merged here: a merge rewrites the timeline, and the agent should read what it became.
+      const { result, view: synced } = yield* syncWithPremiere({
+        workspaceRoot: input.workspaceRoot,
+      });
+      const timelines = yield* listTimelines(input.workspaceRoot);
+      const chosen =
+        input.timeline ??
+        timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
+        timelines[0];
+      if (chosen === undefined) {
+        return yield* new VideoProjectError({ reason: "This project has no timeline to push." });
+      }
+      const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
+      const state = {
+        timeline: chosen,
+        premiereRunning: synced.premiereRunning,
+        linked: synced.state !== "unlinked",
+        premiereIsNewer: synced.state === "conflict" && result.kept.includes(chosen),
+      };
+      const refuse = (refused: string): VideoPremierePushPlan => ({
+        ...state,
+        refused,
+        steps: 0,
+        manual: [],
+        plan: "",
+        instructions: refused,
+      });
+      if (synced.state === "unlinked") {
+        return refuse(
+          "No Premiere project is linked: save one into the project's Premiere folder and video_premiere_pull its sequence, or use video_premiere_export for a first cut.",
+        );
+      }
+      if (synced.state === "offline") {
+        return refuse("The linked Premiere project can't be read (drive unplugged or file moved).");
+      }
+      if (state.premiereIsNewer) {
+        return refuse(
+          "Pull first: Premiere saved a newer version of this sequence than the edits here started from. Call video_timeline_read, which merges it with the edits made here, then ask for the plan again.",
+        );
+      }
+      const base = yield* fileSystem
+        .readFileString(path.join(input.workspaceRoot, BASE_DIRECTORY, path.basename(chosen)))
+        .pipe(
+          Effect.flatMap(decodeJson),
+          Effect.map((value) => value as Timeline),
+          Effect.option,
+        );
+      if (Option.isNone(base)) {
+        return refuse("No record of Premiere's version yet; sync once with Premiere open.");
+      }
+      const plan = yield* Effect.try({
+        try: () => planPush(base.value, timeline),
+        catch: (cause) =>
+          new VideoProjectError({ reason: `Could not plan the push of ${chosen}.`, cause }),
+      });
+      const closed =
+        synced.premiereRunning === false
+          ? ["Premiere is NOT open: apply nothing. Tell the user to open the project in Premiere."]
+          : [];
+      const instructions =
+        plan.steps.length === 0 && plan.manual.length === 0
+          ? "Nothing to push: Premiere's last save already holds this timeline."
+          : [
+              ...closed,
+              `Open the sequence "${timeline.name}" in Premiere and apply the steps in order with the Premiere tools, one clip per step (linked partners have steps of their own). Each step gives its position as it is when that step runs; clip ids change after every edit, so read the sequence again before each step and find the clip by track and start time. Tracks are numbered as Premiere shows them (V1 is video track 1; a tool that counts from 0 takes one less). Seconds are exact for the frames beside them.`,
+              ...(Number.isInteger(plan.rate)
+                ? []
+                : [
+                    `The sequence runs at ${plan.rate.toFixed(3)} fps: a tool that takes whole frame rates only will refuse a ripple-remove; razor both ends of the range and ripple-delete what is between them.`,
+                  ]),
+              ...(plan.manual.length === 0
+                ? []
+                : [
+                    "The plan's by-hand list is not covered by the steps: do what a Premiere tool can do safely, and tell the user the rest.",
+                  ]),
+              "Then save the project in Premiere and call video_timeline_read: `premiere` is `current` once Premiere matches, and `changes` lists what still differs.",
+            ].join("\n");
+      return {
+        ...state,
+        refused: null,
+        steps: plan.steps.length,
+        manual: plan.manual,
+        plan: plan.text,
+        instructions,
+      };
+    },
+  );
+
   return VideoProjects.of({
     exportForPremiere,
+    pushPlan,
     saveVoiceOver,
     readTimeline,
     readWords,

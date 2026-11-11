@@ -678,6 +678,27 @@ export const VideoTimelineExportResult = Schema.Struct({
 });
 export type VideoTimelineExportResult = typeof VideoTimelineExportResult.Type;
 
+/** The steps that bring a sequence open in Premiere up to the timeline edited here. */
+export const VideoPremierePushPlan = Schema.Struct({
+  timeline: Schema.String,
+  /** Whether Premiere is open on the host; null where that can't be told. */
+  premiereRunning: Schema.NullOr(Schema.Boolean),
+  /** Whether the project follows a Premiere project. */
+  linked: Schema.Boolean,
+  /** Premiere saved a version the timeline here doesn't hold yet, so nothing may be pushed. */
+  premiereIsNewer: Schema.Boolean,
+  /** Why there is no plan; null when there is one, or nothing to push. */
+  refused: Schema.NullOr(Schema.String),
+  steps: Schema.Number,
+  /** What differs that no step does safely, in plain words. */
+  manual: Schema.Array(Schema.String),
+  /** One numbered line per step, in the order to run them, then the manual list. */
+  plan: Schema.String,
+  /** What to do with the plan, or instead of it. */
+  instructions: Schema.String,
+});
+export type VideoPremierePushPlan = typeof VideoPremierePushPlan.Type;
+
 export const VideoTimelineEditInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   timeline: TrimmedNonEmptyString.check(Schema.isMaxLength(512)),
@@ -703,6 +724,8 @@ export const VideoProjectSyncInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   /** Replace timelines edited here with Premiere's version; the replaced files are kept. */
   usePremiere: Schema.optional(Schema.Boolean),
+  /** Take Premiere's save and re-apply the edits made here on top of it. */
+  merge: Schema.optional(Schema.Boolean),
 });
 export type VideoProjectSyncInput = typeof VideoProjectSyncInput.Type;
 
@@ -716,6 +739,12 @@ export const VideoProjectSyncResult = Schema.Struct({
   kept: Schema.Array(Schema.String),
   /** Whether Premiere is open on the host; null where that can't be told. */
   premiereRunning: Schema.NullOr(Schema.Boolean),
+  /** What this sync brought in from Premiere, one plain sentence per change. */
+  changes: Schema.Array(Schema.String),
+  /** Edits made here that aren't in Premiere yet, one plain sentence per change. */
+  pending: Schema.Array(Schema.String),
+  /** Edits made here that a merge had to drop because Premiere changed the same thing. */
+  conflicts: Schema.Array(Schema.String),
 });
 export type VideoProjectSyncResult = typeof VideoProjectSyncResult.Type;
 
@@ -729,6 +758,11 @@ export const VideoTimelineView = Schema.Struct({
    * open and linked, footage, previews, transcripts, voice-over takes, and missing tools.
    */
   project: Schema.String,
+  /**
+   * What this call found, a line each and empty when nothing: what the user changed in Premiere
+   * since the last read, edits made here that a merge dropped, and edits not in Premiere yet.
+   */
+  changes: Schema.String,
   /** One line per clip: track, start-end in frames, #clipId, name. */
   text: Schema.String,
 });

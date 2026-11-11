@@ -351,6 +351,9 @@ export function summarizeT3ToolCalls(
     case "video-premiere-export":
       label = phrase("Exported", "export", `the timeline for Premiere ${times}`);
       break;
+    case "video-premiere-push":
+      label = phrase("Planned", "plan", `the push to Premiere ${times}`);
+      break;
     case "video-footage":
       label = phrase("Brought in", "bring in", `footage ${times}`);
       break;

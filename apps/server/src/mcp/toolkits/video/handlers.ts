@@ -112,6 +112,18 @@ const handlers = {
         .pipe(Effect.mapError(refused));
     }),
   ),
+  video_premiere_push: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      return yield* videoProjects
+        .pushPlan({
+          workspaceRoot,
+          ...(input.timeline === undefined ? {} : { timeline: input.timeline }),
+        })
+        .pipe(Effect.mapError(refused));
+    }),
+  ),
   video_project_start: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const videoProjects = yield* VideoProjects.VideoProjects;
