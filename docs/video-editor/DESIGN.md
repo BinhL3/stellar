@@ -312,9 +312,17 @@ Built from the past threads: it targets where time and failures actually went, a
   Premiere yet. The baton and native re-attach are not built. The tool text has not been through
   `evals/mcp-tool-use` yet.
 - **Cutting by words: built.** `video_timeline_words` numbers the words heard on a timeline and
-  the `removeWords` edit cuts a run of them. It relies on the `Audio/<clip>.words.json` files
-  the transcription pipeline already writes; Stellar does no transcription itself, so a clip
-  without that file can't be cut by words.
+  the `removeWords` edit cuts a run of them. It reads `Audio/<clip>.words.json` files, which a
+  project's own pipeline may write and which Stellar makes for the rest: after an import, a
+  proxy build or a saved voice-over take, and on `video_transcribe`, it runs the host's
+  transcriber (the transcribe command in settings, else `stt` on the PATH) over footage and
+  takes that have none, reporting to `transcripts.json` in the project folder.
+- **The script as project data: built.** The Google Doc stays the script's source of truth;
+  the project keeps a snapshot (`script.md`, with beat ids in `script.json`). `video_script`
+  and `videoProjects.readScript` split it into beats (`packages/timeline/src/script.ts`) and
+  place each on a timeline by matching its words against the transcripts, so a beat knows its
+  word numbers and frames. Stellar doesn't fetch the doc itself: an agent reads it and passes
+  the text in.
 - **Frame rates: detected, not conformed.** The proxy build records each clip's nominal rate
   and, for clips whose average is off it, reads every frame time and records where the rate
   changes (`rateChanges` in the proxy index). The Premiere badge and `video_timeline_read`

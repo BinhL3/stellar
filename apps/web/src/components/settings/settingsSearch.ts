@@ -254,6 +254,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["worktree location folder directory path drive external disk"],
   },
   {
+    id: "video-transcriber",
+    title: "Transcriber",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["video transcript transcribe words stt speech captions cut by words program"],
+  },
+  {
     id: "storage-artifacts",
     title: "Artifacts and logs",
     to: "/settings/maintenance",

@@ -1,4 +1,4 @@
-import type { VideoProjectSyncResult } from "@t3tools/contracts";
+import type { VideoProjectSyncResult, VideoTranscriptStatus } from "@t3tools/contracts";
 
 import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
@@ -21,6 +21,10 @@ export interface PremiereSyncStatus {
   /** Absent when this connection can't write to the project. */
   readonly onSync?: () => void;
   readonly onUsePremiere?: () => void;
+  /** Null until the project's transcript status has been written. */
+  readonly transcripts: VideoTranscriptStatus | null;
+  /** Absent when this connection can't write to the project. */
+  readonly onTranscribe?: () => void;
 }
 
 type State = VideoProjectSyncResult["state"];
@@ -69,11 +73,27 @@ const explain = (state: State, time: number | null): string => {
   }
 };
 
+const transcriptLine = (status: VideoTranscriptStatus | null): string => {
+  if (status === null) return "Transcripts: none yet.";
+  if (status.building !== null) {
+    return `Transcribing${status.building.total > 0 ? ` ${status.building.done} of ${status.building.total}` : ""}.`;
+  }
+  if (status.unavailable !== null) return status.unavailable;
+  return `Transcripts: ${status.ready} of ${status.total}.`;
+};
+
 /** The Premiere pill in the preview's transport row: sync state at a glance, details on click. */
 export function PremiereSyncBadge(props: PremiereSyncStatus) {
   const state = props.link?.state ?? null;
   const short = props.syncing ? "Syncing" : state === null ? null : SHORT[state];
-  const { building } = props;
+  const { building, transcripts } = props;
+  const failedTranscripts = transcripts?.failed.length ?? 0;
+  const canTranscribe =
+    props.onTranscribe !== undefined &&
+    (transcripts === null ||
+      (transcripts.building === null &&
+        transcripts.unavailable === null &&
+        transcripts.ready < transcripts.total));
   return (
     <Popover>
       <PopoverTrigger
@@ -134,16 +154,24 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
               transcript, or cuts land on the wrong frame.
             </p>
           ) : null}
-          {props.onSync ? (
+          <p className="text-muted-foreground">
+            {transcriptLine(transcripts)}
+            {failedTranscripts > 0
+              ? ` ${failedTranscripts} ${failedTranscripts === 1 ? "file" : "files"} could not be transcribed.`
+              : ""}
+          </p>
+          {props.onSync || canTranscribe ? (
             <div className="flex flex-wrap gap-1">
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={props.syncing || state === "unlinked"}
-                onClick={props.onSync}
-              >
-                Sync now
-              </Button>
+              {props.onSync ? (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={props.syncing || state === "unlinked"}
+                  onClick={props.onSync}
+                >
+                  Sync now
+                </Button>
+              ) : null}
               {(state === "edited" || state === "conflict") && props.onUsePremiere ? (
                 <Button
                   size="xs"
@@ -152,6 +180,11 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
                   onClick={props.onUsePremiere}
                 >
                   Use Premiere's version
+                </Button>
+              ) : null}
+              {canTranscribe ? (
+                <Button size="xs" variant="outline" onClick={props.onTranscribe}>
+                  Transcribe
                 </Button>
               ) : null}
             </div>

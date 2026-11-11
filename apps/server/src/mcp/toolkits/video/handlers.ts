@@ -1,4 +1,5 @@
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import { beatsText } from "@t3tools/timeline/script";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -59,6 +60,44 @@ const handlers = {
           ...(input.timeline === undefined ? {} : { timeline: input.timeline }),
         })
         .pipe(Effect.mapError(refused));
+    }),
+  ),
+  video_transcribe: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      return yield* videoProjects
+        .transcribe({
+          workspaceRoot,
+          ...(input.files === undefined ? {} : { files: input.files }),
+          ...(input.language === undefined ? {} : { language: input.language }),
+        })
+        .pipe(Effect.mapError(refused));
+    }),
+  ),
+  video_script: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const { text, docUrl, timeline } = input;
+      const view = yield* (
+        text === undefined && docUrl === undefined
+          ? videoProjects.readScript({
+              workspaceRoot,
+              ...(timeline === undefined ? {} : { timeline }),
+            })
+          : videoProjects.saveScript({
+              workspaceRoot,
+              ...(text === undefined ? {} : { text }),
+              ...(docUrl === undefined ? {} : { docUrl }),
+            })
+      ).pipe(Effect.mapError(refused));
+      return {
+        docUrl: view.docUrl,
+        timeline: view.timeline,
+        beats: view.beats.length,
+        text: beatsText(view.beats),
+      };
     }),
   ),
   video_premiere_export: McpToolAccess.actsAsCaller((input) =>

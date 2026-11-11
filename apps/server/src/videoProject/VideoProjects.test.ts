@@ -15,6 +15,8 @@ import { copyFootage, footageStringout, listFootage } from "@t3tools/timeline/fo
 import { serializeTimeline } from "@t3tools/timeline/otio";
 
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import { runTranscription, transcriptCoverage } from "./Transcriber.ts";
 import * as VideoProjects from "./VideoProjects.ts";
 
 // Tests close their scope after the service's layer, so background proxy builds have stopped
@@ -28,6 +30,19 @@ const prprojWithFrame = (frame: string) =>
 <Sequence ObjectUID="seq-1"><TrackGroups><TrackGroup Index="0"><First>v</First><Second ObjectRef="1"/></TrackGroup></TrackGroups><Name>Polish v1</Name></Sequence>
 </PremiereData>`);
 const prproj = prprojWithFrame("1080,1920");
+
+// Background work transcribes what it finds, so no test may reach a real transcriber on the PATH.
+const missingTranscriber = "/nonexistent/stellar-test-stt";
+const noTranscriber = ServerSettings.ServerSettingsService.layerTest({
+  videoTranscribeCommand: missingTranscriber,
+});
+
+// Stands in for the host's transcriber: `words <media> -o <out> [--lang <code>]`.
+const fakeTranscriber = `#!/bin/sh
+echo "$2 \${6:-any}" >> "$(dirname "$0")/calls.log"
+case "$2" in *broken*) exit 1 ;; esac
+printf '[{"w":"hello","start":0,"end":0.5}]' > "$4"
+`;
 
 const withProjects = (created: Array<string>) =>
   Layer.mock(ProjectService.ProjectService)({
@@ -68,7 +83,7 @@ it.live("lists sequences and places the project beside the Premiere folder's par
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects([])),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
       ),
     ),
     Effect.scoped,
@@ -100,7 +115,7 @@ it.live("pulls the sequence into the project folder and reuses the project next 
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
       ),
     ),
     Effect.scoped,
@@ -167,7 +182,7 @@ it.live("syncs Premiere's saves without overwriting edits made here", () => {
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
       ),
     ),
     Effect.scoped,
@@ -217,7 +232,7 @@ it.live(
       Effect.provide(
         VideoProjects.layer.pipe(
           Layer.provideMerge(withProjects(created)),
-          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
         ),
       ),
       Effect.scoped,
@@ -316,6 +331,37 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
       "A1 120-180 #id b.MOV (no transcript)",
     ]);
 
+    // The script is project data: each beat keeps an id and is placed where its words are said.
+    assert.deepStrictEqual((yield* videoProjects.readScript({ workspaceRoot })).beats, []);
+    const docUrl = "https://docs.google.com/document/d/abc/edit";
+    const saved = yield* videoProjects.saveScript({
+      workspaceRoot,
+      docUrl,
+      text: "# Jollibee\n\n## Outro\nHãy subscribe cho kênh!\n[b-roll: logo]\nHẹn gặp lại các bạn.",
+    });
+    const placed = { firstWord: 1, lastWord: 4, startFrame: 30, endFrame: 114 };
+    const unsaid = { firstWord: null, lastWord: null, startFrame: null, endFrame: null };
+    assert.deepStrictEqual(saved.beats, [
+      { id: "b1", text: "Hãy subscribe cho kênh!", section: "Outro", ...placed },
+      { id: "b2", text: "Hẹn gặp lại các bạn.", section: "Outro", ...unsaid },
+    ]);
+    // A reworded beat keeps its id, a new one never takes the id of the beat that was removed.
+    yield* videoProjects.saveScript({
+      workspaceRoot,
+      text: "Chào các bạn, mình là Bình.\nHãy subscribe cho kênh nhé!",
+    });
+    const reread = yield* videoProjects.readScript({ workspaceRoot, timeline });
+    assert.strictEqual(reread.docUrl, docUrl);
+    assert.strictEqual(reread.timeline, timeline);
+    assert.deepStrictEqual(reread.beats, [
+      { id: "b3", text: "Chào các bạn, mình là Bình.", section: null, ...unsaid },
+      { id: "b1", text: "Hãy subscribe cho kênh nhé!", section: null, ...placed },
+    ]);
+    assert.include(
+      (yield* videoProjects.readTimeline({ workspaceRoot })).project,
+      "Script snapshot: 2 beats in Stellar/script.md, Google Doc recorded",
+    );
+
     const before = yield* fs.readFileString(file);
     const refused = yield* videoProjects
       .editTimeline({
@@ -355,7 +401,7 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
       ),
     ),
     Effect.scoped,
@@ -432,7 +478,122 @@ it.live("reads a timeline for an agent and applies its edits, refusing a bad one
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
+
+it.live("transcribes media that has no transcript and lists what failed", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-transcribe-" });
+    const command = path.join(root, "stt");
+    yield* fs.writeFileString(command, fakeTranscriber);
+    yield* fs.chmod(command, 0o755);
+    const mediaRoot = path.join(root, "Jollibee");
+    const projectDir = path.join(mediaRoot, "Stellar");
+    for (const folder of ["Footage/00 Raw", "Audio/VO", "Audio/transcripts", "Stellar"]) {
+      yield* fs.makeDirectory(path.join(mediaRoot, folder), { recursive: true });
+    }
+    for (const media of [
+      "Footage/00 Raw/a.MOV",
+      "Footage/00 Raw/b.MOV",
+      "Footage/00 Raw/broken.MOV",
+      "Audio/VO/take.wav",
+    ]) {
+      yield* fs.writeFileString(path.join(mediaRoot, media), "media");
+    }
+    yield* fs.writeFileString(path.join(mediaRoot, "Audio", "transcripts", "a.words.json"), "[]");
+
+    const coverage = yield* transcriptCoverage(mediaRoot);
+    assert.deepStrictEqual(coverage, {
+      total: 4,
+      missing: ["Footage/00 Raw/b.MOV", "Footage/00 Raw/broken.MOV", "Audio/VO/take.wav"],
+    });
+    const progress: Array<number | null> = [];
+    const status = yield* runTranscription({
+      projectDir,
+      command,
+      language: "vi",
+      targets: coverage.missing,
+      coverage,
+      onStatus: (reported) =>
+        Effect.sync(() => void progress.push(reported.building?.done ?? null)),
+    });
+
+    const expected = {
+      building: null,
+      ready: 3,
+      total: 4,
+      failed: ["Footage/00 Raw/broken.MOV"],
+      unavailable: null,
+    };
+    assert.deepStrictEqual(status, expected);
+    assert.deepStrictEqual(progress, [0, 1, 2, null]);
+    assert.deepStrictEqual(
+      JSON.parse(yield* fs.readFileString(path.join(projectDir, "transcripts.json"))),
+      expected,
+    );
+    assert.deepStrictEqual((yield* fs.readDirectory(path.join(mediaRoot, "Audio"))).toSorted(), [
+      "VO",
+      "b.words.json",
+      "take.words.json",
+      "transcripts",
+    ]);
+    // The clip that already had a transcript never reached the transcriber.
+    assert.deepStrictEqual(
+      (yield* fs.readFileString(path.join(root, "calls.log"))).trim().split("\n"),
+      ["b.MOV", "broken.MOV", "take.wav"].map(
+        (name) =>
+          `${path.join(mediaRoot, name.endsWith(".wav") ? "Audio/VO" : "Footage/00 Raw", name)} vi`,
+      ),
+    );
+    assert.deepStrictEqual((yield* transcriptCoverage(mediaRoot)).missing, [
+      "Footage/00 Raw/broken.MOV",
+    ]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.live("reports that nothing can be transcribed when the host has no transcriber", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-no-stt-" });
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot } = yield* videoProjects.createFromIdea({
+      title: "Jollibee",
+      parentFolder: root,
+    });
+    const mediaRoot = path.dirname(workspaceRoot);
+    yield* fs.writeFileString(path.join(mediaRoot, "Footage", "a.MOV"), "media");
+    yield* fs.writeFileString(path.join(mediaRoot, "Footage", "b.MOV"), "media");
+    yield* fs.writeFileString(path.join(mediaRoot, "Audio", "a.words.json"), "[]");
+
+    const unavailable = `The transcribe command set in Settings (${missingTranscriber}) isn't on this machine.`;
+    const expected = { building: null, ready: 1, total: 2, failed: [], unavailable };
+    assert.deepStrictEqual(yield* videoProjects.transcribe({ workspaceRoot }), expected);
+    assert.deepStrictEqual(
+      JSON.parse(yield* fs.readFileString(path.join(workspaceRoot, "transcripts.json"))),
+      expected,
+    );
+    assert.include(
+      (yield* videoProjects.readTimeline({ workspaceRoot })).project,
+      `Transcripts: 1 of 2 clips and takes word-timed (${unavailable}).`,
+    );
+
+    const outside = yield* videoProjects
+      .transcribe({ workspaceRoot, files: ["../secret.mov"] })
+      .pipe(Effect.flip);
+    assert.strictEqual(outside.message, `Files to transcribe are named relative to ${mediaRoot}.`);
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
       ),
     ),
     Effect.scoped,
@@ -484,7 +645,7 @@ it.live("scans Downloads for new footage and only imports from there", () => {
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
         Layer.provideMerge(Layer.succeed(HostProcess.HomeDirectory, intakeHome)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
       ),
     ),
     Effect.scoped,
@@ -502,7 +663,7 @@ it.live("rejects files that aren't Premiere projects", () =>
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects([])),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
       ),
     ),
   ),

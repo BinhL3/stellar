@@ -2,10 +2,13 @@ import {
   OrchestratorMcpFailure,
   VideoProjectCreateFromIdeaResult,
   VideoProjectScanIntakeResult,
+  VideoScriptSaveInput,
   VideoTimelineEdit,
   VideoTimelineExportResult,
   VideoTimelineView,
   VideoTimelineWords,
+  VideoTranscribeInput,
+  VideoTranscriptStatus,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
@@ -57,7 +60,7 @@ const TimelineEditTool = Tool.make("video_timeline_edit", {
 
 const TimelineWordsTool = Tool.make("video_timeline_words", {
   description:
-    "Read what is said on a timeline, to cut by words: per audio clip, each transcribed word as `index:word@startFrame`. Cut with `video_timeline_edit` removeWords, which removes from a word's start to the next word's start. Numbers change after every edit, so read again before cutting more. Transcripts come from the project's `Audio/<clip>.words.json`; clips without one say so.",
+    "Read what is said on a timeline, to cut by words: per audio clip, each transcribed word as `index:word@startFrame`. Cut with `video_timeline_edit` removeWords, which removes from a word's start to the next word's start. Numbers change after every edit, so read again before cutting more. Transcripts come from the project's `Audio/<clip>.words.json`; clips without one say so, and `video_transcribe` makes them.",
   parameters: Schema.Struct({ timeline: Schema.optional(Schema.String) }),
   success: VideoTimelineWords,
   failure: OrchestratorMcpFailure,
@@ -66,6 +69,48 @@ const TimelineWordsTool = Tool.make("video_timeline_words", {
 })
   .annotate(Tool.Title, "Read the timeline's words")
   .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const TranscribeTool = Tool.make("video_transcribe", {
+  description:
+    "Make word-timed transcripts for this thread's video project, so its clips can be cut by words. Call it when `video_timeline_words` shows clips with `(no transcript)`. Returns at once while the host's transcriber works through the files in the background, tens of seconds each: `building` counts the run, `ready` of `total` footage clips and voice-over takes have a transcript, `failed` lists files it couldn't do. Call again later to see progress, then read the words again. Omit `files` to do everything without a transcript, or name files relative to the project folder; `language` (en or vi) only when the user says what is spoken. When `unavailable` is set the host has no transcriber: tell the user what it says.",
+  parameters: Schema.Struct({
+    files: VideoTranscribeInput.fields.files,
+    language: VideoTranscribeInput.fields.language,
+  }),
+  success: VideoTranscriptStatus,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Transcribe the project's media")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const ScriptTool = Tool.make("video_script", {
+  description:
+    "Read or refresh this project's script. The script's source of truth is the user's Google Doc; Stellar keeps a snapshot split into beats (spoken lines; headings, metadata and [bracketed] visual notes are left out) and finds where each beat is said on a timeline. With no arguments it reads: `text` has one line per beat, `b4 words 120-141 frames 1830-2104: <line>` or `b5 not on the timeline: <line>`. The word numbers are `video_timeline_words` numbers, so they go straight into `video_timeline_edit` removeWords, and like them they change after every edit: read again before cutting more. To refresh the snapshot, read the Google Doc with a Docs tool and pass its whole text (Markdown or plain) as `text`, and its link as `docUrl` when you have it; `docUrl` in the result is the doc recorded so far. Beats keep their ids when their wording is the same or lightly edited. When reading, `timeline` picks the timeline to place beats on; omit it for the main one, which a save always answers with.",
+  parameters: Schema.Struct({
+    text: VideoScriptSaveInput.fields.text,
+    docUrl: VideoScriptSaveInput.fields.docUrl,
+    timeline: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    docUrl: Schema.NullOr(Schema.String),
+    timeline: Schema.NullOr(Schema.String),
+    beats: Schema.Number,
+    text: Schema.String,
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Read or save the script")
+  .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
@@ -147,6 +192,8 @@ export const VideoToolkit = Toolkit.make(
   TimelineReadTool,
   TimelineEditTool,
   TimelineWordsTool,
+  TranscribeTool,
+  ScriptTool,
   PremiereExportTool,
   ProjectStartTool,
   PremierePullTool,

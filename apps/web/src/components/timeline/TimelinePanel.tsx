@@ -6,8 +6,10 @@ import {
   type AssetResource,
   AuthFilesystemWriteScope,
   type EnvironmentId,
+  type ScopedThreadRef,
   type VideoProjectIntakeStatus,
   type VideoProjectSyncResult,
+  type VideoTranscriptStatus,
 } from "@t3tools/contracts";
 import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
@@ -34,6 +36,7 @@ import {
 } from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
+import { Toggle } from "~/components/ui/toggle";
 import { useVideoProject } from "~/hooks/useVideoProject";
 import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentScope } from "~/state/session";
@@ -44,6 +47,8 @@ import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
 import { RecordVoiceOverButton } from "../videoProject/RecordVoiceOverButton";
 import { VideoStageSelect } from "../videoProject/VideoStageSelect";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
+import { readScriptShown, writeScriptShown } from "./scriptBeats";
+import { ScriptPanel } from "./ScriptPanel";
 import type { PreviewMedia, PreviewMediaSource } from "./TimelinePreview";
 
 const TimelineViewer = lazy(() => import("../files/TimelineViewer"));
@@ -158,12 +163,26 @@ const parseIntakeStatus = (text: string | undefined): VideoProjectIntakeStatus |
   }
 };
 
+const TRANSCRIPT_STATUS_PATH = "transcripts.json";
+
+const parseTranscriptStatus = (text: string | undefined): VideoTranscriptStatus | null => {
+  if (text === undefined) return null;
+  try {
+    const value = JSON.parse(text) as VideoTranscriptStatus;
+    return typeof value.ready === "number" && Array.isArray(value.failed) ? value : null;
+  } catch {
+    return null;
+  }
+};
+
 const timelineLabel = (path: string) =>
   path.slice(path.lastIndexOf("/") + 1).replace(/\.otio$/i, "");
 
 export default function TimelinePanel(props: {
   readonly environmentId: EnvironmentId;
   readonly workspaceRoot: string;
+  /** The thread whose Browser tab opens the script's Google Doc. */
+  readonly threadRef: ScopedThreadRef;
 }) {
   const { timelinePaths, refresh: refreshTimelines } = useVideoProject(
     props.environmentId,
@@ -281,21 +300,54 @@ export default function TimelinePanel(props: {
   );
   const intake = parseIntakeStatus(intakeFile.data?.contents);
   const isBuilding = building !== null || intake?.state === "copying";
+  const transcriptFile = useProjectFileQuery(
+    props.environmentId,
+    props.workspaceRoot,
+    TRANSCRIPT_STATUS_PATH,
+  );
+  const transcripts = parseTranscriptStatus(transcriptFile.data?.contents);
+  const isPolling = isBuilding || (transcripts !== null && transcripts.building !== null);
   const refreshProxies = useEffectEvent(() => {
     proxyFile.refresh();
     intakeFile.refresh();
+    transcriptFile.refresh();
   });
   // The footage timeline is written when a build ends, so the list is read again then.
   const refreshAfterBuild = useEffectEvent(() => refreshTimelines());
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- The server rewrites the proxy index as its background build finishes each file; nothing pushes that to clients.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- The server rewrites the proxy index and transcript status as its background work finishes each file; nothing pushes that to clients.
   useEffect(() => {
-    if (!isBuilding) return;
+    if (!isPolling) return;
     const timer = window.setInterval(refreshProxies, PROXY_POLL_MS);
     return () => {
       window.clearInterval(timer);
       refreshAfterBuild();
     };
-  }, [isBuilding]);
+  }, [isPolling]);
+
+  const transcribeMedia = useAtomCommand(projectEnvironment.transcribeVideoMedia, {
+    reportFailure: false,
+  });
+  const transcribe = async () => {
+    const result = await transcribeMedia({
+      environmentId: props.environmentId,
+      input: { workspaceRoot: props.workspaceRoot },
+    });
+    // The status file now says what is being transcribed, and polling follows it.
+    transcriptFile.refresh();
+    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+    const error = squashAtomCommandFailure(result);
+    toastManager.add({
+      type: "error",
+      title: "Could not start transcribing",
+      description: error instanceof Error ? error.message : "Try again in a moment.",
+    });
+  };
+
+  const [scriptShown, setScriptShown] = useState(readScriptShown);
+  const showScript = (shown: boolean) => {
+    setScriptShown(shown);
+    writeScriptShown(shown);
+  };
 
   const writeFile = useAtomCommand(projectEnvironment.writeFile, { reportFailure: false });
   // Committing writes the edited timeline over the .otio, then reloads it, which clears the
@@ -400,9 +452,12 @@ export default function TimelinePanel(props: {
           </Select>
         ) : null}
         {intakeNote}
-        {canWriteFiles ? (
-          <span className="ml-auto flex items-center gap-2">{importFootage("sm")}</span>
-        ) : null}
+        <span className="ml-auto flex items-center gap-2">
+          <Toggle size="xs" pressed={scriptShown} onPressedChange={showScript}>
+            Script
+          </Toggle>
+          {canWriteFiles ? importFootage("sm") : null}
+        </span>
       </div>
       {file.data ? (
         <Suspense fallback={null}>
@@ -426,14 +481,32 @@ export default function TimelinePanel(props: {
                     : [target.slice(target.lastIndexOf("/") + 1)],
                 )}
                 proxied={media.proxied}
+                transcripts={transcripts}
                 {...(canWriteFiles
                   ? {
                       onSync: () => void sync(),
                       onUsePremiere: () => void sync({ usePremiere: true }),
+                      onTranscribe: () => void transcribe(),
                     }
                   : {})}
               />
             }
+            {...(scriptShown
+              ? {
+                  aside: (
+                    <ScriptPanel
+                      environmentId={props.environmentId}
+                      workspaceRoot={props.workspaceRoot}
+                      timeline={selectedPath}
+                      revision={file.data?.contents ?? ""}
+                      transcribed={transcripts?.ready ?? 0}
+                      threadRef={props.threadRef}
+                      canWrite={canWriteFiles}
+                      onClose={() => showScript(false)}
+                    />
+                  ),
+                }
+              : {})}
             {...(canWriteFiles ? { onCommit: commit } : {})}
           />
         </Suspense>

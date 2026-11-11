@@ -249,6 +249,11 @@ import {
   VideoProjectScanIntakeResult,
   VideoProjectSyncInput,
   VideoProjectSyncResult,
+  VideoTranscribeInput,
+  VideoTranscriptStatus,
+  VideoScriptReadInput,
+  VideoScriptSaveInput,
+  VideoScriptView,
   ProjectCreateFromThreadInput,
   ProjectCreateFromThreadResult,
   ProjectEnsureScratchResult,
@@ -438,6 +443,9 @@ export const WS_METHODS = {
   videoProjectsImportFootage: "videoProjects.importFootage",
   videoProjectsSaveVoiceOver: "videoProjects.saveVoiceOver",
   videoProjectsSync: "videoProjects.sync",
+  videoProjectsTranscribe: "videoProjects.transcribe",
+  videoProjectsReadScript: "videoProjects.readScript",
+  videoProjectsSaveScript: "videoProjects.saveScript",
 
   shellOpenInEditor: "shell.openInEditor",
 
@@ -1424,6 +1432,24 @@ const WsVideoProjectsSyncRpc = Rpc.make(WS_METHODS.videoProjectsSync, {
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVideoProjectsTranscribeRpc = Rpc.make(WS_METHODS.videoProjectsTranscribe, {
+  payload: VideoTranscribeInput,
+  success: VideoTranscriptStatus,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsReadScriptRpc = Rpc.make(WS_METHODS.videoProjectsReadScript, {
+  payload: VideoScriptReadInput,
+  success: VideoScriptView,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsSaveScriptRpc = Rpc.make(WS_METHODS.videoProjectsSaveScript, {
+  payload: VideoScriptSaveInput,
+  success: VideoScriptView,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsCreateFromThreadRpc = Rpc.make(WS_METHODS.projectsCreateFromThread, {
   payload: ProjectCreateFromThreadInput,
   success: ProjectCreateFromThreadResult,
@@ -2201,6 +2227,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsImportFootageRpc,
   WsVideoProjectsSaveVoiceOverRpc,
   WsVideoProjectsSyncRpc,
+  WsVideoProjectsTranscribeRpc,
+  WsVideoProjectsReadScriptRpc,
+  WsVideoProjectsSaveScriptRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

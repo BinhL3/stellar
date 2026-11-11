@@ -15,14 +15,20 @@ import {
   type VideoProjectScanIntakeResult,
   type VideoProjectSyncInput,
   type VideoProjectSyncResult,
+  type VideoScriptReadInput,
+  type VideoScriptSaveInput,
+  type VideoScriptView,
   type VideoTimelineEdit,
   type VideoTimelineEditInput,
   type VideoTimelineExportResult,
   type VideoTimelineReadInput,
   type VideoTimelineView,
   type VideoTimelineWords,
+  type VideoTranscribeInput,
+  type VideoTranscriptStatus,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { resolveCommandPath } from "@t3tools/shared/shell";
 import { editableView } from "@t3tools/timeline/compactView";
 import { applyEdits, type TimelineEdit } from "@t3tools/timeline/edits";
 import {
@@ -40,6 +46,7 @@ import { PREMIERE_LINK_PATH, recordPull, syncFromPremiere } from "@t3tools/timel
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import { buildProjectProxies, markProxiesBuilding } from "@t3tools/timeline/proxyBuilder";
 import { pullToProject } from "@t3tools/timeline/pullToProject";
+import { alignBeats, assignBeatIds, parseScript } from "@t3tools/timeline/script";
 import { timelineWords, type TranscriptWord, wordRange, wordsText } from "@t3tools/timeline/words";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -57,6 +64,15 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import {
+  decodeTranscript,
+  findTranscript,
+  projectLanguage,
+  runTranscription,
+  transcriptCoverage,
+  writeTranscriptStatus,
+} from "./Transcriber.ts";
 
 export class VideoProjectError extends Schema.TaggedError<VideoProjectError>()(
   "VideoProjectError",
@@ -71,13 +87,20 @@ export class VideoProjectError extends Schema.TaggedError<VideoProjectError>()(
 }
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
-const decodeTranscript = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(
-    Schema.Array(Schema.Struct({ w: Schema.String, start: Schema.Number, end: Schema.Number })),
-  ),
-);
-/** The folder a project's pipeline writes `<clip>.words.json` into, directly or under `transcripts/`. */
-const TRANSCRIPT_FOLDER = "Audio";
+// What the host's transcriber is called when no command is set in settings.
+const DEFAULT_TRANSCRIBE_COMMAND = "stt";
+
+/** The script snapshot in the project folder: the text, and beside it the ids its beats were given. */
+const SCRIPT_FILE = "script.md";
+const SCRIPT_INDEX_FILE = "script.json";
+const ScriptIndex = Schema.Struct({
+  docUrl: Schema.NullOr(Schema.String),
+  savedAt: Schema.NullOr(Schema.Number),
+  beats: Schema.Array(Schema.Struct({ id: Schema.String, text: Schema.String })),
+  nextId: Schema.Number,
+});
+const decodeScriptIndex = Schema.decodeUnknownEffect(Schema.fromJsonString(ScriptIndex));
+const NO_SCRIPT: typeof ScriptIndex.Type = { docUrl: null, savedAt: null, beats: [], nextId: 1 };
 
 type FrameRange = { readonly start: number; readonly end: number };
 
@@ -241,12 +264,34 @@ export class VideoProjects extends Context.Service<
       input: VideoTimelineEditInput,
     ) => Effect.Effect<VideoTimelineView, VideoProjectError>;
     /**
-     * The words spoken on a timeline, numbered and placed in frames, from the transcripts the
-     * user's pipeline writes beside the audio. Stellar doesn't transcribe.
+     * The words spoken on a timeline, numbered and placed in frames, from the transcripts
+     * `transcribe` or the user's own pipeline wrote under `Audio`.
      */
     readonly readWords: (
       input: VideoTimelineReadInput,
     ) => Effect.Effect<VideoTimelineWords, VideoProjectError>;
+    /**
+     * Starts the host's transcriber on the footage and voice-over takes that have no word-timed
+     * transcript, in the background, and returns where that stands. A request made while a run
+     * is going is taken up when it ends. With no transcriber, says so in `unavailable`.
+     */
+    readonly transcribe: (
+      input: VideoTranscribeInput,
+    ) => Effect.Effect<VideoTranscriptStatus, VideoProjectError>;
+    /**
+     * The project's snapshot of the script as beats, each placed on a timeline where its words
+     * are said. A project with no snapshot has no beats.
+     */
+    readonly readScript: (
+      input: VideoScriptReadInput,
+    ) => Effect.Effect<VideoScriptView, VideoProjectError>;
+    /**
+     * Replaces the snapshot's text and/or records the Google Doc it came from. A beat whose
+     * text is the same or lightly edited keeps its id.
+     */
+    readonly saveScript: (
+      input: VideoScriptSaveInput,
+    ) => Effect.Effect<VideoScriptView, VideoProjectError>;
   }
 >()("t3/videoProject/VideoProjects") {}
 
@@ -258,6 +303,7 @@ const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const background = yield* FiberSet.make();
   const syncing = yield* Semaphore.make(1);
+  const savingScript = yield* Semaphore.make(1);
   // Premiere's process is named for its year ("Adobe Premiere Pro 2026"); `ps` lists it on macOS
   // and Linux. Where `ps` isn't there, the answer is unknown rather than "closed".
   const premiereRunning = spawner.string(ChildProcess.make("ps", ["-axo", "comm"])).pipe(
@@ -268,6 +314,139 @@ const make = Effect.gen(function* () {
   const importing = new Set<string>();
   const downloads = path.join(yield* HostProcess.HomeDirectory, "Downloads");
   const queued = new Set<string>();
+  const settings = yield* ServerSettings.ServerSettingsService;
+  const onHost = <A, E>(
+    effect: Effect.Effect<
+      A,
+      E,
+      FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
+    >,
+  ) =>
+    effect.pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    );
+
+  /** The host's transcriber as a file to run, or the reason there is none. */
+  const resolveTranscriber = Effect.gen(function* () {
+    const configured = yield* settings.getSettings.pipe(
+      Effect.map((current) => current.videoTranscribeCommand),
+      Effect.orElseSucceed(() => ""),
+    );
+    const command = yield* onHost(resolveCommandPath(configured || DEFAULT_TRANSCRIBE_COMMAND));
+    if (command !== null) return { command, unavailable: null };
+    return {
+      command: null,
+      unavailable:
+        configured === ""
+          ? `No transcriber on this machine: put \`${DEFAULT_TRANSCRIBE_COMMAND}\` on the PATH, or set the transcribe command in Settings.`
+          : `The transcribe command set in Settings (${configured}) isn't on this machine.`,
+    };
+  });
+
+  interface TranscribeRequest {
+    /** Every candidate without a transcript, besides the files named. */
+    readonly everything: boolean;
+    readonly files: ReadonlyArray<string>;
+    readonly language: VideoTranscribeInput["language"];
+  }
+  // Projects with a transcription run going and where each stands, and what was asked of them
+  // meanwhile. Starting is serialized so two requests can't both find no run and start one.
+  const transcribing = new Map<string, VideoTranscriptStatus>();
+  const transcribeQueued = new Map<string, TranscribeRequest>();
+  const transcribeStarting = yield* Semaphore.make(1);
+
+  /**
+   * Transcribes a project's media in the background, one run per project at a time. A request
+   * that arrives mid-run is merged with any other waiting and runs when this one ends.
+   */
+  const startTranscripts = (
+    projectFolder: string,
+    request: TranscribeRequest,
+  ): Effect.Effect<VideoTranscriptStatus> =>
+    transcribeStarting.withPermits(1)(
+      Effect.gen(function* () {
+        const running = transcribing.get(projectFolder);
+        if (running !== undefined) {
+          const waiting = transcribeQueued.get(projectFolder);
+          transcribeQueued.set(
+            projectFolder,
+            waiting === undefined
+              ? request
+              : {
+                  everything: waiting.everything || request.everything,
+                  files: [...waiting.files, ...request.files],
+                  language: request.language ?? waiting.language,
+                },
+          );
+          return running;
+        }
+        const mediaRoot = path.dirname(projectFolder);
+        const coverage = yield* onHost(transcriptCoverage(mediaRoot));
+        const targets = new Set(request.everything ? coverage.missing : []);
+        for (const file of request.files) {
+          if ((yield* onHost(findTranscript(mediaRoot, file))) === null) targets.add(file);
+        }
+        const transcriber = yield* resolveTranscriber;
+        const idle: VideoTranscriptStatus = {
+          building: null,
+          ready: coverage.total - coverage.missing.length,
+          total: coverage.total,
+          failed: [],
+          unavailable: transcriber.unavailable,
+        };
+        if (transcriber.command === null || targets.size === 0) {
+          yield* onHost(writeTranscriptStatus(projectFolder, idle));
+          return idle;
+        }
+        const starting = { ...idle, building: { done: 0, total: targets.size } };
+        transcribing.set(projectFolder, starting);
+        // Clients poll this file, so it says "building" before the first clip is done.
+        yield* onHost(writeTranscriptStatus(projectFolder, starting));
+        yield* FiberSet.run(
+          background,
+          onHost(
+            runTranscription({
+              projectDir: projectFolder,
+              command: transcriber.command,
+              language: request.language ?? (yield* onHost(projectLanguage(projectFolder))),
+              targets: [...targets],
+              coverage,
+              onStatus: (status) =>
+                Effect.sync(() => {
+                  if (status.building !== null) transcribing.set(projectFolder, status);
+                }),
+            }),
+          ).pipe(
+            Effect.tap((status) =>
+              Effect.logInfo("Video project transcripts ready", {
+                projectFolder,
+                ready: status.ready,
+                total: status.total,
+                failed: status.failed.length,
+              }),
+            ),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Video project transcription failed", { projectFolder, cause }),
+            ),
+            Effect.ensuring(
+              Effect.suspend(() => {
+                transcribing.delete(projectFolder);
+                const next = transcribeQueued.get(projectFolder);
+                transcribeQueued.delete(projectFolder);
+                return next === undefined ? Effect.void : startTranscripts(projectFolder, next);
+              }),
+            ),
+          ),
+        );
+        return starting;
+      }),
+    );
+
+  /** Transcribes whatever has no transcript yet; a no-op without a transcriber. */
+  const transcribeMissing = (projectFolder: string) =>
+    startTranscripts(projectFolder, { everything: true, files: [], language: undefined });
 
   /**
    * Builds a project's proxies in the background, one build per project at a time. A request
@@ -294,6 +473,7 @@ const make = Effect.gen(function* () {
               Effect.ignore,
             ),
           ),
+          Effect.tap(() => transcribeMissing(projectFolder)),
           Effect.tap((result) =>
             Effect.logInfo("Video project proxies ready", {
               projectFolder,
@@ -638,6 +818,21 @@ const make = Effect.gen(function* () {
     return { ...result, premiereRunning: yield* premiereRunning };
   });
 
+  const loadScript = Effect.fn("VideoProjects.loadScript")(function* (workspaceRoot: string) {
+    const text = yield* fileSystem
+      .readFileString(path.join(workspaceRoot, SCRIPT_FILE))
+      .pipe(Effect.orElseSucceed(() => ""));
+    const index = yield* fileSystem
+      .readFileString(path.join(workspaceRoot, SCRIPT_INDEX_FILE))
+      .pipe(
+        Effect.flatMap(decodeScriptIndex),
+        Effect.orElseSucceed(() => NO_SCRIPT),
+      );
+    // script.md can be written without saveScript (by hand, by another tool); ids follow its lines.
+    const assigned = assignBeatIds(index.beats, parseScript(text), index.nextId);
+    return { docUrl: index.docUrl, savedAt: index.savedAt, ...assigned };
+  });
+
   /**
    * The facts an agent would otherwise spend its first minute discovering, one per line.
    * Anything that blocks work (Premiere closed, no ffmpeg) is said plainly.
@@ -667,14 +862,21 @@ const make = Effect.gen(function* () {
         Effect.map((value) => (value as { project?: string }).project ?? null),
         Effect.orElseSucceed(() => null),
       );
-    const transcripts = [
-      ...(yield* names("Audio")),
-      ...(yield* names(path.join("Audio", "transcripts"))),
-    ].filter((name) => name.endsWith(".words.json"));
+    const coverage = yield* onHost(transcriptCoverage(mediaRoot));
+    const transcribed = transcribing.get(workspaceRoot)?.building;
+    const transcripts = `${coverage.total - coverage.missing.length} of ${coverage.total} clips and takes word-timed${
+      transcribed
+        ? `, transcribing now (${transcribed.done} of ${transcribed.total} done)`
+        : coverage.missing.length > 0
+          ? ` (${(yield* resolveTranscriber).unavailable ?? "video_transcribe makes the rest"})`
+          : ""
+    }`;
     const takes = (yield* names(path.join("Audio", "VO"))).filter((name) => name.endsWith(".wav"));
-    const hasScript = yield* fileSystem
-      .exists(path.join(workspaceRoot, "script.md"))
-      .pipe(Effect.orElseSucceed(() => false));
+    const script = yield* loadScript(workspaceRoot);
+    const scriptLine =
+      script.beats.length === 0 && script.docUrl === null
+        ? "none (video_script saves one)"
+        : `${script.beats.length} beats in Stellar/${SCRIPT_FILE}, Google Doc ${script.docUrl === null ? "not recorded" : "recorded"} (video_script)`;
     const hasFfmpeg = yield* spawner.string(ChildProcess.make("ffmpeg", ["-version"])).pipe(
       Effect.as(true),
       Effect.orElseSucceed(() => false),
@@ -701,7 +903,7 @@ const make = Effect.gen(function* () {
       `Project folder: ${mediaRoot}`,
       `Premiere ${running}; ${linked}.`,
       `Footage: ${footage.length} videos in Footage/. Previews: ${previews}.`,
-      `Transcripts: ${transcripts.length} word-timed in Audio/. Script snapshot: ${hasScript ? "Stellar/script.md" : "none"}. Voice-over takes: ${takes.length} in Audio/VO/.`,
+      `Transcripts: ${transcripts}. Script snapshot: ${scriptLine}. Voice-over takes: ${takes.length} in Audio/VO/.`,
       ...(hasFfmpeg
         ? []
         : ["ffmpeg is NOT installed: previews, imports and voice-over can't be made."]),
@@ -753,29 +955,10 @@ const make = Effect.gen(function* () {
     const transcripts = new Map<string, ReadonlyArray<TranscriptWord>>();
     for (const target of targets) {
       if (target === "") continue;
-      const name = `${path.basename(target, path.extname(target))}.words.json`;
-      const media = path.isAbsolute(target) ? target : path.join(mediaRoot, target);
-      // Pipelines differ on where transcripts go (Audio/ in one project, Audio/transcripts/ in
-      // another), and a timeline's media can live in another project's folder. Look in the Audio
-      // folder of this project and of each folder above the media file, nearest first.
-      const folders = [mediaRoot];
-      for (let folder = path.dirname(media), up = 0; up < 5; folder = path.dirname(folder), up++) {
-        if (!folders.includes(folder)) folders.push(folder);
-      }
-      let file: string | null = null;
-      for (const folder of folders) {
-        for (const candidate of [
-          path.join(folder, TRANSCRIPT_FOLDER, name),
-          path.join(folder, TRANSCRIPT_FOLDER, "transcripts", name),
-        ]) {
-          if (
-            file === null &&
-            (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false)))
-          ) {
-            file = candidate;
-          }
-        }
-      }
+      const file = yield* findTranscript(mediaRoot, target).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      );
       if (file === null) continue;
       transcripts.set(
         target,
@@ -807,6 +990,94 @@ const make = Effect.gen(function* () {
       }
       const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
       return { timeline: chosen, text: wordsText(yield* loadWords(input.workspaceRoot, timeline)) };
+    },
+  );
+
+  const scriptView = Effect.fn("VideoProjects.scriptView")(function* (
+    workspaceRoot: string,
+    requested: string | undefined,
+  ) {
+    const script = yield* loadScript(workspaceRoot);
+    const timelines = yield* listTimelines(workspaceRoot);
+    const chosen =
+      requested ??
+      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
+      timelines[0] ??
+      null;
+    const words =
+      chosen === null
+        ? { name: "", rate: 0, count: 0, clips: [] }
+        : yield* loadWords(workspaceRoot, yield* loadTimeline(workspaceRoot, chosen));
+    return {
+      docUrl: script.docUrl,
+      savedAt: script.savedAt,
+      timeline: chosen,
+      beats: alignBeats(script.beats, words),
+    };
+  });
+
+  const readScript: VideoProjects["Service"]["readScript"] = Effect.fn("VideoProjects.readScript")(
+    function* (input) {
+      // Synced first, as readWords is, so the word numbers here are the ones it gives.
+      yield* sync({ workspaceRoot: input.workspaceRoot });
+      return yield* scriptView(input.workspaceRoot, input.timeline);
+    },
+  );
+
+  const saveScript: VideoProjects["Service"]["saveScript"] = Effect.fn("VideoProjects.saveScript")(
+    function* (input) {
+      yield* requireProject(input.workspaceRoot);
+      const { text, docUrl } = input;
+      if (text === undefined && docUrl === undefined) {
+        return yield* new VideoProjectError({ reason: "Saving the script needs text or docUrl." });
+      }
+      // One at a time, so two saves can't hand the same new id to different beats.
+      yield* savingScript.withPermits(1)(
+        Effect.gen(function* () {
+          const previous = yield* loadScript(input.workspaceRoot);
+          const { beats, nextId } =
+            text === undefined
+              ? previous
+              : assignBeatIds(previous.beats, parseScript(text), previous.nextId);
+          if (text !== undefined) {
+            yield* fileSystem.writeFileString(path.join(input.workspaceRoot, SCRIPT_FILE), text);
+          }
+          yield* fileSystem.writeFileString(
+            path.join(input.workspaceRoot, SCRIPT_INDEX_FILE),
+            serializeJson({
+              docUrl: docUrl ?? previous.docUrl,
+              savedAt: yield* Clock.currentTimeMillis,
+              beats: beats.map((beat) => ({ id: beat.id, text: beat.text })),
+              nextId,
+            } satisfies typeof ScriptIndex.Type),
+          );
+        }).pipe(
+          Effect.mapError(
+            (cause) => new VideoProjectError({ reason: "Could not save the script.", cause }),
+          ),
+        ),
+      );
+      return yield* readScript({ workspaceRoot: input.workspaceRoot });
+    },
+  );
+
+  const transcribe: VideoProjects["Service"]["transcribe"] = Effect.fn("VideoProjects.transcribe")(
+    function* (input) {
+      yield* requireProject(input.workspaceRoot);
+      const mediaRoot = path.dirname(input.workspaceRoot);
+      const files = (input.files ?? []).map((file) =>
+        path.relative(mediaRoot, path.resolve(mediaRoot, file)),
+      );
+      if (files.some((file) => file === "" || file.startsWith("..") || path.isAbsolute(file))) {
+        return yield* new VideoProjectError({
+          reason: `Files to transcribe are named relative to ${mediaRoot}.`,
+        });
+      }
+      return yield* startTranscripts(input.workspaceRoot, {
+        everything: input.files === undefined,
+        files: files.map((file) => file.split(path.sep).join("/")),
+        language: input.language,
+      });
     },
   );
 
@@ -967,6 +1238,7 @@ const make = Effect.gen(function* () {
           }),
       ),
     );
+    yield* transcribeMissing(input.workspaceRoot);
     return { path: path.join(folder, `${name}.wav`), absolutePath: target };
   });
 
@@ -1019,6 +1291,9 @@ const make = Effect.gen(function* () {
     saveVoiceOver,
     readTimeline,
     readWords,
+    readScript,
+    saveScript,
+    transcribe,
     editTimeline,
     inspectPremiere,
     createFromPremiere,

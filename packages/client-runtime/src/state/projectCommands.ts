@@ -249,6 +249,30 @@ export function createProjectEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
       },
     }),
+    transcribeVideoMedia: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:transcribe",
+      tag: WS_METHODS.videoProjectsTranscribe,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
+    readVideoScript: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:read-script",
+      tag: WS_METHODS.videoProjectsReadScript,
+      scheduler: projectScheduler,
+      concurrency: { mode: "parallel" },
+    }),
+    saveVideoScript: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:save-script",
+      tag: WS_METHODS.videoProjectsSaveScript,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
     createFromThread: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:create-from-thread",
       tag: WS_METHODS.projectsCreateFromThread,

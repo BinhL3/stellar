@@ -336,6 +336,12 @@ export function summarizeT3ToolCalls(
     case "video-timeline-words":
       label = phrase("Read", "read", `the timeline's words ${times}`);
       break;
+    case "video-transcribe":
+      label = phrase("Started transcribing", "transcribe", `the project's media ${times}`);
+      break;
+    case "video-script":
+      label = phrase("Read", "read", `the script ${times}`);
+      break;
     case "video-project-start":
       label = phrase("Started", "start", `a video project ${times}`);
       break;

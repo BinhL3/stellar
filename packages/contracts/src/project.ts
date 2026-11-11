@@ -741,6 +741,70 @@ export const VideoTimelineWords = Schema.Struct({
 });
 export type VideoTimelineWords = typeof VideoTimelineWords.Type;
 
+/** One line of the script, and where it was said on a timeline. */
+export const VideoScriptBeat = Schema.Struct({
+  /** Kept across snapshots while the beat's text stays recognisably the same. */
+  id: TrimmedNonEmptyString,
+  text: Schema.String,
+  /** The heading the beat sits under, or null. */
+  section: Schema.NullOr(Schema.String),
+  /** Timeline frames of the beat's words, or null when the timeline doesn't say them. */
+  startFrame: Schema.NullOr(Schema.Number),
+  endFrame: Schema.NullOr(Schema.Number),
+  /** First and last word numbers, as `video_timeline_words` counts them. */
+  firstWord: Schema.NullOr(Schema.Number),
+  lastWord: Schema.NullOr(Schema.Number),
+});
+export type VideoScriptBeat = typeof VideoScriptBeat.Type;
+
+export const VideoScriptReadInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** The timeline to place beats on; omitted, the project's main timeline. */
+  timeline: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+});
+export type VideoScriptReadInput = typeof VideoScriptReadInput.Type;
+
+export const VideoScriptView = Schema.Struct({
+  /** The Google Doc the script is written in, or null when none is recorded. */
+  docUrl: Schema.NullOr(Schema.String),
+  /** When the snapshot in the project was last saved, in epoch milliseconds; null with no snapshot. */
+  savedAt: Schema.NullOr(Schema.Number),
+  timeline: Schema.NullOr(Schema.String),
+  beats: Schema.Array(VideoScriptBeat),
+});
+export type VideoScriptView = typeof VideoScriptView.Type;
+
+export const VideoScriptSaveInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** The script as Markdown or plain text, replacing the project's snapshot. */
+  text: Schema.optional(Schema.String.check(Schema.isMaxLength(400_000))),
+  docUrl: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2048))),
+});
+export type VideoScriptSaveInput = typeof VideoScriptSaveInput.Type;
+
+/** Word-timed transcripts for a project's footage and voice-over, written by the host's transcriber. */
+export const VideoTranscriptStatus = Schema.Struct({
+  /** Files being transcribed now, or null when none are. */
+  building: Schema.NullOr(Schema.Struct({ done: Schema.Number, total: Schema.Number })),
+  /** Media files with a word-timed transcript. */
+  ready: Schema.Number,
+  /** Media files with speech to transcribe: footage and voice-over takes. */
+  total: Schema.Number,
+  /** Media-root-relative paths the last run couldn't transcribe. */
+  failed: Schema.Array(Schema.String),
+  /** Why nothing can be transcribed (no transcriber on the host), or null. */
+  unavailable: Schema.NullOr(Schema.String),
+});
+export type VideoTranscriptStatus = typeof VideoTranscriptStatus.Type;
+
+export const VideoTranscribeInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** Media-root-relative files to transcribe; omitted, every file without a transcript. */
+  files: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(500))),
+  language: Schema.optional(Schema.Literals(["en", "vi"])),
+});
+export type VideoTranscribeInput = typeof VideoTranscribeInput.Type;
+
 export const ProjectCreateFromThreadInput = Schema.Struct({
   threadId: ThreadId,
 });

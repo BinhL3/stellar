@@ -49,6 +49,7 @@ import { flushSync } from "react-dom";
 
 import { graphicText } from "~/components/timeline/clipTransform";
 import type { PreviewEngine } from "~/components/timeline/previewEngine";
+import { TimelinePlayerContext } from "~/components/timeline/timelinePlayer";
 import { type PreviewMedia, TimelinePreview } from "~/components/timeline/TimelinePreview";
 import { Button } from "~/components/ui/button";
 import { Kbd } from "~/components/ui/kbd";
@@ -437,6 +438,8 @@ export default function TimelineViewer(props: {
   readonly onPendingEdits?: (pending: boolean) => void;
   /** The editing app's sync badge, shown in the transport row. */
   readonly premiere?: ReactNode;
+  /** A panel beside the preview and tracks, outside the shortcut scope; it can `useTimelinePlayer`. */
+  readonly aside?: ReactNode;
 }) {
   const [pending, setPendingState] = useState<{
     readonly base: string;
@@ -1127,7 +1130,7 @@ export default function TimelineViewer(props: {
 
   // Preview-only needs a preview; without one the timeline always shows.
   const previewOnly = !timelineShown && Boolean(props.media) && Boolean(frame);
-  return (
+  const viewer = (
     // The viewer is a focus scope for editor shortcuts, like an editor's timeline panel.
     <div
       role="application"
@@ -1137,7 +1140,7 @@ export default function TimelineViewer(props: {
       onPointerDown={(event) => {
         if (!isTyping(event.target)) event.currentTarget.focus({ preventScroll: true });
       }}
-      className="flex min-h-0 flex-1 flex-col outline-none"
+      className="flex min-h-0 min-w-0 flex-1 flex-col outline-none"
     >
       {props.media && frame ? (
         <div
@@ -1647,6 +1650,15 @@ export default function TimelineViewer(props: {
           </div>
         )}
       </div>
+    </div>
+  );
+  if (!props.aside) return viewer;
+  return (
+    <div className="flex min-h-0 flex-1">
+      {viewer}
+      <TimelinePlayerContext value={{ playhead: playheadStore, seek, rate }}>
+        {props.aside}
+      </TimelinePlayerContext>
     </div>
   );
 }

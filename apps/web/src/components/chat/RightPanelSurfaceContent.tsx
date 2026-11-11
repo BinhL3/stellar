@@ -127,6 +127,7 @@ export function RightPanelSurfaceContent(props: {
             key={`${props.environmentId}:${props.files.workspaceRoot}`}
             environmentId={props.environmentId}
             workspaceRoot={props.files.workspaceRoot}
+            threadRef={threadRef}
           />
         </Suspense>
       );
