@@ -1,5 +1,7 @@
-import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import { OrchestratorMcpFailure, type VideoPosted } from "@t3tools/contracts";
+import { preflightLine } from "@t3tools/timeline/preflight";
 import { beatsText } from "@t3tools/timeline/script";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -27,6 +29,15 @@ const callerWorkspaceRoot = Effect.gen(function* () {
   }
   return project.value.workspaceRoot;
 });
+
+/** The posted record as an agent reads it: the day it went up, when one is on record. */
+const postedView = (posted: VideoPosted | null) =>
+  posted === null
+    ? null
+    : {
+        on: posted.at > 0 ? DateTime.formatIsoDateUtc(DateTime.makeUnsafe(posted.at)) : null,
+        urls: posted.urls,
+      };
 
 const handlers = {
   video_timeline_read: McpToolAccess.readsAsCaller((input) =>
@@ -177,6 +188,77 @@ const handlers = {
         .importFootage({ workspaceRoot, paths, folder })
         .pipe(Effect.mapError(refused));
       return { scan: null, importing: { files: paths.length, folder } };
+    }),
+  ),
+  video_render_check: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const report = yield* videoProjects
+        .checkRender({
+          workspaceRoot,
+          ...(input.timeline === undefined ? {} : { timeline: input.timeline }),
+          ...(input.exportPath === undefined ? {} : { exportPath: input.exportPath }),
+        })
+        .pipe(Effect.mapError(refused));
+      return {
+        level: report.level,
+        timeline: report.timeline,
+        exportPath: report.exportPath,
+        report: [
+          ...report.items.map((item) => `${item.level} ${item.title}: ${item.detail}`),
+          // Without drawn labels, the tiles are named here in the order they appear.
+          ...(report.contactSheet !== null && !report.contactSheetLabelled
+            ? [
+                `Contact sheet tiles, left to right then down: ${report.contactSheetTiles.map((tile) => `frame ${tile.frame}${tile.kind === "even" ? "" : ` (${tile.kind})`}`).join(", ")}`,
+              ]
+            : []),
+        ].join("\n"),
+        contactSheet: report.contactSheet,
+      };
+    }),
+  ),
+  video_preflight: McpToolAccess.readsAsCaller(() =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const preflight = yield* videoProjects
+        .preflight({ workspaceRoot })
+        .pipe(Effect.mapError(refused));
+      return {
+        steps: preflight.steps.map(preflightLine).join("\n"),
+        contactSheet: preflight.render?.contactSheet ?? null,
+        posted: postedView(preflight.posted),
+      };
+    }),
+  ),
+  video_posted: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const day =
+        input.postedOn === undefined ? undefined : Option.getOrNull(DateTime.make(input.postedOn));
+      const at = day === undefined || day === null ? undefined : DateTime.toEpochMillis(day);
+      if (day === null) {
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "`postedOn` is a date as YYYY-MM-DD.",
+        });
+      }
+      const preflight = yield* videoProjects
+        .setPosted({
+          workspaceRoot,
+          posted: input.posted,
+          ...(input.urls === undefined ? {} : { urls: input.urls }),
+          ...(at === undefined ? {} : { at }),
+        })
+        .pipe(Effect.mapError(refused));
+      return {
+        posted: postedView(preflight.posted),
+        next: input.posted
+          ? "Recorded in Stellar. Now set this video's row in the user's video catalog (their Google Sheet) to Posted with the post link, through their Google connector, and read the row back to confirm. Stellar does not write to Google; without a connector, ask the user to update the catalog."
+          : "The posted record is removed. If the video catalog row says Posted, set it back through the user's Google connector.",
+      };
     }),
   ),
 } satisfies McpToolAccess.Handlers<typeof VideoToolkit.tools>;

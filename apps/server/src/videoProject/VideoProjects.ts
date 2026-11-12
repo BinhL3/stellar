@@ -28,6 +28,16 @@ import {
   type VideoTranscribeInput,
   type VideoTranscriptStatus,
 } from "@t3tools/contracts";
+import {
+  VideoProjectIntakeStatus as IntakeStatusSchema,
+  type VideoPreflight,
+  type VideoPreflightInput,
+  type VideoRenderCheckInput,
+  type VideoRenderReport,
+  type VideoSetPostedInput,
+} from "@t3tools/contracts";
+import { derivePreflight, preflightHeadline, preflightLine } from "@t3tools/timeline/preflight";
+import { premiereLinkStatus } from "@t3tools/timeline/premiereSync";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveCommandPath } from "@t3tools/shared/shell";
 import { editableView } from "@t3tools/timeline/compactView";
@@ -76,6 +86,14 @@ import * as Semaphore from "effect/Semaphore";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
+  newestExport,
+  readPosted,
+  readRenderReport,
+  renderStaleness,
+  runRenderCheck,
+  writePosted,
+} from "./RenderCheck.ts";
+import {
   decodeTranscript,
   findTranscript,
   projectLanguage,
@@ -97,6 +115,7 @@ export class VideoProjectError extends Schema.TaggedError<VideoProjectError>()(
 }
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+const decodeIntakeStatus = Schema.decodeUnknownEffect(Schema.fromJsonString(IntakeStatusSchema));
 // What the host's transcriber is called when no command is set in settings.
 const DEFAULT_TRANSCRIBE_COMMAND = "stt";
 
@@ -365,6 +384,25 @@ export class VideoProjects extends Context.Service<
     readonly saveScript: (
       input: VideoScriptSaveInput,
     ) => Effect.Effect<VideoScriptView, VideoProjectError>;
+    /**
+     * Compares an export from Premiere with a timeline (container facts, black, frozen and
+     * silent stretches, loudness, cut points), makes a contact sheet of it, and keeps both in
+     * the project folder's `render/`. Without `exportPath`, the newest video in Exports.
+     */
+    readonly checkRender: (
+      input: VideoRenderCheckInput,
+    ) => Effect.Effect<VideoRenderReport, VideoProjectError>;
+    /**
+     * Where the short's run stands, step by step from script to posted, read from what the
+     * project folder records. Pulls nothing and writes nothing.
+     */
+    readonly preflight: (
+      input: VideoPreflightInput,
+    ) => Effect.Effect<VideoPreflight, VideoProjectError>;
+    /** Records that the short is posted, with its links, or takes that back. */
+    readonly setPosted: (
+      input: VideoSetPostedInput,
+    ) => Effect.Effect<VideoPreflight, VideoProjectError>;
   }
 >()("t3/videoProject/VideoProjects") {}
 
@@ -1012,6 +1050,11 @@ const make = Effect.gen(function* () {
       `Premiere ${running}; ${linked}.`,
       `Footage: ${footage.length} videos in Footage/. Previews: ${previews}.`,
       `Transcripts: ${transcripts}. Script snapshot: ${scriptLine}. Voice-over takes: ${takes.length} in Audio/VO/.`,
+      yield* runLine(workspaceRoot, {
+        footage: footage.length,
+        coverage,
+        scriptBeats: script.beats.length,
+      }),
       ...(hasFfmpeg
         ? []
         : ["ffmpeg is NOT installed: previews, imports and voice-over can't be made."]),
@@ -1502,7 +1545,145 @@ const make = Effect.gen(function* () {
     },
   );
 
+  /** What `preflight` needs that a caller has already read, so it isn't read twice. */
+  interface KnownFacts {
+    readonly footage: number;
+    readonly coverage: { readonly total: number; readonly missing: ReadonlyArray<string> };
+    readonly scriptBeats: number;
+  }
+
+  const readPreflight = Effect.fn("VideoProjects.readPreflight")(function* (
+    workspaceRoot: string,
+    known?: KnownFacts,
+  ) {
+    const mediaRoot = path.dirname(workspaceRoot);
+    const footage = known?.footage ?? (yield* onHost(listFootage(mediaRoot))).length;
+    const coverage = known?.coverage ?? (yield* onHost(transcriptCoverage(mediaRoot)));
+    const scriptBeats = known?.scriptBeats ?? (yield* loadScript(workspaceRoot)).beats.length;
+    const intake = yield* fileSystem
+      .readFileString(path.join(workspaceRoot, INTAKE_STATUS_FILE))
+      .pipe(Effect.flatMap(decodeIntakeStatus), Effect.option);
+    const index = yield* fileSystem.readFileString(path.join(workspaceRoot, PROXY_INDEX_PATH)).pipe(
+      Effect.flatMap(decodeJson),
+      Effect.map((value) => value as ProxyIndex),
+      Effect.orElseSucceed(() => null),
+    );
+    const transcribed = transcribing.get(workspaceRoot);
+    const report = yield* onHost(readRenderReport(workspaceRoot));
+    const posted = yield* onHost(readPosted(workspaceRoot));
+    const steps = derivePreflight({
+      scriptBeats,
+      footage,
+      intake: Option.getOrNull(intake),
+      proxies:
+        index === null
+          ? null
+          : {
+              building: index.building ?? null,
+              ready: Object.keys(index.media).length,
+              failed: index.failed ?? 0,
+            },
+      transcripts: {
+        ready: coverage.total - coverage.missing.length,
+        total: coverage.total,
+        building: transcribed?.building ?? null,
+        failed: transcribed?.failed.length ?? 0,
+        unavailable:
+          coverage.missing.length > 0 && (yield* resolveTranscriber).unavailable !== null,
+      },
+      premiere: (yield* onHost(premiereLinkStatus(workspaceRoot))).state,
+      hasExport: (yield* onHost(newestExport(mediaRoot))) !== null,
+      render:
+        report === null
+          ? null
+          : {
+              level: report.level,
+              problems: report.items.filter((item) => item.level !== "pass").length,
+              stale: yield* onHost(renderStaleness(workspaceRoot, report)),
+            },
+      posted,
+    });
+    return { steps, render: report, posted } satisfies VideoPreflight;
+  });
+
+  /** The run in one line for `describeProject`: how far it is, and the step to take next. */
+  const runLine = Effect.fn("VideoProjects.runLine")(function* (
+    workspaceRoot: string,
+    known: KnownFacts,
+  ) {
+    const { steps } = yield* readPreflight(workspaceRoot, known);
+    const next = preflightHeadline(steps);
+    const done = steps.filter((step) => step.state === "done").length;
+    return `Run: ${done} of ${steps.length} steps done${next === null ? "" : `; next: ${preflightLine(next)}`}. video_preflight lists every step.`;
+  });
+
+  const preflight: VideoProjects["Service"]["preflight"] = Effect.fn("VideoProjects.preflight")(
+    function* (input) {
+      yield* requireProject(input.workspaceRoot);
+      return yield* readPreflight(input.workspaceRoot);
+    },
+  );
+
+  const checkRender: VideoProjects["Service"]["checkRender"] = Effect.fn(
+    "VideoProjects.checkRender",
+  )(function* (input) {
+    yield* requireProject(input.workspaceRoot);
+    // The export is of Premiere's sequence, so it is compared with Premiere's latest save. A
+    // sync that can't run (the drive unplugged) leaves the timeline as it is.
+    yield* syncWithPremiere({ workspaceRoot: input.workspaceRoot }).pipe(Effect.ignore);
+    const timelines = yield* listTimelines(input.workspaceRoot);
+    const chosen =
+      input.timeline ??
+      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
+      timelines[0];
+    if (chosen === undefined || !timelines.includes(chosen)) {
+      return yield* new VideoProjectError({
+        reason: `No timeline to check the export against. This project has: ${timelines.join(", ") || "none"}.`,
+      });
+    }
+    const timelineText = yield* fileSystem
+      .readFileString(path.join(input.workspaceRoot, chosen))
+      .pipe(
+        Effect.mapError(
+          (cause) => new VideoProjectError({ reason: `Could not read ${chosen}.`, cause }),
+        ),
+      );
+    const timeline = yield* decodeJson(timelineText).pipe(
+      Effect.map((value) => value as Timeline),
+      Effect.mapError(
+        (cause) => new VideoProjectError({ reason: `Could not read ${chosen}.`, cause }),
+      ),
+    );
+    return yield* onHost(
+      runRenderCheck({
+        projectDir: input.workspaceRoot,
+        timelinePath: chosen,
+        timelineText,
+        timeline,
+        exportPath: input.exportPath,
+      }),
+    ).pipe(Effect.mapError((cause) => new VideoProjectError({ reason: cause.message, cause })));
+  });
+
+  const setPosted: VideoProjects["Service"]["setPosted"] = Effect.fn("VideoProjects.setPosted")(
+    function* (input) {
+      yield* requireProject(input.workspaceRoot);
+      const posted = input.posted
+        ? { at: input.at ?? (yield* Clock.currentTimeMillis), urls: input.urls ?? [] }
+        : null;
+      yield* onHost(writePosted(input.workspaceRoot, posted)).pipe(
+        Effect.mapError(
+          (cause) => new VideoProjectError({ reason: "Could not save the project file.", cause }),
+        ),
+      );
+      return yield* readPreflight(input.workspaceRoot);
+    },
+  );
+
   return VideoProjects.of({
+    checkRender,
+    preflight,
+    setPosted,
     exportForPremiere,
     pushPlan,
     saveVoiceOver,

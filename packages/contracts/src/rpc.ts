@@ -254,6 +254,11 @@ import {
   VideoScriptReadInput,
   VideoScriptSaveInput,
   VideoScriptView,
+  VideoPreflight,
+  VideoPreflightInput,
+  VideoRenderCheckInput,
+  VideoRenderReport,
+  VideoSetPostedInput,
   ProjectCreateFromThreadInput,
   ProjectCreateFromThreadResult,
   ProjectEnsureScratchResult,
@@ -446,6 +451,9 @@ export const WS_METHODS = {
   videoProjectsTranscribe: "videoProjects.transcribe",
   videoProjectsReadScript: "videoProjects.readScript",
   videoProjectsSaveScript: "videoProjects.saveScript",
+  videoProjectsCheckRender: "videoProjects.checkRender",
+  videoProjectsPreflight: "videoProjects.preflight",
+  videoProjectsSetPosted: "videoProjects.setPosted",
 
   shellOpenInEditor: "shell.openInEditor",
 
@@ -1450,6 +1458,24 @@ const WsVideoProjectsSaveScriptRpc = Rpc.make(WS_METHODS.videoProjectsSaveScript
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVideoProjectsCheckRenderRpc = Rpc.make(WS_METHODS.videoProjectsCheckRender, {
+  payload: VideoRenderCheckInput,
+  success: VideoRenderReport,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsPreflightRpc = Rpc.make(WS_METHODS.videoProjectsPreflight, {
+  payload: VideoPreflightInput,
+  success: VideoPreflight,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsSetPostedRpc = Rpc.make(WS_METHODS.videoProjectsSetPosted, {
+  payload: VideoSetPostedInput,
+  success: VideoPreflight,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsCreateFromThreadRpc = Rpc.make(WS_METHODS.projectsCreateFromThread, {
   payload: ProjectCreateFromThreadInput,
   success: ProjectCreateFromThreadResult,
@@ -2230,6 +2256,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsTranscribeRpc,
   WsVideoProjectsReadScriptRpc,
   WsVideoProjectsSaveScriptRpc,
+  WsVideoProjectsCheckRenderRpc,
+  WsVideoProjectsPreflightRpc,
+  WsVideoProjectsSetPostedRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

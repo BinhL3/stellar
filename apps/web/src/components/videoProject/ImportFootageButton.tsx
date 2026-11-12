@@ -53,7 +53,7 @@ export function ImportFootageButton(props: {
   readonly workspaceRoot: string;
   /** Called once the copy has started; progress then comes from the project's intake status. */
   readonly onStarted: () => void;
-  readonly size?: "sm";
+  readonly size?: "sm" | "micro";
 }) {
   const scan = useAtomCommand(projectEnvironment.scanVideoIntake, { reportFailure: false });
   const startImport = useAtomCommand(projectEnvironment.importVideoFootage, {

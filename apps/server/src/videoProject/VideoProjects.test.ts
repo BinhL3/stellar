@@ -13,6 +13,7 @@ import * as NodeZlib from "node:zlib";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { copyFootage, footageStringout, listFootage } from "@t3tools/timeline/footage";
 import { serializeTimeline } from "@t3tools/timeline/otio";
+import { timelineFingerprint } from "@t3tools/timeline/renderProbe";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -921,6 +922,154 @@ it.live("plans a push from Premiere's last save, and says why when it can't", ()
       (yield* push).refused,
       "No record of Premiere's version yet; sync once with Premiere open.",
     );
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
+
+it.live("follows a short's run from an idea to posted, and takes posted back", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-finish-" });
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot } = yield* videoProjects.createFromIdea({
+      title: "Jollibee",
+      parentFolder: root,
+    });
+    const mediaRoot = path.dirname(workspaceRoot);
+    const states = (preflight: { readonly steps: ReadonlyArray<{ id: string; state: string }> }) =>
+      Object.fromEntries(preflight.steps.map((step) => [step.id, step.state]));
+
+    const empty = yield* videoProjects.preflight({ workspaceRoot });
+    assert.deepStrictEqual(
+      empty.steps.map((step) => step.state),
+      Array.from({ length: 8 }, () => "todo"),
+    );
+    assert.strictEqual(empty.render, null);
+    assert.strictEqual(
+      (yield* videoProjects.checkRender({ workspaceRoot }).pipe(Effect.flip)).message,
+      "No timeline to check the export against. This project has: none.",
+    );
+
+    // What each step reads: the script snapshot, Footage, intake.json, the proxy index.
+    yield* videoProjects.saveScript({ workspaceRoot, text: "Hãy subscribe cho kênh!" });
+    yield* fs.makeDirectory(path.join(mediaRoot, "Footage", "raw"), { recursive: true });
+    yield* fs.writeFileString(path.join(mediaRoot, "Footage", "raw", "a.MOV"), "");
+    yield* fs.writeFileString(path.join(mediaRoot, "Audio", "a.words.json"), "[]");
+    yield* fs.writeFileString(
+      path.join(workspaceRoot, "intake.json"),
+      JSON.stringify({ state: "done", folder: "raw", done: 1, total: 1 }),
+    );
+    yield* fs.makeDirectory(path.join(workspaceRoot, "proxies"), { recursive: true });
+    yield* fs.writeFileString(
+      path.join(workspaceRoot, "proxies", "index.json"),
+      JSON.stringify({ version: 1, media: { "Footage/raw/a.MOV": {} } }),
+    );
+    const timeline = "timelines/Footage.otio";
+    const timelineFile = path.join(workspaceRoot, timeline);
+    yield* fs.writeFileString(
+      timelineFile,
+      serializeTimeline(
+        footageStringout(
+          [{ target: "Footage/raw/a.MOV", duration: 2, width: 1080, height: 1920 }],
+          mediaRoot,
+        ),
+      ),
+    );
+    assert.strictEqual(
+      (yield* videoProjects.checkRender({ workspaceRoot }).pipe(Effect.flip)).message,
+      "No video in the project's Exports folder to check. Export the sequence from Premiere into it, or name the file.",
+    );
+
+    // A report as a check leaves it, for an export that is still the one in Exports.
+    const exportPath = path.join(mediaRoot, "Exports", "Jollibee.mp4");
+    yield* fs.writeFileString(exportPath, "export");
+    const stat = yield* fs.stat(exportPath);
+    const writeReport = (timelineText: string) =>
+      fs.writeFileString(
+        path.join(workspaceRoot, "render", "report.json"),
+        JSON.stringify({
+          timeline,
+          timelineHash: timelineFingerprint(timelineText),
+          exportPath,
+          exportSize: Number(stat.size),
+          exportModifiedAt: Option.getOrThrow(stat.mtime).getTime(),
+          checkedAt: 1,
+          level: "pass",
+          items: [{ id: "duration", level: "pass", title: "Length", detail: "2.00 s" }],
+          contactSheet: null,
+          contactSheetLabelled: false,
+          contactSheetTiles: [],
+        }),
+      );
+    yield* fs.makeDirectory(path.join(workspaceRoot, "render"), { recursive: true });
+    yield* writeReport(yield* fs.readFileString(timelineFile));
+    const checked = yield* videoProjects.preflight({ workspaceRoot });
+    assert.deepStrictEqual(states(checked), {
+      script: "done",
+      footage: "done",
+      proxies: "done",
+      transcripts: "done",
+      premiereLink: "todo",
+      premiereSync: "todo",
+      render: "done",
+      posted: "todo",
+    });
+    assert.include(
+      (yield* videoProjects.readTimeline({ workspaceRoot })).project,
+      "Run: 5 of 8 steps done; next: todo Premiere project: None linked (video_premiere_pull). video_preflight lists every step.",
+    );
+
+    // An edit to the timeline, or a newer export, makes the check stale.
+    yield* videoProjects.editTimeline({
+      workspaceRoot,
+      timeline,
+      edits: [{ kind: "removeRange", start: 0, end: 30, ripple: true }],
+    });
+    const edited = (yield* videoProjects.preflight({ workspaceRoot })).steps[6];
+    assert.deepStrictEqual(
+      [edited?.state, edited?.detail],
+      ["warn", "Timeline changed since the check"],
+    );
+    yield* writeReport(yield* fs.readFileString(timelineFile));
+    yield* fs.writeFileString(exportPath, "a longer export");
+    const reExported = (yield* videoProjects.preflight({ workspaceRoot })).steps[6];
+    assert.deepStrictEqual(
+      [reExported?.state, reExported?.detail],
+      ["warn", "A newer export isn't checked"],
+    );
+
+    // Posted is project data beside the stage, and comes back off the same way.
+    const projectFile = path.join(workspaceRoot, "project.json");
+    yield* fs.writeFileString(projectFile, JSON.stringify({ language: "vi", stage: "polish" }));
+    const url = "https://www.tiktok.com/@binh/video/1";
+    const posted = yield* videoProjects.setPosted({
+      workspaceRoot,
+      posted: true,
+      urls: [url],
+      at: 5,
+    });
+    assert.deepStrictEqual(posted.posted, { at: 5, urls: [url] });
+    assert.strictEqual(states(posted).posted, "done");
+    assert.deepStrictEqual(JSON.parse(yield* fs.readFileString(projectFile)), {
+      language: "vi",
+      stage: "posted",
+      posted: { at: 5, urls: [url] },
+    });
+    const undone = yield* videoProjects.setPosted({ workspaceRoot, posted: false });
+    assert.strictEqual(undone.posted, null);
+    assert.deepStrictEqual(JSON.parse(yield* fs.readFileString(projectFile)), {
+      language: "vi",
+      stage: "polish",
+    });
   }).pipe(
     Effect.provide(
       VideoProjects.layer.pipe(

@@ -204,6 +204,75 @@ const FootageTool = Tool.make("video_footage", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const RenderCheckTool = Tool.make("video_render_check", {
+  description:
+    "Check the video exported from Premiere against a timeline; a short is done when this passes, not when it looked right in playback. Stellar can't export: the user (or a Premiere tool) exports into the project's Exports folder first. Omit `exportPath` for the newest video there, or name a file (absolute, or relative to the project folder); omit `timeline` for the main one. `report` has one line per check as `pass|warn|fail Title: detail`, with places as `m:ss.ff (frame n)` of the export: resolution, frame rate and length against the sequence (one frame of slack), codecs, audio, black frames, frozen picture and silences the timeline doesn't explain, loudness against -14 LUFS and true peak against -1 dBTP, cuts between different clips that don't show within one frame, and flash frames. `level` is the worst of them. `contactSheet` is the path of an image of the whole export: frames spread evenly plus the frame after each timeline cut, each labelled with its frame number and time, cuts and flashes tagged. Open that image with your file or image tool and look at it before you call the export good. Fix what failed in the timeline or in Premiere, have it exported again, and check again.",
+  parameters: Schema.Struct({
+    timeline: Schema.optional(Schema.String),
+    exportPath: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    level: Schema.Literals(["pass", "warn", "fail"]),
+    timeline: Schema.String,
+    exportPath: Schema.String,
+    report: Schema.String,
+    contactSheet: Schema.NullOr(Schema.String),
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Check the export")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const PreflightTool = Tool.make("video_preflight", {
+  description:
+    "Where this short's run stands, from script to posted: one line per step as `done|working|todo|warn|fail Step: detail (tool that moves it on)`. Steps: script saved, footage imported, previews, transcripts, Premiere project linked, in sync with Premiere, render check (warns when the timeline or the export changed since the check), posted. Reads only what the project records; it pulls nothing from Premiere, so `video_timeline_read` is still the first call of a turn. `contactSheet` is the last render check's image, or null; `posted` is the posted record, or null.",
+  parameters: Tool.EmptyParams,
+  success: Schema.Struct({
+    steps: Schema.String,
+    contactSheet: Schema.NullOr(Schema.String),
+    posted: Schema.NullOr(
+      Schema.Struct({ on: Schema.NullOr(Schema.String), urls: Schema.Array(Schema.String) }),
+    ),
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Read the run's steps")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const PostedTool = Tool.make("video_posted", {
+  description:
+    "Record that this short is posted, once the user says it is up: `posted` true with the post `urls` (one per platform, when you have them) and `postedOn` as YYYY-MM-DD when it wasn't today. `posted` false takes the record back. This writes Stellar's project only. Stellar never writes to Google: after recording, set this video's row in the user's video catalog (their Google Sheet) to Posted with the link through their Google connector, and read the row back to confirm; `next` repeats this.",
+  parameters: Schema.Struct({
+    posted: Schema.Boolean,
+    urls: Schema.optional(Schema.Array(Schema.String)),
+    postedOn: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    posted: Schema.NullOr(
+      Schema.Struct({ on: Schema.NullOr(Schema.String), urls: Schema.Array(Schema.String) }),
+    ),
+    next: Schema.String,
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Record the short as posted")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const VideoToolkit = Toolkit.make(
   TimelineReadTool,
   TimelineEditTool,
@@ -215,4 +284,7 @@ export const VideoToolkit = Toolkit.make(
   ProjectStartTool,
   PremierePullTool,
   FootageTool,
+  RenderCheckTool,
+  PreflightTool,
+  PostedTool,
 );
