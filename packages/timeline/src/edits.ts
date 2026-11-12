@@ -13,6 +13,7 @@ import {
   timeRange,
   type TrackChild,
 } from "./otio.ts";
+import { reslicedSourceStart, timeScalarOf } from "./speed.ts";
 
 export type TimelineEdit =
   | {
@@ -85,8 +86,10 @@ const reslice = (clip: Clip, rate: number, shiftFrames: number, lengthFrames: nu
   const still =
     clip.media_references.DEFAULT_MEDIA.target_url === "" ||
     STILL_PATH.test(clip.media_references.DEFAULT_MEDIA.target_url);
-  const toSource = start_time.rate / rate;
-  const start = still ? start_time.value : start_time.value + shiftFrames * toSource;
+  // Speed and direction decide which source frames the kept piece plays.
+  const start = still
+    ? start_time.value
+    : reslicedSourceStart(clip, rate, shiftFrames, lengthFrames);
   const length = lengthFrames * (duration.rate / rate);
   return {
     ...clip,
@@ -263,10 +266,14 @@ const applyOne = (tracks: PlacedTracks, edit: TimelineEdit, rate: number) => {
       const previous = Math.max(0, ...others.filter((p) => p.end <= item.start).map((p) => p.end));
       const { start_time } = item.clip.source_range;
       // A trim can't reach before the media's first frame.
-      const sourceFloor = item.start - Math.floor((start_time.value / start_time.rate) * rate);
-      const floor = STILL_PATH.test(item.clip.media_references.DEFAULT_MEDIA.target_url)
-        ? previous
-        : Math.max(previous, sourceFloor);
+      const scalar = timeScalarOf(item.clip);
+      const sourceFloor =
+        item.start - Math.floor(((start_time.value / start_time.rate) * rate) / Math.abs(scalar));
+      // A reversed clip's head plays the end of its media, whose length isn't known here.
+      const floor =
+        STILL_PATH.test(item.clip.media_references.DEFAULT_MEDIA.target_url) || scalar < 0
+          ? previous
+          : Math.max(previous, sourceFloor);
       const start = Math.min(Math.max(Math.round(edit.frame), floor), item.end - 1);
       const trimmed = reslice(item.clip, rate, start - item.start, item.end - start);
       from.placed.splice(0, from.placed.length, ...others, { ...item, start, clip: trimmed });
@@ -275,7 +282,14 @@ const applyOne = (tracks: PlacedTracks, edit: TimelineEdit, rate: number) => {
         Number.POSITIVE_INFINITY,
         ...others.filter((p) => p.start >= item.end).map((p) => p.start),
       );
-      const end = Math.max(Math.min(Math.round(edit.frame), next), item.start + 1);
+      // A reversed clip's tail plays toward its media's first frame and stops there.
+      const { start_time } = item.clip.source_range;
+      const scalar = timeScalarOf(item.clip);
+      const reverseCeiling =
+        scalar < 0 && !STILL_PATH.test(item.clip.media_references.DEFAULT_MEDIA.target_url)
+          ? item.end + Math.floor(((start_time.value / start_time.rate) * rate) / -scalar)
+          : Number.POSITIVE_INFINITY;
+      const end = Math.max(Math.min(Math.round(edit.frame), next, reverseCeiling), item.start + 1);
       const trimmed = reslice(item.clip, rate, 0, end - item.start);
       from.placed.splice(0, from.placed.length, ...others, { ...item, end, clip: trimmed });
     }

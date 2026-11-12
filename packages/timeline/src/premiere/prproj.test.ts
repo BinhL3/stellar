@@ -104,10 +104,11 @@ const fixture = () => {
     name: string,
     range: { start: bigint; end: bigint; in: bigint; out: bigint },
     components: number,
+    speed = "",
   ) => {
     const clip = add(
       (id) =>
-        `<VideoClip ObjectID="${id}"><Clip><Source ObjectRef="${m.source}"/><InPoint>${range.in}</InPoint><OutPoint>${range.out}</OutPoint></Clip></VideoClip>`,
+        `<VideoClip ObjectID="${id}"><Clip><Source ObjectRef="${m.source}"/>${speed === "" ? "" : `<PlaybackSpeed>${speed}</PlaybackSpeed>`}<InPoint>${range.in}</InPoint><OutPoint>${range.out}</OutPoint></Clip></VideoClip>`,
     );
     const sub = add(
       (id) =>
@@ -118,9 +119,14 @@ const fixture = () => {
         `<${tag} ObjectID="${id}"><ClipTrackItem><ComponentOwner><Components ObjectRef="${components}"/></ComponentOwner><TrackItem><Node><ID>${nodeId}</ID></Node>${range.start === 0n ? "" : `<Start>${range.start}</Start>`}<End>${range.end}</End></TrackItem><SubClip ObjectRef="${sub}"/></ClipTrackItem></${tag}>`,
     );
   };
-  const track = (tag: string, uidName: string, items: ReadonlyArray<number>) => {
+  const track = (
+    tag: string,
+    uidName: string,
+    items: ReadonlyArray<number>,
+    transitions: ReadonlyArray<number> = [],
+  ) => {
     objects.push(
-      `<${tag} ObjectUID="${uidName}"><ClipTrack><ClipItems><TrackItems>${items.map((it, i) => `<TrackItem Index="${i}" ObjectRef="${it}"/>`).join("")}</TrackItems></ClipItems></ClipTrack></${tag}>`,
+      `<${tag} ObjectUID="${uidName}"><ClipTrack><ClipItems><TrackItems>${items.map((it, i) => `<TrackItem Index="${i}" ObjectRef="${it}"/>`).join("")}</TrackItems></ClipItems><TransitionItems><TrackItems>${transitions.map((it, i) => `<TrackItem Index="${i}" ObjectRef="${it}"/>`).join("")}</TrackItems></TransitionItems></ClipTrack></${tag}>`,
     );
   };
 
@@ -195,6 +201,93 @@ const fixture = () => {
   );
   objects.push(
     `<Sequence ObjectUID="seq-1"><TrackGroups><TrackGroup Index="0"><First>v</First><Second ObjectRef="${video}"/></TrackGroup><TrackGroup Index="1"><First>a</First><Second ObjectRef="${audio}"/></TrackGroup></TrackGroups><Name>Polish v1</Name></Sequence>`,
+  );
+
+  // A second sequence with what a finished cut has: crop, speed, eased keys, a blend mode, a
+  // transition and a caption track.
+  const crop = add((id) => {
+    const params = [param("Left", "10."), param("Top", "0."), param("Bottom", "25.")];
+    return `<VideoFilterComponent ObjectID="${id}"><Component><Params>${params.map((p, i) => `<Param Index="${i}" ObjectRef="${p}"/>`).join("")}</Params><DisplayName>Crop</DisplayName><Intrinsic>false</Intrinsic></Component><MatchName>AE.ADBE AECrop</MatchName></VideoFilterComponent>`;
+  });
+  // Fields: time, value, mode (0 linear, 4 hold, 5 bezier), then speed and influence in and out.
+  const fade = param(
+    "Opacity",
+    "100.",
+    false,
+    `${30n * CAM},0.,5,0,0,0.3333,0,0.3333;${60n * CAM},100.,4,0,0,0.3333,0,0.3333;${90n * CAM},50.,0,0,0,0.1667,-50,0.1667;${120n * CAM},0.,0,0,-50,0.1667,0,0.1667;`,
+  );
+  const blend = (parameterId: number, value: number) =>
+    add(
+      (id) =>
+        `<VideoComponentParam ObjectID="${id}"><IsTimeVarying>false</IsTimeVarying><ParameterID>${parameterId}</ParameterID><Name>Blend Mode</Name><StartKeyframe>-91445760000000000,${value},0,0,0,0,0,0</StartKeyframe></VideoComponentParam>`,
+    );
+  const opacity = add((id) => {
+    const params = [fade, blend(2, 18), blend(3, 4)];
+    return `<VideoFilterComponent ObjectID="${id}"><Component><Params>${params.map((p, i) => `<Param Index="${i}" ObjectRef="${p}"/>`).join("")}</Params><DisplayName>Opacity</DisplayName><Intrinsic>true</Intrinsic></Component><MatchName>AE.ADBE Opacity</MatchName></VideoFilterComponent>`;
+  });
+  const fast = item(
+    "VideoClipTrackItem",
+    1000010,
+    camera,
+    "IMG_1.MOV",
+    { start: 0n, end: 60n * SEQ, in: 30n * CAM, out: 90n * CAM },
+    chain("VideoComponentChain", [opacity, crop]),
+    "2",
+  );
+  const backwards = item(
+    "VideoClipTrackItem",
+    1000011,
+    camera,
+    "IMG_1.MOV",
+    { start: 60n * SEQ, end: 120n * SEQ, in: 100n * CAM, out: 130n * CAM },
+    chain("VideoComponentChain", []),
+    "-1",
+  );
+  const dissolve = add(
+    (id) =>
+      `<VideoTransitionTrackItem ObjectID="${id}"><TransitionTrackItem><TrackItem><Start>${50n * SEQ}</Start><End>${70n * SEQ}</End></TrackItem><DisplayName>Cross Dissolve</DisplayName><MatchName>AE.ADBE Cross Dissolve New</MatchName><Alignment>${10n * SEQ}</Alignment><HasOutgoingClip>true</HasOutgoingClip><HasIncomingClip>true</HasIncomingClip></TransitionTrackItem></VideoTransitionTrackItem>`,
+  );
+  track("VideoClipTrack", "track-fx-v1", [fast, backwards], [dissolve]);
+  // A caption's lines are blocks of styled text; this is the JSON form of one.
+  const captionLine = (words: string) => {
+    const body = NodeBuffer.Buffer.from(
+      JSON.stringify({
+        mTextParam: {
+          mAlignment: 2,
+          mStyleSheet: {
+            mText: words,
+            mFontName: { mParamValues: [[0, "Monaco"]] },
+            mFontSize: { mParamValues: [[0, 48]] },
+          },
+        },
+      }),
+      "utf16le",
+    );
+    const header = NodeBuffer.Buffer.alloc(8);
+    header.writeUInt32LE(body.length, 0);
+    return add(
+      (id) =>
+        `<Block ObjectID="${id}"><FormattedTextData Encoding="base64">${NodeBuffer.Buffer.concat([header, body]).toString("base64")}</FormattedTextData></Block>`,
+    );
+  };
+  const captionLines = [captionLine("Xin chào"), captionLine("các bạn")];
+  const caption = add(
+    (id) =>
+      `<CaptionDataClipTrackItem ObjectID="${id}"><DataClipTrackItem><ClipTrackItem><TrackItem><Node><ID>1000185</ID></Node><Start>${30n * SEQ}</Start><End>${90n * SEQ}</End></TrackItem></ClipTrackItem></DataClipTrackItem><BlockVector>${captionLines.map((line, i) => `<BlockVectorItem Index="${i}" ObjectRef="${line}"/>`).join("")}</BlockVector></CaptionDataClipTrackItem>`,
+  );
+  objects.push(
+    `<CaptionDataClipTrack ObjectUID="track-fx-c1"><DataClipTrack><ClipTrack><ClipItems><TrackItems><TrackItem Index="0" ObjectRef="${caption}"/></TrackItems></ClipItems></ClipTrack></DataClipTrack></CaptionDataClipTrack>`,
+  );
+  const fxVideo = add(
+    (id) =>
+      `<VideoTrackGroup ObjectID="${id}"><TrackGroup><FrameRate>${SEQ}</FrameRate><Tracks><Track Index="0" ObjectURef="track-fx-v1"/></Tracks></TrackGroup><FrameRect>0,0,1080,1920</FrameRect></VideoTrackGroup>`,
+  );
+  const fxData = add(
+    (id) =>
+      `<DataTrackGroup ObjectID="${id}"><TrackGroup><Tracks><Track Index="0" ObjectURef="track-fx-c1"/></Tracks></TrackGroup></DataTrackGroup>`,
+  );
+  objects.push(
+    `<Sequence ObjectUID="seq-2"><TrackGroups><TrackGroup Index="0"><First>v</First><Second ObjectRef="${fxVideo}"/></TrackGroup><TrackGroup Index="1"><First>d</First><Second ObjectRef="${fxData}"/></TrackGroup></TrackGroups><Name>Effects v1</Name></Sequence>`,
   );
   return `<?xml version="1.0" encoding="UTF-8" ?>\n<PremiereData Version="3">${objects.join("\n")}</PremiereData>`;
 };
@@ -299,6 +392,77 @@ describe("parsePrproj", () => {
         'V2 300–360 card.png src 0–30@29.97 fx:Transform:"Malice Slide In Down Fast"~',
         "A1 0–120 IMG_1.MOV src 25–85.06@30 gain_db=-20",
       ].join("\n"),
+    );
+  });
+
+  it("reads crop, speed, eased keyframes, blend mode, transitions and captions", () => {
+    const { timeline, warnings } = parsePrproj(NodeZlib.gzipSync(fixture())).readSequence(
+      "Effects v1",
+    );
+    expect(warnings).toEqual([]);
+    const [video, captions] = timeline.tracks.children;
+    const [fast, backwards] = (video?.children ?? []) as ReadonlyArray<Clip>;
+    // Sixty sequence frames at double speed: the same length on the track, twice the media.
+    expect(fast).toMatchObject({
+      source_range: { start_time: { value: 30, rate: 30 }, duration: { value: 30.03 } },
+      effects: [{ OTIO_SCHEMA: "LinearTimeWarp.1", time_scalar: 2 }],
+    });
+    expect(backwards?.effects).toMatchObject([{ time_scalar: -1 }]);
+    expect(fast?.metadata[TIMELINE_NAMESPACE]).toMatchObject({
+      blendMode: "multiply",
+      transform: {
+        crop_left: 10,
+        crop_bottom: 25,
+        keyframes: {
+          // Bezier out of the first key, held from the second, then plain linear.
+          opacity: [
+            [0, 0, [0.3333, 0, 0.6667, 0.6667]],
+            [1, 100, "hold"],
+            [2, 50],
+            [3, 0],
+          ],
+        },
+      },
+      effects: [
+        { kind: "Opacity", tier: "portable", animated: true },
+        { kind: "Crop", tier: "portable", animated: false },
+      ],
+    });
+    expect(video?.metadata).toEqual({
+      premiere: {
+        transitions: [
+          {
+            name: "Cross Dissolve",
+            matchName: "AE.ADBE Cross Dissolve New",
+            startFrame: 50,
+            endFrame: 70,
+            cutFrame: 60,
+          },
+        ],
+      },
+    });
+    expect(captions).toMatchObject({
+      name: "C1",
+      kind: "Video",
+      metadata: { [TIMELINE_NAMESPACE]: { captions: true } },
+      children: [
+        { OTIO_SCHEMA: "Gap.1", source_range: { duration: { value: 30 } } },
+        {
+          name: "Xin chào các bạn",
+          source_range: { duration: { value: 60 } },
+          metadata: {
+            [TIMELINE_NAMESPACE]: {
+              caption: true,
+              text: "Xin chào\rcác bạn",
+              textStyle: { align: "center", runs: [{ font: "Monaco", size: 48 }, {}, {}] },
+            },
+            premiere: { record: { startFrame: 30, endFrame: 90 } },
+          },
+        },
+      ],
+    });
+    expect(compactView(timeline).split("\n")[1]).toBe(
+      "V1 0–60 IMG_1.MOV src 30–60.03@30 speed=200% fx:Opacity~,Crop crop_left=10 crop_bottom=25 opacity=0→0",
     );
   });
 });

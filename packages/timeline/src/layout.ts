@@ -18,6 +18,8 @@ export interface LaidOutTrack {
   readonly name: string;
   readonly kind: Track["kind"];
   readonly clips: ReadonlyArray<LaidOutClip>;
+  /** The track's own metadata, where a pull keeps its transitions. */
+  readonly metadata?: Track["metadata"];
 }
 
 export interface TimelineLayout {
@@ -50,7 +52,7 @@ export const layoutTimeline = (timeline: Timeline): TimelineLayout => {
       cursor += length;
     });
     durationFrames = Math.max(durationFrames, round(cursor));
-    return { name: track.name, kind: track.kind, clips };
+    return { name: track.name, kind: track.kind, clips, metadata: track.metadata };
   });
   const video = tracks.filter((t) => t.kind === "Video").toReversed();
   const audio = tracks.filter((t) => t.kind === "Audio");

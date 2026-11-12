@@ -6,6 +6,7 @@
  */
 import { layoutTimeline } from "./layout.ts";
 import { type Clip, type EffectRef, type Timeline, TIMELINE_NAMESPACE } from "./otio.ts";
+import { timeScalarOf } from "./speed.ts";
 
 const num = (value: number): string =>
   Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
@@ -38,6 +39,8 @@ export const compactLine = (trackName: string, clip: Clip): string => {
     clip.name,
     `src ${num(start_time.value)}–${num(start_time.value + duration.value)}@${num(start_time.rate)}`,
   ];
+  const speed = timeScalarOf(clip);
+  if (speed !== 1) parts.push(`speed=${num(speed * 100)}%`);
   if (intent.text !== undefined)
     parts.push(`text:"${intent.text.replace(/\s*[\r\n]+\s*/g, " / ")}"`);
   if (intent.effects && intent.effects.length > 0) {

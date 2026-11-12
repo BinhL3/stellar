@@ -359,8 +359,14 @@ Built from the past threads: it targets where time and failures actually went, a
     content-addressed native refs with preset names, static Motion, Opacity and gain, transitions,
     and out-of-order items.
   - On SF Uniqlo Polish v1 it matches the live-Premiere `seq_state` baseline on 163 of 163 clips.
-- **Pull also reads** the sequence frame size and keyframes for animated Motion, Opacity and
-  Volume, as seconds from each clip's start. Easing stays in the native blob.
+- **Pull also reads** the sequence frame size and keyframes for animated Motion, Opacity, Crop
+  and Volume, as seconds from each clip's start, each with its easing (a cubic bezier or a
+  hold) where it is not linear.
+  - Crop, the blend mode, a text layer's look (font, size, fill, stroke, shadow, alignment)
+    and the caption track are read too. Captions become a track of text clips named `C1`.
+  - A constant speed change or reverse is OTIO's `LinearTimeWarp` on the clip: the clip keeps
+    its length on the track and plays that length times the speed of its media
+    (`packages/timeline/src/speed.ts`).
 - **Timeline tab: working.** Video projects open a Timeline tab with the canvas player from
   Decision 6, editor transport keys, in and out marks with loop, full screen, thumbnail strips,
   waveforms and clip details.
@@ -371,8 +377,8 @@ Built from the past threads: it targets where time and failures actually went, a
   (`packages/timeline/src/edits.ts`). A commit does not reach Premiere yet: that is the push in
   Decision 4, and it should honour the baton. Until then a committed timeline reads **Edited
   here** on the Premiere badge.
-- **Not read yet:** Premiere's caption track (empty in SF Uniqlo, whose subtitles are V7 text
-  graphics, now read), linked audio and video, and disabled clips.
+- **Not read yet:** linked audio and video, disabled clips, time remapping with keyframes,
+  and a text layer's background box in Premiere's binary form (no project seen has one).
 
 The proof is a real short taken through rough cut, Binh's hand pass, polish, a revision round and
 export. His hand edits and presets survive every push, nothing goes missing in export, and the round
@@ -654,18 +660,35 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
     asking. Focus sync holds off while there are any.
 15. A sequence deleted or renamed in Premiere silently stops updating its timeline.
 16. A read that lands while Premiere is writing shows as Offline until the next sync.
-17. The pull doesn't read speed changes, the caption track, linked audio and video, or nested
-    sequences. Transitions are read but only kept as metadata.
+17. The pull doesn't read linked audio and video, nested sequences, or time remapping with
+    keyframes. Reverse is read on a guess (a negative speed or a backwards flag): no project
+    seen so far has a reversed clip to confirm it. Transitions stay as frames on their track's
+    metadata, which an edit that moves the cut does not move, so they stop drawing there.
+    Speed and captions don't travel back: the XML export writes a sped-up clip at normal
+    speed and leaves captions out, and says so; the push plan leaves a reversed clip's trim
+    and every caption change to a person.
 
 **Playback**
 
 18. A proxy is fetched whole into memory before it plays. Fine for shorts; a one-hour camera
     file's proxy is over a gigabyte and won't load. Long-form needs ranged reads.
-19. The preview draws Motion, Opacity, gain and plain text. It doesn't draw crop, speed,
-    transitions, blend modes or easing (keyframes are linear), and text uses a system font at
-    a guessed size. App renders for plugin effects (kind 3) are unbuilt.
-20. Audio is one media element per clip: no crossfades, steering by small rate changes, muted
-    above 2×, silent in reverse.
+19. The preview draws Motion, Opacity, Crop, speed and reverse, eased keyframes, cross
+    dissolves, dips to black and white, the blend modes a canvas has, and text and captions
+    in their own font, size, fill, stroke, shadow and box. What it leaves out at the playhead
+    is listed in the Monitor ("Not drawn: …"). Still approximate or missing:
+    - Every other effect, the Transform presets (Malice slides) among them, and app renders
+      for plugin effects (kind 3).
+    - Other transitions play as a cut. A dissolve between two overlays that don't cover each
+      other keeps the outgoing one at full strength until the cut.
+    - Crop's feather and zoom, a curved motion path, and the blend modes a canvas lacks
+      (dissolve, linear burn, vivid, linear and pin light, hard mix, subtract, divide, darker
+      and lighter color).
+    - Text is laid out by the browser: a font the machine lacks falls back to the system
+      sans, tracking and leading are not read, and a caption sits at a fixed bottom margin.
+20. Audio is one media element per clip, steered by small rate changes. Crossfades play
+    (constant power, constant gain, exponential) and a sped-up clip plays at its speed, but
+    anything above 2× is muted and reverse is silent, whether it is the transport or the clip
+    that runs backwards. Other audio transitions play as a cut.
 21. Stills are served as the original file. PSD, TIFF and HEIC don't decode in a browser, so
     those layers draw nothing.
 22. Proxy keys include the absolute path. Moving the drive to another machine or mount point

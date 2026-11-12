@@ -8,6 +8,7 @@ import { changeSentence, diffTimelines, type TimelineChange } from "../diff.ts";
 import { applyEdits, STILL_PATH, type TimelineEdit } from "../edits.ts";
 import { clipIdOf, layoutTimeline } from "../layout.ts";
 import { type Clip, type Timeline, TIMELINE_NAMESPACE, type Track } from "../otio.ts";
+import { playSpan, sourceSecondsAt, timeScalarOf } from "../speed.ts";
 
 export interface PushTrack {
   readonly kind: "video" | "audio";
@@ -76,11 +77,14 @@ export interface PushPlan {
  * Seconds at a frame, to the microsecond. Rates like 59.94 are 60000/1001 exactly, which the
  * rate read from a project only approximates.
  */
-export const secondsAtFrame = (frame: number, rate: number): number => {
+export const secondsAtFrame = (frame: number, rate: number): number =>
+  Math.round(exactSeconds(frame, rate) * 1e6) / 1e6;
+
+/** Unrounded, for sums and a clip's speed to work on before the result is rounded once. */
+const exactSeconds = (frame: number, rate: number): number => {
   const nominal = Math.round(rate);
   const ntsc = nominal !== rate && Math.abs(rate - nominal / 1.001) < 0.01;
-  const seconds = ntsc ? (frame * 1001) / (nominal * 1000) : frame / rate;
-  return Math.round(seconds * 1e6) / 1e6;
+  return ntsc ? (frame * 1001) / (nominal * 1000) : frame / rate;
 };
 
 interface Placed {
@@ -130,9 +134,11 @@ const sourceSeconds = (clip: Clip) =>
   clip.source_range.start_time.value / clip.source_range.start_time.rate;
 /** A clip's source in and out, in timeline frames. */
 const sourceSpan = (clip: Clip, rate: number) => {
-  const { duration } = clip.source_range;
-  const start = Math.round(sourceSeconds(clip) * rate);
-  return { start, end: start + Math.round((duration.value / duration.rate) * rate) };
+  const span = playSpan(clip, rate);
+  return {
+    start: Math.round(span.start),
+    end: Math.round(span.start) + Math.round(span.end - span.start),
+  };
 };
 
 /**
@@ -287,17 +293,23 @@ const rippleRemove = (
   return mapTracks(timeline, (track) => done.get(track.name) ?? track);
 };
 
+/** Premiere keeps captions apart from its video tracks, so a caption track has no V number. */
+const isCaptionTrack = (track: Track) =>
+  (track.metadata[TIMELINE_NAMESPACE] as { captions?: boolean } | undefined)?.captions === true;
+
 const trackRefs = (timeline: Timeline): ReadonlyMap<string, PushTrack> => {
   const counts = { Video: 0, Audio: 0 };
   return new Map(
-    timeline.tracks.children.map((track) => [
-      track.name,
-      {
-        kind: track.kind === "Video" ? "video" : "audio",
-        index: ++counts[track.kind],
-        name: track.name,
-      },
-    ]),
+    timeline.tracks.children
+      .filter((track) => !isCaptionTrack(track))
+      .map((track) => [
+        track.name,
+        {
+          kind: track.kind === "Video" ? "video" : "audio",
+          index: ++counts[track.kind],
+          name: track.name,
+        },
+      ]),
   );
 };
 
@@ -458,7 +470,7 @@ export const pushPlan = (base: Timeline, ours: Timeline): PushPlan => {
         if (change.kind === "added") {
           const piece = wanted.find((item) => item.id === change.after.id);
           const cut = piece === undefined ? undefined : cutFor(clips, piece, rate);
-          if (cut === undefined) return [];
+          if (cut === undefined || !tracks.has(cut.parent.track)) return [];
           return [
             {
               key: `split:${cut.parent.id}:${cut.frame}`,
@@ -476,7 +488,7 @@ export const pushPlan = (base: Timeline, ours: Timeline): PushPlan => {
             .flatMap((id) => byId.get(id) ?? [])
             .toSorted((a, b) => b.start - a.start);
           const [last] = moving;
-          if (last === undefined) return [];
+          if (last === undefined || moving.some((item) => !tracks.has(item.track))) return [];
           return [
             {
               key: `open:${change.fromFrame}:${change.byFrames}`,
@@ -511,7 +523,8 @@ export const pushPlan = (base: Timeline, ours: Timeline): PushPlan => {
           return [];
         }
         const item = byId.get(change.before.id);
-        if (item === undefined) return [];
+        // No step names a caption: its change is listed for a person instead.
+        if (item === undefined || !tracks.has(item.track)) return [];
         const clip = describe(item, tracks);
         const clipId = item.id;
         switch (change.kind) {
@@ -526,11 +539,14 @@ export const pushPlan = (base: Timeline, ours: Timeline): PushPlan => {
               },
             ];
           case "trimmed":
+            // Which source point a reversed clip's edge names in Premiere is not known here,
+            // so its trims are left for a person rather than guessed.
+            if (timeScalarOf(item.clip) < 0) return [];
             return (["end", "start"] as const).flatMap((edge) => {
               const frames = change[edge];
               if (frames === undefined) return [];
               // In or out, the new source point is as far into the clip as the new edge is.
-              const into = secondsAtFrame(frames.after - item.start, rate);
+              const into = exactSeconds(frames.after - item.start, rate);
               return [
                 {
                   key: `trim:${clipId}:${edge}`,
@@ -544,7 +560,7 @@ export const pushPlan = (base: Timeline, ours: Timeline): PushPlan => {
                       to: at(frames.after),
                       sourceSeconds: isStill(item.clip)
                         ? null
-                        : Math.round((sourceSeconds(item.clip) + into) * 1e6) / 1e6,
+                        : Math.round(sourceSecondsAt(item.clip, into) * 1e6) / 1e6,
                     },
                   ],
                   apply: edit([{ kind: "trim", clipId, edge, frame: frames.after }]),
@@ -594,7 +610,9 @@ export const pushPlan = (base: Timeline, ours: Timeline): PushPlan => {
     const source =
       piece === undefined || isStill(piece.clip)
         ? ""
-        : `, source in ${stamp(Math.round(sourceSeconds(piece.clip) * 1e6) / 1e6)} of ${targetOf(piece.clip)}`;
+        : `, source in ${stamp(Math.round(sourceSeconds(piece.clip) * 1e6) / 1e6)} of ${targetOf(piece.clip)}${
+            timeScalarOf(piece.clip) === 1 ? "" : ` at ${timeScalarOf(piece.clip) * 100}% speed`
+          }`;
     manual.push(
       `Add ${after.name} to ${after.track} at ${stamp(secondsAtFrame(after.startFrame, rate))}-${stamp(secondsAtFrame(after.endFrame, rate))} (frames ${after.startFrame}-${after.endFrame}${source}); import its media first if the project lacks it`,
     );

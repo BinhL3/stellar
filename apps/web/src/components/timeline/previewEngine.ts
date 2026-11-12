@@ -1,4 +1,5 @@
-import type { LaidOutClip, TimelineLayout } from "@t3tools/timeline/layout";
+import type { LaidOutClip, LaidOutTrack, TimelineLayout } from "@t3tools/timeline/layout";
+import { offsetAtSourceSeconds, timeScalarOf } from "@t3tools/timeline/speed";
 
 import { observeResize } from "~/lib/observeResize";
 
@@ -6,12 +7,27 @@ import { ClipDecoder, loadProxy, prefetchProxies, webCodecsAvailable } from "./c
 
 import {
   type ClipPose,
-  clipTimes,
+  clipOffset,
+  clipSourceAt,
+  emptyPose,
+  gainDbAt,
+  graphicOf,
   graphicText,
   graphicTextPosition,
   poseAt,
   transformOf,
 } from "./clipTransform";
+import { CANVAS_BLEND, clipNotDrawn } from "./notDrawn";
+import { layoutText, paintText, type TextLayout } from "./textPainter";
+import {
+  type ClipTransitions,
+  emptyMix,
+  mixAt,
+  planTransitions,
+  type TransitionMix,
+  windowEnd,
+  windowStart,
+} from "./transitions";
 
 /** What the engine plays for one media file; URLs are null when unavailable. */
 export interface PreviewSource {
@@ -95,23 +111,51 @@ const follow = (element: HTMLMediaElement, target: number, speed: number) => {
 };
 
 /**
- * Where an upcoming clip's media should be now so it reaches its first frame exactly at its cut,
- * or null when the cut is too far off or the clip starts at its media's very beginning.
+ * Where an upcoming clip's media should be now so it reaches `first`, the source second it
+ * opens on, exactly when it comes in `untilFrames` from now; null when that is too far off or
+ * the clip opens on its media's very beginning. `mediaSpeed` is the transport's speed times
+ * the clip's own.
  */
-const prerollTarget = (item: LaidOutClip, rate: number, frame: number, speed: number) => {
-  const until = (item.startFrame - frame) / rate / speed;
+const prerollTarget = (
+  first: number,
+  untilFrames: number,
+  rate: number,
+  speed: number,
+  mediaSpeed: number,
+) => {
+  const until = untilFrames / rate / speed;
   if (until > PREROLL_SECONDS || until <= 0) return null;
-  const { start_time } = item.clip.source_range;
-  const target = start_time.value / start_time.rate - until * speed;
+  const target = first - until * mediaSpeed;
   return target < 0 ? null : target;
 };
 
 /** Where an upcoming clip waits while playing: its pre-roll start, so starting it needs no seek. */
-const parkTarget = (item: LaidOutClip, speed: number) => {
-  const start = item.clip.source_range.start_time;
-  const first = start.value / start.rate;
-  return first - PREROLL_SECONDS * speed >= 0 ? first - PREROLL_SECONDS * speed : first;
-};
+const parkTarget = (first: number, mediaSpeed: number) =>
+  first - PREROLL_SECONDS * mediaSpeed >= 0 ? first - PREROLL_SECONDS * mediaSpeed : first;
+
+interface Near {
+  item: LaidOutClip;
+  active: boolean;
+}
+
+/** One thing to draw this frame. Slots are reused from frame to frame. */
+interface Layer {
+  item: LaidOutClip;
+  readonly pose: ClipPose;
+  readonly mix: TransitionMix;
+  kind: "text" | "offline" | "picture";
+  words: string;
+  drawable: CanvasImageSource | null;
+  /** The original's size, which Scale is relative to, and the drawable's own pixels. */
+  width: number;
+  height: number;
+  pixelWidth: number;
+  pixelHeight: number;
+  blend: GlobalCompositeOperation;
+}
+
+const NO_TRANSITIONS: ReadonlyMap<string, ClipTransitions> = new Map();
+const NOTHING_MISSING: ReadonlyArray<string> = [];
 
 const releaseMedia = (element: HTMLMediaElement) => {
   element.pause();
@@ -147,6 +191,27 @@ export class PreviewEngine {
   private readonly audios = new Map<string, AudioSlot>();
   private mix: { readonly context: AudioContext; readonly bus: GainNode } | null = null;
   private readonly images = new Map<string, StillImage>();
+  /** Derived from the layout once per scene, so no frame works them out again. */
+  private videoTracks: ReadonlyArray<LaidOutTrack> = [];
+  private audioTracks: ReadonlyArray<LaidOutTrack> = [];
+  private plannedFor: TimelineLayout | null = null;
+  private transitions = NO_TRANSITIONS;
+  private notDrawnBy: ReadonlyMap<string, ReadonlyArray<string>> = new Map();
+  /** Reused every frame: the clips near the playhead and the layers to draw. */
+  private readonly nearVideo: Array<Near> = [];
+  private readonly nearAudio: Array<Near> = [];
+  private nearVideoCount = 0;
+  private readonly layers: Array<Layer> = [];
+  private readonly audioMix = emptyMix();
+  private readonly textLayouts = new WeakMap<object, TextLayout | null>();
+  /** Bumped when a font finishes loading, so text measured with its fallback is measured again. */
+  private fontEpoch = 0;
+  private notDrawnShown = "";
+  private readonly onFontsLoaded = () => {
+    this.fontEpoch += 1;
+    this.drawn = "";
+    this.invalidate();
+  };
   /** Proxied clips decode through WebCodecs: null while their proxy loads. */
   private readonly decoders = new Map<string, ClipDecoder | null>();
   private readonly stopObserving: () => void;
@@ -163,6 +228,11 @@ export class PreviewEngine {
       /** `now` is the animation frame's timestamp, for throttling what the UI re-renders. */
       readonly onTime: (frame: number, now: number) => void;
       readonly onSpeed: (speed: number) => void;
+      /**
+       * What is at the playhead that the preview does not draw, in the user's words. Called
+       * only when the list changes.
+       */
+      readonly onNotDrawn?: (missing: ReadonlyArray<string>) => void;
     },
   ) {
     this.context = canvas.getContext("2d");
@@ -175,10 +245,27 @@ export class PreviewEngine {
       this.invalidate();
     });
     document.addEventListener("visibilitychange", this.pauseWhenHidden);
+    document.fonts.addEventListener("loadingdone", this.onFontsLoaded);
   }
 
   setScene(scene: PreviewScene) {
     this.scene = scene;
+    if (this.plannedFor !== scene.layout) {
+      this.plannedFor = scene.layout;
+      // Layout lists video top-down; draw from the bottom track up.
+      this.videoTracks = scene.layout.tracks.filter((t) => t.kind === "Video").toReversed();
+      this.audioTracks = scene.layout.tracks.filter((t) => t.kind === "Audio");
+      this.transitions = planTransitions(scene.layout);
+      const missing = new Map<string, ReadonlyArray<string>>();
+      for (const track of this.videoTracks) {
+        for (const item of track.clips) {
+          const list = clipNotDrawn(item);
+          if (list.length > 0) missing.set(item.key, list);
+        }
+      }
+      this.notDrawnBy = missing;
+      this.drawn = "";
+    }
     // Fetch proxies in the background, nearest the playhead first, so a jump anywhere decodes
     // without waiting on the drive.
     if (webCodecsAvailable()) {
@@ -260,6 +347,7 @@ export class PreviewEngine {
     cancelAnimationFrame(this.handle);
     this.stopObserving();
     document.removeEventListener("visibilitychange", this.pauseWhenHidden);
+    document.fonts.removeEventListener("loadingdone", this.onFontsLoaded);
     for (const slot of this.videos.values()) releaseMedia(slot.element);
     for (const slot of this.audios.values()) {
       slot.gain?.disconnect();
@@ -299,10 +387,9 @@ export class PreviewEngine {
         !lead.element.seeking &&
         lead.element.readyState >= 3
       ) {
-        const { start_time } = lead.item.clip.source_range;
         const leadFrame =
           lead.item.startFrame +
-          (lead.element.currentTime - start_time.value / start_time.rate) * rate;
+          offsetAtSourceSeconds(lead.item.clip, lead.element.currentTime) * rate;
         if (Math.abs(leadFrame - frame) < rate * RESYNC_SECONDS) {
           // Never step back: media clocks jitter and round (0.833333 s against 25/30), and a
           // playhead a hair before 0 would read as running off the timeline's start.
@@ -350,25 +437,33 @@ export class PreviewEngine {
     if (this.speed !== 0 || this.needsDraw) this.handle = requestAnimationFrame(this.tick);
   };
 
-  private clipsNear(scene: PreviewScene, kind: "Video" | "Audio") {
+  /**
+   * Fills `near` with the clips around the playhead, bottom track first, and returns how many.
+   * A clip is active across its transitions too: from where it starts to come in to where it
+   * has gone out.
+   */
+  private clipsNear(scene: PreviewScene, tracks: ReadonlyArray<LaidOutTrack>, near: Array<Near>) {
     const warm = WARM_SECONDS * scene.layout.rate;
     const frame = this.frameNumber;
-    const near: Array<{ item: LaidOutClip; layer: number; active: boolean }> = [];
-    const tracks = scene.layout.tracks.filter((t) => t.kind === kind);
-    // Layout lists video top-down; draw from the bottom track up.
-    const ordered = kind === "Video" ? tracks.toReversed() : tracks;
-    ordered.forEach((track, layer) => {
+    let count = 0;
+    for (const track of tracks) {
       for (const item of track.clips) {
         if (item.clip.enabled === false) continue;
-        if (item.endFrame <= frame - warm || item.startFrame > frame + warm) continue;
-        near.push({
-          item,
-          layer,
-          active: item.startFrame <= frame && frame < item.endFrame,
-        });
+        const transitions = this.transitions.get(item.key);
+        const from = windowStart(item, transitions);
+        const to = windowEnd(item, transitions);
+        if (to <= frame - warm || from > frame + warm) continue;
+        let slot = near[count];
+        if (slot === undefined) {
+          slot = { item, active: false };
+          near.push(slot);
+        }
+        slot.item = item;
+        slot.active = from <= frame && frame < to;
+        count += 1;
       }
-    });
-    return near;
+    }
+    return count;
   }
 
   private source(scene: PreviewScene, item: LaidOutClip) {
@@ -384,9 +479,18 @@ export class PreviewEngine {
     let nextLead: { element: HTMLMediaElement; item: LaidOutClip } | null = null;
     let videoLead: { element: HTMLMediaElement; item: LaidOutClip } | null = null;
 
-    const videoClips = this.clipsNear(scene, "Video");
+    this.nearVideoCount = this.clipsNear(scene, this.videoTracks, this.nearVideo);
     const liveVideos = new Set<string>();
-    for (const { item, active } of videoClips) {
+    for (let index = 0; index < this.nearVideoCount; index++) {
+      const { item, active } = this.nearVideo[index]!;
+      const transitions = this.transitions.get(item.key);
+      const from = windowStart(item, transitions);
+      const to = windowEnd(item, transitions);
+      // A clip's own speed rides on the transport's; reversed and very fast clips seek instead.
+      const scalar = timeScalarOf(item.clip);
+      const mediaSpeed = this.speed * scalar;
+      const native = nativePlayback && scalar > 0 && mediaSpeed <= 4;
+      const source = clipSourceAt(item, rate, Math.max(this.frameNumber, from));
       const still = this.source(scene, item)?.still;
       if (still) this.image(still);
       const url = this.source(scene, item)?.video;
@@ -399,7 +503,7 @@ export class PreviewEngine {
           releaseMedia(original.element);
           this.videos.delete(item.key);
         }
-        if (!this.syncDecoder(item, url, rate, active, nativePlayback)) settled = false;
+        if (!this.syncDecoder(item, url, active, native, source, mediaSpeed, to)) settled = false;
         continue;
       }
       let slot = this.videos.get(item.key);
@@ -423,40 +527,39 @@ export class PreviewEngine {
         slot = created;
         this.videos.set(item.key, slot);
       }
-      const { source } = clipTimes(item, rate, Math.max(this.frameNumber, item.startFrame));
       const element = slot.element;
-      if (active && nativePlayback) {
+      const preroll =
+        native && from > this.frameNumber
+          ? prerollTarget(source, from - this.frameNumber, rate, this.speed, mediaSpeed)
+          : null;
+      if (active && native) {
         if (this.lead?.element === element) {
           if (Math.abs(element.currentTime - source) > RESYNC_SECONDS) element.currentTime = source;
-          setRate(element, this.speed);
+          setRate(element, mediaSpeed);
         } else {
-          follow(element, source, this.speed);
+          follow(element, source, mediaSpeed);
         }
         if (element.paused) void element.play().catch(() => undefined);
         slot.wanted = Number.NaN;
         videoLead ??= { element, item };
-      } else if (
-        nativePlayback &&
-        item.startFrame > this.frameNumber &&
-        prerollTarget(item, rate, this.frameNumber, this.speed) !== null
-      ) {
-        const target = prerollTarget(item, rate, this.frameNumber, this.speed) ?? source;
+      } else if (preroll !== null) {
+        const target = preroll;
         if (element.paused) {
           // Parked at its pre-roll point already, so starting needs no seek (and no stall).
           if (Math.abs(element.currentTime - target) > 0.05) element.currentTime = target;
           void element.play().catch(() => undefined);
         } else {
-          follow(element, target, this.speed);
+          follow(element, target, mediaSpeed);
         }
         slot.wanted = Number.NaN;
       } else {
         if (!element.paused) element.pause();
         // Finished clips just wait to be released; upcoming ones park where they'll start.
         const target =
-          item.endFrame <= this.frameNumber
+          to <= this.frameNumber
             ? null
-            : nativePlayback && item.startFrame > this.frameNumber
-              ? parkTarget(item, this.speed)
+            : native && from > this.frameNumber
+              ? parkTarget(source, mediaSpeed)
               : // A little past the frame's start so the decoder doesn't land on the previous one.
                 source + 0.001;
         if (target !== null && Math.abs(slot.wanted - target) > 1 / 240) {
@@ -464,11 +567,7 @@ export class PreviewEngine {
           element.currentTime = target;
         }
       }
-      if (
-        active &&
-        !slot.failed &&
-        (element.readyState < 2 || (element.seeking && !nativePlayback))
-      ) {
+      if (active && !slot.failed && (element.readyState < 2 || (element.seeking && !native))) {
         settled = false;
       }
     }
@@ -483,10 +582,17 @@ export class PreviewEngine {
       this.decoders.delete(key);
     }
 
-    const audioClips = this.clipsNear(scene, "Audio");
+    const audioCount = this.clipsNear(scene, this.audioTracks, this.nearAudio);
     const liveAudio = new Set<string>();
-    const audible = this.speed > 0 && this.speed <= MAX_AUDIO_SPEED;
-    for (const { item, active } of audioClips) {
+    for (let index = 0; index < audioCount; index++) {
+      const { item, active } = this.nearAudio[index]!;
+      const transitions = this.transitions.get(item.key);
+      const from = windowStart(item, transitions);
+      const to = windowEnd(item, transitions);
+      const scalar = timeScalarOf(item.clip);
+      const mediaSpeed = this.speed * scalar;
+      // Reversed clips stay silent, as reverse play does.
+      const audible = this.speed > 0 && scalar > 0 && mediaSpeed <= MAX_AUDIO_SPEED;
       const url = this.source(scene, item)?.audio;
       if (!url) continue;
       liveAudio.add(item.key);
@@ -510,42 +616,47 @@ export class PreviewEngine {
         slot.gain = new GainNode(this.mix.context);
         this.mix.context.createMediaElementSource(element).connect(slot.gain).connect(this.mix.bus);
       }
-      const { source, offset } = clipTimes(item, rate, Math.max(this.frameNumber, item.startFrame));
+      const source = clipSourceAt(item, rate, Math.max(this.frameNumber, from));
+      const preroll =
+        audible && slot.gain !== null && from > this.frameNumber
+          ? prerollTarget(source, from - this.frameNumber, rate, this.speed, mediaSpeed)
+          : null;
       if (active && audible) {
-        const level = 10 ** (poseAt(transformOf(item), offset).gainDb / 20);
+        // A crossfade is each clip's own fade over the stretch where both play.
+        const fade = mixAt(transitions, this.frameNumber, this.audioMix).gain;
+        const offset = clipOffset(item, rate, this.frameNumber);
+        const level = 10 ** (gainDbAt(transformOf(item), offset) / 20) * fade;
         if (slot.gain === null) element.volume = Math.min(1, level);
         else slot.gain.gain.value = level;
         if (this.lead?.element === element) {
           if (Math.abs(element.currentTime - source) > RESYNC_SECONDS) element.currentTime = source;
-          setRate(element, this.speed);
+          setRate(element, mediaSpeed);
         } else {
-          follow(element, source, this.speed);
+          follow(element, source, mediaSpeed);
         }
         if (element.paused) void element.play().catch(() => undefined);
-        nextLead ??= { element, item };
-      } else if (
-        audible &&
-        slot.gain !== null &&
-        item.startFrame > this.frameNumber &&
-        prerollTarget(item, rate, this.frameNumber, this.speed) !== null
-      ) {
+        // A clip fading in or out is on its media's handles, so it never keeps time.
+        if (item.startFrame <= this.frameNumber && this.frameNumber < item.endFrame) {
+          nextLead ??= { element, item };
+        }
+      } else if (preroll !== null && slot.gain !== null) {
         // Silent until its cut, through its own gain stage.
         slot.gain.gain.value = 0;
-        const target = prerollTarget(item, rate, this.frameNumber, this.speed) ?? source;
+        const target = preroll;
         if (element.paused) {
           // Parked at its pre-roll point already, so starting needs no seek (and no stall).
           if (Math.abs(element.currentTime - target) > 0.05) element.currentTime = target;
           void element.play().catch(() => undefined);
         } else {
-          follow(element, target, this.speed);
+          follow(element, target, mediaSpeed);
         }
       } else {
         if (!element.paused) element.pause();
         const target =
-          item.endFrame <= this.frameNumber
+          to <= this.frameNumber
             ? null
-            : audible && item.startFrame > this.frameNumber
-              ? parkTarget(item, this.speed)
+            : audible && from > this.frameNumber
+              ? parkTarget(source, mediaSpeed)
               : source;
         if (target !== null && Math.abs(element.currentTime - target) > 0.05) {
           element.currentTime = target;
@@ -570,9 +681,11 @@ export class PreviewEngine {
   private syncDecoder(
     item: LaidOutClip,
     url: string,
-    rate: number,
     active: boolean,
     playing: boolean,
+    source: number,
+    mediaSpeed: number,
+    to: number,
   ): boolean {
     if (!this.decoders.has(item.key)) {
       this.decoders.set(item.key, null);
@@ -584,9 +697,8 @@ export class PreviewEngine {
     }
     const decoder = this.decoders.get(item.key) ?? null;
     if (decoder === null) return !active;
-    const { source } = clipTimes(item, rate, Math.max(this.frameNumber, item.startFrame));
-    if (playing && item.endFrame > this.frameNumber) decoder.playing(source, this.speed);
-    else if (item.endFrame > this.frameNumber) decoder.exact(source);
+    if (playing && to > this.frameNumber) decoder.playing(source, mediaSpeed);
+    else if (to > this.frameNumber) decoder.exact(source);
     return !active || decoder.broken || decoder.frameAt(source, !playing) !== null;
   }
 
@@ -621,9 +733,69 @@ export class PreviewEngine {
     return still.bitmap === null ? null : still;
   }
 
+  /** The next layer slot for this frame, with its pose and transition mix ready to fill in. */
+  private layer(index: number, item: LaidOutClip): Layer {
+    let slot = this.layers[index];
+    if (slot === undefined) {
+      slot = {
+        item,
+        pose: emptyPose(),
+        mix: emptyMix(),
+        kind: "offline",
+        words: "",
+        drawable: null,
+        width: 0,
+        height: 0,
+        pixelWidth: 0,
+        pixelHeight: 0,
+        blend: "source-over",
+      };
+      this.layers.push(slot);
+    }
+    slot.item = item;
+    slot.drawable = null;
+    return slot;
+  }
+
+  /** Tells the Monitor what at the playhead is left out, when that changes. */
+  private reportNotDrawn(scene: PreviewScene) {
+    if (this.listener.onNotDrawn === undefined) return;
+    const frame = this.frameNumber;
+    let signature = "";
+    for (let index = 0; index < this.nearVideoCount; index++) {
+      const { item, active } = this.nearVideo[index]!;
+      if (!active) continue;
+      if (this.notDrawnBy.has(item.key)) signature += `${item.key}|`;
+    }
+    // A transition with no drawing plays as a cut; say so while the playhead is inside it.
+    for (const tracks of [this.videoTracks, this.audioTracks]) {
+      for (const track of tracks) {
+        for (const item of track.clips) {
+          if (item.startFrame > frame + scene.layout.rate * WARM_SECONDS) break;
+          const span = this.transitions.get(item.key)?.in ?? this.transitions.get(item.key)?.out;
+          if (span === undefined || span === null || span.kind !== null) continue;
+          if (frame >= span.start && frame < span.end) signature += `t:${span.name}|`;
+        }
+      }
+    }
+    if (signature === this.notDrawnShown) return;
+    this.notDrawnShown = signature;
+    if (signature === "") {
+      this.listener.onNotDrawn(NOTHING_MISSING);
+      return;
+    }
+    const missing = new Set<string>();
+    for (const part of signature.split("|")) {
+      if (part.startsWith("t:")) missing.add(`${part.slice(2)} transition`);
+      else for (const name of this.notDrawnBy.get(part) ?? []) missing.add(name);
+    }
+    this.listener.onNotDrawn([...missing]);
+  }
+
   private draw(scene: PreviewScene) {
     const context = this.context;
     if (context === null) return;
+    this.reportNotDrawn(scene);
     const pixels = Math.min(
       this.canvas.width / scene.frame.width,
       this.canvas.height / scene.frame.height,
@@ -635,40 +807,43 @@ export class PreviewEngine {
 
     // Work out every layer first. On a display faster than the footage (120 Hz showing 60 fps)
     // most animation frames have nothing new, and those skip the canvas entirely.
-    type Layer = { readonly item: LaidOutClip; readonly pose: ClipPose } & (
-      | { readonly kind: "text"; readonly words: string }
-      | { readonly kind: "offline" }
-      | {
-          readonly kind: "picture";
-          readonly drawable: CanvasImageSource;
-          readonly width: number;
-          readonly height: number;
-        }
-    );
-    const layers: Array<Layer> = [];
-    let signature = `${this.canvas.width}x${this.canvas.height}/${scene.frame.width}x${scene.frame.height}`;
-    for (const { item, active } of this.clipsNear(scene, "Video")) {
+    let count = 0;
+    let signature = `${this.canvas.width}x${this.canvas.height}/${scene.frame.width}x${scene.frame.height}/${this.fontEpoch}`;
+    for (let index = 0; index < this.nearVideoCount; index++) {
+      const { item, active } = this.nearVideo[index]!;
       if (!active) continue;
-      const { offset, source: sourceTime } = clipTimes(item, scene.layout.rate, this.frameNumber);
-      const pose = poseAt(transformOf(item), offset);
+      const layer = this.layer(count, item);
+      const { pose, mix } = layer;
+      mixAt(this.transitions.get(item.key), this.frameNumber, mix);
+      if (!mix.visible) continue;
+      poseAt(transformOf(item), clipOffset(item, scene.layout.rate, this.frameNumber), pose);
+      const sourceTime = clipSourceAt(item, scene.layout.rate, this.frameNumber);
       const source = this.source(scene, item);
-      const posed = `|${item.key}@${pose.x},${pose.y},${pose.scale},${pose.rotation},${pose.opacity}`;
+      const mode = graphicOf(item).blendMode;
+      layer.blend = (mode === undefined ? undefined : CANVAS_BLEND[mode]) ?? "source-over";
+      const posed = `|${item.key}@${pose.x},${pose.y},${pose.scale},${pose.rotation},${pose.opacity * mix.opacity},${mix.dip},${pose.cropLeft},${pose.cropTop},${pose.cropRight},${pose.cropBottom}`;
       if (source === undefined) {
         const words = graphicText(item);
         if (words === "") continue;
-        layers.push({ item, pose, kind: "text", words });
+        layer.kind = "text";
+        layer.words = words;
+        count += 1;
         signature += `${posed}t${words}`;
         continue;
       }
       let drawable: CanvasImageSource | null = null;
       let naturalWidth = source.width ?? 0;
       let naturalHeight = source.height ?? 0;
+      let pixelWidth = 0;
+      let pixelHeight = 0;
       let stamp = "";
       if (source.still) {
         const still = this.image(source.still);
         drawable = still?.bitmap ?? null;
         naturalWidth ||= still?.width ?? 0;
         naturalHeight ||= still?.height ?? 0;
+        pixelWidth = still?.bitmap?.width ?? 0;
+        pixelHeight = still?.bitmap?.height ?? 0;
         stamp = "s";
       } else {
         const decoder = this.decoders.get(item.key);
@@ -676,34 +851,36 @@ export class PreviewEngine {
         const frame = decoder?.frameAt(sourceTime) ?? null;
         if (frame !== null) {
           drawable = frame;
-          naturalWidth ||= frame.displayWidth;
-          naturalHeight ||= frame.displayHeight;
+          pixelWidth = frame.displayWidth;
+          pixelHeight = frame.displayHeight;
           stamp = `f${frame.timestamp}`;
         } else if (slot && slot.element.readyState >= 2) {
           drawable = slot.element;
-          naturalWidth ||= slot.element.videoWidth;
-          naturalHeight ||= slot.element.videoHeight;
+          pixelWidth = slot.element.videoWidth;
+          pixelHeight = slot.element.videoHeight;
           stamp = `e${slot.element.currentTime}`;
         }
+        naturalWidth ||= pixelWidth;
+        naturalHeight ||= pixelHeight;
       }
       if (drawable === null || naturalWidth === 0) {
         const failed =
           this.videos.get(item.key)?.failed === true ||
           this.decoders.get(item.key)?.broken === true;
         if (failed || (!source.video && !source.still)) {
-          layers.push({ item, pose, kind: "offline" });
+          layer.kind = "offline";
+          count += 1;
           signature += `${posed}o`;
         }
         continue;
       }
-      layers.push({
-        item,
-        pose,
-        kind: "picture",
-        drawable,
-        width: naturalWidth,
-        height: naturalHeight,
-      });
+      layer.kind = "picture";
+      layer.drawable = drawable;
+      layer.width = naturalWidth;
+      layer.height = naturalHeight;
+      layer.pixelWidth = pixelWidth;
+      layer.pixelHeight = pixelHeight;
+      count += 1;
       signature += `${posed}${stamp}`;
     }
     if (signature === this.drawn) return;
@@ -711,42 +888,98 @@ export class PreviewEngine {
 
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.globalAlpha = 1;
+    context.globalCompositeOperation = "source-over";
     context.fillStyle = "#000";
     context.fillRect(0, 0, this.canvas.width, this.canvas.height);
     context.save();
     context.beginPath();
     context.rect(left, top, width, height);
     context.clip();
-    for (const layer of layers) {
-      const { pose } = layer;
+    for (let index = 0; index < count; index++) {
+      const layer = this.layers[index]!;
+      const { pose, mix } = layer;
+      const alpha = Math.min(1, Math.max(0, pose.opacity * mix.opacity));
       context.setTransform(1, 0, 0, 1, 0, 0);
-      context.globalAlpha = Math.min(1, Math.max(0, pose.opacity));
+      context.globalAlpha = alpha;
+      context.globalCompositeOperation = layer.blend;
       context.translate(left + pose.x * width, top + pose.y * height);
       context.rotate((pose.rotation * Math.PI) / 180);
       if (layer.kind === "text") {
-        this.drawText(context, layer.words, {
-          scale: pose.scale,
-          width,
-          height,
-          anchor: graphicTextPosition(layer.item),
-        });
+        const layout = this.textLayout(layer.item, layer.words, scene.frame.height);
+        // A dip takes text to the colour by fading it, which over black or white reads the same.
+        context.globalAlpha = alpha * (1 - mix.dip);
+        if (layout !== null) {
+          paintText(context, layout, {
+            scale: pose.scale * pixels,
+            width: width * pose.scale,
+            height: height * pose.scale,
+            anchor: graphicTextPosition(layer.item),
+            fontEpoch: this.fontEpoch,
+          });
+        } else {
+          this.drawText(context, layer.words, {
+            scale: pose.scale,
+            width,
+            height,
+            anchor: graphicTextPosition(layer.item),
+          });
+        }
       } else if (layer.kind === "offline") {
         this.drawOffline(context, layer.item.clip.name, height);
-      } else {
+      } else if (layer.drawable !== null) {
         const w = layer.width * pose.scale * pixels;
         const h = layer.height * pose.scale * pixels;
-        context.drawImage(layer.drawable, -w / 2, -h / 2, w, h);
+        const keepX = 1 - pose.cropLeft - pose.cropRight;
+        const keepY = 1 - pose.cropTop - pose.cropBottom;
+        if (keepX <= 0 || keepY <= 0) continue;
+        const x = -w / 2 + w * pose.cropLeft;
+        const y = -h / 2 + h * pose.cropTop;
+        if (keepX === 1 && keepY === 1) {
+          context.drawImage(layer.drawable, x, y, w, h);
+        } else {
+          context.drawImage(
+            layer.drawable,
+            layer.pixelWidth * pose.cropLeft,
+            layer.pixelHeight * pose.cropTop,
+            layer.pixelWidth * keepX,
+            layer.pixelHeight * keepY,
+            x,
+            y,
+            w * keepX,
+            h * keepY,
+          );
+        }
+        if (mix.dip > 0) {
+          context.globalCompositeOperation = "source-over";
+          context.globalAlpha = alpha * mix.dip;
+          context.fillStyle = mix.dipWhite ? "#fff" : "#000";
+          context.fillRect(x, y, w * keepX, h * keepY);
+        }
       }
+      // Frames are only borrowed from their decoder for this draw.
+      layer.drawable = null;
     }
     context.restore();
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.globalAlpha = 1;
+    context.globalCompositeOperation = "source-over";
+  }
+
+  /** The styled layout of a clip's text, or null when the pull gave it no style to follow. */
+  private textLayout(item: LaidOutClip, words: string, frameHeight: number): TextLayout | null {
+    const cached = this.textLayouts.get(item.clip);
+    if (cached !== undefined) return cached;
+    const style = graphicOf(item).textStyle;
+    // Unsized runs get the size captions and titles usually have on the frame.
+    const layout = style === undefined ? null : layoutText(style, words, frameHeight * 0.04);
+    this.textLayouts.set(item.clip, layout);
+    return layout;
   }
 
   /**
-   * Draws a text graphic around its text layer's anchor, offset by the clip's Motion. Font and
-   * size live in Premiere's style data, so this uses a bold sans at caption size. An anchor near
-   * the left edge is a paragraph box spanning the frame symmetrically, so its text centres.
+   * Draws text whose style was not read (a timeline pulled before styles were) around its text
+   * layer's anchor, in a bold sans at caption size. An anchor near the left edge is a paragraph
+   * box spanning the frame symmetrically, so its text centres.
    */
   private drawText(
     context: CanvasRenderingContext2D,

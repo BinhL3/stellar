@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { applyEdits } from "./edits.ts";
 import { footageStringout } from "./footage.ts";
+import { linearTimeWarp } from "./speed.ts";
 import { timelineWords, wordRange, wordsText } from "./words.ts";
 
 // Two clips at 60 fps: a.MOV on frames 0-120, b.MOV on 120-180.
@@ -49,6 +50,32 @@ describe("timelineWords", () => {
       "A1 36-96 #1:0~60 a.MOV",
       "2:cho@36 3:kênh@36",
     ]);
+  });
+
+  it("places words by a clip's speed, and lists none for a clip that plays backwards", () => {
+    const warped = (speed: number) => ({
+      ...stringout,
+      tracks: {
+        ...stringout.tracks,
+        children: stringout.tracks.children.map((track) => ({
+          ...track,
+          children: track.children.map((child) =>
+            child.OTIO_SCHEMA === "Clip.2" && child.name === "a.MOV"
+              ? { ...child, effects: [linearTimeWarp(speed)] }
+              : child,
+          ),
+        })),
+      },
+    });
+    // At half speed a word half a second into the source is heard a second into the clip.
+    expect(
+      wordsText(timelineWords(warped(0.5), transcripts))
+        .split("\n")
+        .slice(1, 3),
+    ).toEqual(["A1 0-120 #1:0 a.MOV", "1:Hãy@60 2:subscribe@72"]);
+    const reversed = timelineWords(warped(-1), transcripts);
+    expect(wordsText(reversed).split("\n")[1]).toBe("A1 0-120 #1:0 a.MOV (plays in reverse)");
+    expect(reversed.count).toBe(0);
   });
 
   it("wraps long clips onto several lines", () => {

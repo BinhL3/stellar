@@ -1408,7 +1408,8 @@ const make = Effect.gen(function* () {
       path: file,
       sequenceName,
       clips: exported.xml.split("<clipitem ").length - 1,
-      skipped: exported.skipped,
+      // Speed changes travel as a plain cut, which the same list reports.
+      skipped: [...exported.skipped, ...exported.approximated],
     };
   });
 

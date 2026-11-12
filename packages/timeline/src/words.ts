@@ -7,6 +7,7 @@
  */
 import { layoutTimeline } from "./layout.ts";
 import type { Timeline } from "./otio.ts";
+import { offsetAtSourceSeconds, sourceSecondsAt, timeScalarOf } from "./speed.ts";
 
 /** One word of a transcript, timed in seconds of its source file. */
 export interface TranscriptWord {
@@ -30,8 +31,10 @@ export interface ClipWords {
   readonly name: string;
   readonly startFrame: number;
   readonly endFrame: number;
-  /** Null when the clip's media has no transcript. */
+  /** Null when the clip's media has no transcript, or `unplaced` says why they aren't listed. */
   readonly words: ReadonlyArray<TimelineWord> | null;
+  /** Why a clip with a transcript lists no words, such as "plays in reverse". */
+  readonly unplaced?: string;
 }
 
 export interface WordsView {
@@ -66,14 +69,32 @@ export const timelineWords = (
   for (const { track, item } of placed) {
     const { start_time } = item.clip.source_range;
     const target = item.clip.media_references.DEFAULT_MEDIA.target_url;
-    const sourceStart = start_time.value / start_time.rate;
+    const scalar = timeScalarOf(item.clip);
+    // The first source second heard, which for a sped-up clip still is the source start.
+    const sourceStart =
+      scalar === 1 ? start_time.value / start_time.rate : sourceSecondsAt(item.clip, 0);
     const key = `${target}\n${item.startFrame}\n${sourceStart}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const clipStart = Math.round(item.startFrame);
     const clipEnd = Math.round(item.endFrame);
     const frameAt = (seconds: number) =>
-      Math.round(item.startFrame + (seconds - sourceStart) * layout.rate);
+      scalar === 1
+        ? Math.round(item.startFrame + (seconds - sourceStart) * layout.rate)
+        : Math.round(item.startFrame + offsetAtSourceSeconds(item.clip, seconds) * layout.rate);
+    // Backwards speech has no words to cut by, and a word's end would come before its start.
+    if (scalar < 0 && transcripts.has(target)) {
+      clips.push({
+        track,
+        clipId: item.key,
+        name: item.clip.name,
+        startFrame: clipStart,
+        endFrame: clipEnd,
+        words: null,
+        unplaced: "plays in reverse",
+      });
+      continue;
+    }
     const heard = transcripts.get(target)?.filter((word) => {
       const frame = frameAt(word.start);
       return frame >= clipStart && frame < clipEnd;
@@ -112,7 +133,7 @@ export const wordsText = (view: WordsView): string => {
   for (const clip of view.clips) {
     const header = `${clip.track} ${clip.startFrame}-${clip.endFrame} #${clip.clipId} ${clip.name}`;
     if (clip.words === null) {
-      lines.push(`${header} (no transcript)`);
+      lines.push(`${header} (${clip.unplaced ?? "no transcript"})`);
       continue;
     }
     lines.push(clip.words.length === 0 ? `${header} (no words)` : header);
