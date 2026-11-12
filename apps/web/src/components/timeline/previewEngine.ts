@@ -4,7 +4,7 @@ import { timeScalarOf } from "@t3tools/timeline/speed";
 import { observeResize } from "~/lib/observeResize";
 
 import { AudioEngine, type AudioStatus } from "./audioEngine";
-import { Transport } from "./audioSchedule";
+import { soundSourceOf, Transport } from "./audioSchedule";
 import { ClipDecoder, loadProxy, prefetchProxies, webCodecsAvailable } from "./clipDecoder";
 
 import {
@@ -24,6 +24,7 @@ import {
   poseAt,
   transformOf,
 } from "./clipTransform";
+import { follow, releaseMedia } from "./mediaFollow";
 import { CANVAS_BLEND, clipNotDrawn } from "./notDrawn";
 import { layoutText, paintText, type TextLayout } from "./textPainter";
 import {
@@ -72,10 +73,6 @@ interface StillImage {
   width: number;
   height: number;
 }
-// Playing clips follow the clock by speeding up or slowing down at most this much; only past
-// RESYNC_SECONDS do they seek, because a seek flushes the decoder and stalls that clip.
-const MAX_NUDGE = 0.08;
-const RESYNC_SECONDS = 0.5;
 // The picture ignores a backward correction of the audio clock smaller than this.
 const CLOCK_SLACK_SECONDS = 0.25;
 // The level meter keeps drawing this long after sound stops, to fall back to rest.
@@ -90,29 +87,9 @@ interface VideoSlot {
   failed: boolean;
 }
 
-// Rates move in steps, so an element is not handed a new one every frame.
-const RATE_STEP = 0.01;
 // Upcoming clips start playing this early, silent and unseen, so they're running at the cut;
 // starting a paused element takes 50-200 ms, a visible hitch on every cut otherwise.
 const PREROLL_SECONDS = 0.3;
-
-const setRate = (element: HTMLMediaElement, rate: number) => {
-  const stepped = Math.round(rate / RATE_STEP) * RATE_STEP;
-  if (Math.abs(element.playbackRate - stepped) >= RATE_STEP / 2) element.playbackRate = stepped;
-};
-
-/** Steers a playing element toward `target` seconds without seeking unless it is far off. */
-const follow = (element: HTMLMediaElement, target: number, speed: number) => {
-  const drift = element.currentTime - target;
-  if (Math.abs(drift) > RESYNC_SECONDS) {
-    element.currentTime = target;
-    setRate(element, speed);
-    return;
-  }
-  // Inside a frame of drift, play at speed; past it, lean toward the target.
-  const nudge = Math.abs(drift) < 0.02 ? 0 : Math.min(MAX_NUDGE, Math.max(-MAX_NUDGE, drift * 2));
-  setRate(element, speed * (1 - nudge));
-};
 
 /**
  * Where an upcoming clip's media should be now so it reaches `first`, the source second it
@@ -182,12 +159,6 @@ const BLUR_SLOW_LIMIT = 3;
 
 const NO_TRANSITIONS: ReadonlyMap<string, ClipTransitions> = new Map();
 const NOTHING_MISSING: ReadonlyArray<string> = [];
-
-const releaseMedia = (element: HTMLMediaElement) => {
-  element.pause();
-  element.removeAttribute("src");
-  element.load();
-};
 
 /**
  * Plays a timeline onto one canvas. Each video clip near the playhead gets a pooled decoder
@@ -307,12 +278,12 @@ export class PreviewEngine {
       }
       this.notDrawnBy = missing;
       this.drawn = "";
-      this.sound.setScene(scene.layout, this.transitions, this.audioUrl);
+      this.sound.setScene(scene.layout, this.transitions, this.audioUrl, this.originalAudioUrl);
       // Playing, the sound already scheduled belongs to the old timeline.
       if (this.speed !== 0) this.startTransport(performance.now(), true);
       else this.sound.prime(this.frameNumber);
     } else {
-      this.sound.setUrls(this.audioUrl);
+      this.sound.setUrls(this.audioUrl, this.originalAudioUrl);
     }
     // Fetch proxies in the background, nearest the playhead first, so a jump anywhere decodes
     // without waiting on the drive.
@@ -383,7 +354,13 @@ export class PreviewEngine {
 
   private readonly audioUrl = (target: string): string | null => {
     const source = target === "" ? undefined : this.scene?.sources.get(target);
-    return source?.audioProxy === true ? source.audio : null;
+    return source !== undefined && soundSourceOf(source) === "rendition" ? source.audio : null;
+  };
+
+  /** The file itself, for a clip whose rendition has not been built. */
+  private readonly originalAudioUrl = (target: string): string | null => {
+    const source = target === "" ? undefined : this.scene?.sources.get(target);
+    return source !== undefined && soundSourceOf(source) === "original" ? source.audio : null;
   };
 
   /**

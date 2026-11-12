@@ -1,4 +1,4 @@
-import { AudioLinesIcon, VolumeXIcon } from "lucide-react";
+import { AudioLinesIcon, Volume1Icon, VolumeXIcon } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -24,7 +24,7 @@ const useMonitorAudioStore = create<{
   }),
 );
 
-const NO_AUDIO: AudioStatus = { state: "off", silent: 0 };
+const NO_AUDIO: AudioStatus = { state: "off", silent: 0, original: 0 };
 const noSubscription = () => () => undefined;
 
 // The meter spans this many decibels below full scale, and falls back this fast.
@@ -93,27 +93,39 @@ export function MonitorAudio(props: { readonly engine: PreviewEngine | null }) {
     status.silent === 1
       ? "One clip here has no sound yet: its audio is still being prepared."
       : `${status.silent} clips here have no sound yet: their audio is still being prepared.`;
+  const approximate =
+    status.original === 1
+      ? "One clip here plays from its original file until its audio is prepared. Its sound is approximate, and silent in reverse and above double speed."
+      : `${status.original} clips here play from their original files until their audio is prepared. Their sound is approximate, and silent in reverse and above double speed.`;
+  const blocked = status.state === "blocked";
+  const note = blocked
+    ? "The browser is holding sound back. Click to turn it on."
+    : [status.silent > 0 ? silent : "", status.original > 0 ? approximate : ""]
+        .filter((line) => line !== "")
+        .join(" ");
   return (
     <>
-      {status.state === "blocked" || status.silent > 0 ? (
+      {note !== "" ? (
         <Tooltip>
           <TooltipTrigger
             render={
               <Button
                 size="icon-xs"
                 variant="ghost"
-                aria-label={status.state === "blocked" ? "Turn sound on" : "Some clips are silent"}
+                aria-label={
+                  blocked
+                    ? "Turn sound on"
+                    : status.silent > 0
+                      ? "Some clips are silent"
+                      : "Some sound is approximate"
+                }
                 onClick={() => engine?.unlockAudio()}
               />
             }
           >
-            <VolumeXIcon />
+            {blocked || status.silent > 0 ? <VolumeXIcon /> : <Volume1Icon />}
           </TooltipTrigger>
-          <TooltipPopup side="top">
-            {status.state === "blocked"
-              ? "The browser is holding sound back. Click to turn it on."
-              : silent}
-          </TooltipPopup>
+          <TooltipPopup side="top">{note}</TooltipPopup>
         </Tooltip>
       ) : null}
       <Tooltip>

@@ -769,7 +769,8 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
     four for picture and two for sound, under the six a browser opens to one server over
     HTTP/1.1. Neither can starve the other: with nine long audio clips under a long proxy, a
     burst of jumps used to leave ranges waiting seconds behind the audio elements, and no
-    longer does. Opening a proxy, background prefetch and stills are outside the budget and
+    longer does. Up to two originals playing for clips with no rendition (hole 20) are counted
+    out of picture's four. Opening a proxy, background prefetch and stills are outside the budget and
     can still fill the last connection for a moment; HTTP/2 to the server would end the limit
     itself. Sample tables stay in memory for every proxy and audio file opened, a few MB per
     hour of footage.
@@ -803,8 +804,15 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
     shuttle plays at any speed and in reverse (resampled, not pitch-corrected), stepping and
     dragging play a moment of sound, and the mix has clip gain, volume keyframes, crossfades
     (constant power, constant gain, exponential) and a soft clipper. What it leaves out:
-    - A clip with no rendition is silent, and the Monitor says so: before its proxy is built,
-      on a machine without ffmpeg (hole 9), and for a source the build can't read.
+    - A clip with no rendition (before its proxy is built, on a machine without ffmpeg
+      (hole 9), or a source the build can't read) plays its original file through a media
+      element, steered toward the transport each frame and mixed through the same gain, meter
+      and clipper. It is close, not exact: tens of milliseconds off, a gap at a cut while a
+      file loads, and once more when its rendition takes over. It is silent in reverse, above
+      double speed, for a reversed clip and on a scrub, and the Monitor says which clips are
+      approximate. Two play this way at once, counted in the connection budget out of
+      picture's four (hole 18); a third at the same moment is silent, as is a file the
+      browser can't play, and the Monitor says that too.
     - Track mute and solo, pan and audio effects are not in the timeline model, so they do
       not play. Other audio transitions play as a cut.
     - A mono source plays 3 dB down in each channel, as ffmpeg's upmix leaves the rendition.

@@ -1,6 +1,7 @@
 import type { TimelineLayout } from "@t3tools/timeline/layout";
 
 import { audioFile, type DecodedChunk, onAudioReady } from "./audioCache";
+import { OriginalSound } from "./audioOriginals";
 import {
   type ChunkGrid,
   type ClipAudio,
@@ -46,6 +47,8 @@ export interface AudioStatus {
   readonly state: AudioState;
   /** Clips at the playhead with no sound to play: their audio is still being prepared. */
   readonly silent: number;
+  /** Clips at the playhead playing from their original file until their rendition exists. */
+  readonly original: number;
 }
 
 // Buffers are started this far ahead of the context's clock: past the second between
@@ -141,6 +144,11 @@ export class AudioEngine {
   private plans: ReadonlyArray<ClipAudio> = [];
   private rate = 30;
   private urls: (target: string) => string | null = () => null;
+  private originalUrls: (target: string) => string | null = () => null;
+  /** The clips with an original to play and no rendition, by where they come in. */
+  private originalPlans: ReadonlyArray<ClipAudio> = [];
+  private originals: OriginalSound | null = null;
+  private silentVoices = 0;
   private run: Run | null = null;
   private scheduledTo = 0;
   private ahead = AHEAD_SECONDS;
@@ -149,7 +157,7 @@ export class AudioEngine {
   private clockSampledAt = 0;
   private wasRunning = false;
   private epochNumber = 0;
-  private status: AudioStatus = { state: "off", silent: 0 };
+  private status: AudioStatus = { state: "off", silent: 0, original: 0 };
   private wantedAt = Number.NaN;
   private scrubbing: {
     readonly gain: GainNode;
@@ -214,6 +222,7 @@ export class AudioEngine {
     split.connect(meters[0], 0);
     split.connect(meters[1], 1);
     this.graph = { context, bus, output, meters };
+    return this.graph;
   }
 
   /**
@@ -233,7 +242,7 @@ export class AudioEngine {
         const context = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
         context.addEventListener("statechange", this.onStateChange);
         this.live = context;
-        this.build(context);
+        this.originals = new OriginalSound(context, this.build(context).bus);
       } catch {
         this.live = null;
         this.graph = null;
@@ -268,7 +277,9 @@ export class AudioEngine {
     return this.epochNumber;
   }
 
-  private refreshStatus(silent = this.status.silent) {
+  private refreshStatus() {
+    const silent = this.silentVoices + (this.originals?.silent ?? 0);
+    const original = this.originals?.heard ?? 0;
     const state: AudioState =
       this.live === null
         ? "off"
@@ -277,8 +288,9 @@ export class AudioEngine {
           : performance.now() - this.wantedAt > BLOCKED_AFTER_MS
             ? "blocked"
             : "off";
-    if (state === this.status.state && silent === this.status.silent) return;
-    this.status = { state, silent };
+    const { status } = this;
+    if (state === status.state && silent === status.silent && original === status.original) return;
+    this.status = { state, silent, original };
     this.listener.onStatus?.(this.status);
   }
 
@@ -286,21 +298,40 @@ export class AudioEngine {
     return this.status;
   }
 
+  /**
+   * `urls` gives a clip's rendition and `originals` the file itself, by the clip's target;
+   * the original is played only while there is no rendition.
+   */
   setScene(
     layout: TimelineLayout,
     transitions: ReadonlyMap<string, ClipTransitions>,
     urls: (target: string) => string | null,
+    originals: (target: string) => string | null = () => null,
   ) {
     this.plans = planClipAudio(layout, transitions);
     this.rate = layout.rate;
-    this.urls = urls;
-    this.dirty = true;
+    this.setUrls(urls, originals);
   }
 
   /** New signed URLs or freshly built renditions for the same timeline. */
-  setUrls(urls: (target: string) => string | null) {
+  setUrls(
+    urls: (target: string) => string | null,
+    originals: (target: string) => string | null = () => null,
+  ) {
     this.urls = urls;
+    this.originalUrls = originals;
+    this.originalPlans = this.plans
+      .filter((plan) => urls(plan.target) === null && originals(plan.target) !== null)
+      .toSorted((a, b) => a.from - b.from);
     this.dirty = true;
+  }
+
+  /** Steers the clips playing from originals to `frame`, moving `fps` frames a second. */
+  private followOriginals(frame: number, fps: number) {
+    const originals = this.originals;
+    if (originals === null || (this.originalPlans.length === 0 && !originals.loaded)) return;
+    originals.sync(this.originalPlans, this.originalUrls, frame, fps, this.rate);
+    this.refreshStatus();
   }
 
   /**
@@ -374,8 +405,10 @@ export class AudioEngine {
 
   stop() {
     this.stopRun(0);
+    this.originals?.pause();
+    this.silentVoices = 0;
     this.restIdle();
-    this.refreshStatus(0);
+    this.refreshStatus();
   }
 
   private stopRun(at: number) {
@@ -403,7 +436,10 @@ export class AudioEngine {
   /** Called every animation frame while playing; runs a pass when one is due. */
   pump() {
     const graph = this.graph;
-    if (graph === null || this.run === null) return;
+    const run = this.run;
+    if (graph === null || run === null) return;
+    // What the context renders now is the frame an element has to be on now.
+    this.followOriginals(run.transport.frameAt(graph.context.currentTime), run.transport.fps);
     if (!this.dirty && this.scheduledTo - graph.context.currentTime > this.ahead - PASS_SECONDS) {
       return;
     }
@@ -475,12 +511,15 @@ export class AudioEngine {
           };
           voices.set(plan, voice);
         }
-        if (!this.feed(run, voice, now, horizon)) silent += 1;
+        if (this.feed(run, voice, now, horizon)) continue;
+        // A clip with an original to play is counted by what plays it.
+        if (this.originals === null || this.originalUrls(plan.target) === null) silent += 1;
       }
     }
     this.finish(run, horizon);
     this.sweep(run, firstLeg, now);
-    this.refreshStatus(silent);
+    this.silentVoices = silent;
+    this.refreshStatus();
   }
 
   /** Fades the run out and back in where one leg hands over to the next: a loop's jump. */
@@ -691,6 +730,7 @@ export class AudioEngine {
 
   /** Paused: has the sound under and just past the playhead decoded, so play starts at once. */
   prime(frame: number) {
+    this.followOriginals(frame, 0);
     const warm = WARM_SECONDS * this.rate;
     for (const plan of this.plans) {
       if (plan.to <= frame || plan.from > frame + warm) continue;
@@ -796,6 +836,8 @@ export class AudioEngine {
     this.stopListening();
     if (this.idleTimer !== null) clearTimeout(this.idleTimer);
     navigator.mediaDevices?.removeEventListener?.("devicechange", this.onDeviceChange);
+    this.originals?.destroy();
+    this.originals = null;
     this.live?.removeEventListener("statechange", this.onStateChange);
     void this.live?.close().catch(() => undefined);
     this.live = null;

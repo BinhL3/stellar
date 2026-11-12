@@ -5,11 +5,14 @@
  * sound waiting, and audio never fills the pool.
  */
 
-export type RangeKind = "video" | "audio";
+export type RangeKind = "video" | "audio" | "original";
 
 /** Reads in flight for all media, leaving one of the browser's six for everything else. */
 const RANGE_PARALLEL = 5;
-const KIND_PARALLEL: Record<RangeKind, number> = { video: 4, audio: 2 };
+// `original` is a clip with no rendition playing its file through a media element, which holds
+// a connection for as long as the file is loaded. They count against picture's share as well
+// as their own: sound's reads are few and must not wait behind one.
+const KIND_PARALLEL: Record<RangeKind, number> = { video: 4, audio: 2, original: 2 };
 
 export interface RangeBudget {
   /** Takes a slot when one is free for this kind; the caller must `release` it. */
@@ -24,11 +27,13 @@ export const createRangeBudget = (
   total = RANGE_PARALLEL,
   perKind: Record<RangeKind, number> = KIND_PARALLEL,
 ): RangeBudget => {
-  const active: Record<RangeKind, number> = { video: 0, audio: 0 };
+  const active: Record<RangeKind, number> = { video: 0, audio: 0, original: 0 };
+  const inFlight = () => active.video + active.audio + active.original;
   let waiting: Array<() => void> = [];
   return {
     take: (kind) => {
-      if (active.video + active.audio >= total || active[kind] >= perKind[kind]) return false;
+      if (inFlight() >= total || active[kind] >= perKind[kind]) return false;
+      if (kind !== "audio" && active.video + active.original >= perKind.video) return false;
       active[kind] += 1;
       return true;
     },
@@ -42,7 +47,7 @@ export const createRangeBudget = (
     whenFree: (listener) => {
       if (!waiting.includes(listener)) waiting.push(listener);
     },
-    inFlight: () => active.video + active.audio,
+    inFlight,
   };
 };
 

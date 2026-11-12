@@ -197,7 +197,7 @@ describe("ByteLru", () => {
 
 describe("range budget", () => {
   it("caps the total and each kind, so neither picture nor sound can take every connection", () => {
-    const budget = createRangeBudget(5, { video: 4, audio: 2 });
+    const budget = createRangeBudget(5, { video: 4, audio: 2, original: 2 });
     expect([1, 2, 3, 4, 5].map(() => budget.take("video"))).toEqual([
       true,
       true,
@@ -214,8 +214,23 @@ describe("range budget", () => {
     expect(budget.take("audio")).toBe(false);
   });
 
+  it("counts originals playing through elements out of picture's share, never sound's", () => {
+    const budget = createRangeBudget(5, { video: 4, audio: 2, original: 2 });
+    expect([1, 2, 3].map(() => budget.take("original"))).toEqual([true, true, false]);
+    // Two elements leave picture two of its four, and sound both of its own.
+    expect([1, 2, 3].map(() => budget.take("video"))).toEqual([true, true, false]);
+    expect(budget.take("audio")).toBe(true);
+    expect(budget.inFlight()).toBe(5);
+    budget.release("original");
+    budget.release("audio");
+    expect(budget.take("video")).toBe(true);
+    // Picture at its share again: an element waits, a sound read does not.
+    expect(budget.take("original")).toBe(false);
+    expect(budget.take("audio")).toBe(true);
+  });
+
   it("tells waiters once when a slot frees up", () => {
-    const budget = createRangeBudget(1, { video: 1, audio: 1 });
+    const budget = createRangeBudget(1, { video: 1, audio: 1, original: 1 });
     budget.take("video");
     let told = 0;
     const waiter = () => {

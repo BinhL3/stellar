@@ -418,3 +418,103 @@ export const segmentAt = (
   into.next = continues ? span.tA + (stop - span.sA) / m : span.tB;
   return into;
 };
+
+/** What a clip's sound is played from. */
+type SoundSource =
+  /** The AAC rendition the proxy build made, scheduled to the sample. */
+  | "rendition"
+  /** The file itself through a media element, until its rendition exists. */
+  | "original"
+  | "none";
+
+export const soundSourceOf = (
+  media: { readonly audio: string | null; readonly audioProxy?: boolean } | undefined,
+): SoundSource =>
+  media === undefined || media.audio === null || media.audio === ""
+    ? "none"
+    : media.audioProxy === true
+      ? "rendition"
+      : "original";
+
+/** A media element plays forwards only, and above this speed its sound is noise. */
+const MAX_ORIGINAL_SPEED = 2;
+/**
+ * An element starts playing this long before its clip comes in, unheard, so it is running at
+ * the cut: starting a paused element takes 50 to 200 ms.
+ */
+const ORIGINAL_PREROLL_SECONDS = 0.3;
+
+/**
+ * Fills `into` with the clips of `sorted` (by `from`) that are under `frame` or come in within
+ * `warm` frames after it, and returns how many. Earliest first, so when only the first few get
+ * a media element, one that is sounding is never put out by one that starts later.
+ */
+export const originalsNear = (
+  sorted: ReadonlyArray<ClipAudio>,
+  frame: number,
+  warm: number,
+  into: Array<ClipAudio>,
+): number => {
+  let count = 0;
+  for (const plan of sorted) {
+    if (plan.from > frame + warm) break;
+    if (plan.to <= frame) continue;
+    into[count] = plan;
+    count += 1;
+  }
+  return count;
+};
+
+/** What a clip's media element should be doing at one moment. */
+export interface OriginalCue {
+  /**
+   * `sound` plays and is heard; `preroll` plays unheard just ahead of its cut; `wait` rests
+   * paused where it will next be needed.
+   */
+  mode: "sound" | "preroll" | "wait";
+  /** The source second the element belongs at. */
+  at: number;
+  /** Source seconds a clock second, while it plays. */
+  speed: number;
+  level: number;
+}
+
+export const emptyCue = (): OriginalCue => ({ mode: "wait", at: 0, speed: 1, level: 0 });
+
+/**
+ * Where a clip's media element belongs when the playhead is at `frame`, moving `fps` timeline
+ * frames a second (0 paused). It is heard under the playhead in forward play up to
+ * `MAX_ORIGINAL_SPEED`; in reverse, faster, or for a reversed clip, it waits in silence.
+ */
+export const originalCue = (
+  plan: ClipAudio,
+  frame: number,
+  fps: number,
+  rate: number,
+  into: OriginalCue = emptyCue(),
+): OriginalCue => {
+  const speed = (fps / rate) * plan.scalar;
+  const audible = fps > 0 && plan.scalar > 0 && speed <= MAX_ORIGINAL_SPEED;
+  const source = Math.max(
+    0,
+    plan.sourceAtStart + ((Math.max(frame, plan.from) - plan.startFrame) / rate) * plan.scalar,
+  );
+  into.speed = speed;
+  into.level = 0;
+  into.at = source;
+  if (!audible) {
+    into.mode = "wait";
+    return into;
+  }
+  if (frame >= plan.from) {
+    into.mode = frame < plan.to ? "sound" : "wait";
+    if (into.mode === "sound") into.level = levelAt(plan, frame, rate);
+    return into;
+  }
+  const until = (plan.from - frame) / fps;
+  const lead = Math.min(until, ORIGINAL_PREROLL_SECONDS) * speed;
+  // A clip that opens on its media's very beginning has nothing before it to run up through.
+  into.mode = until <= ORIGINAL_PREROLL_SECONDS && source - lead >= 0 ? "preroll" : "wait";
+  if (source - lead >= 0) into.at = source - lead;
+  return into;
+};

@@ -9,8 +9,11 @@ import {
   emptyLeg,
   levelAt,
   levelMoves,
+  originalCue,
+  originalsNear,
   planClipAudio,
   segmentAt,
+  soundSourceOf,
   Transport,
   voiceSpan,
 } from "./audioSchedule";
@@ -354,5 +357,72 @@ describe("segmentAt", () => {
     const segment = segmentAt(joined, grid, 10);
     expect(segment).toMatchObject({ fadeIn: true, fadeOut: true, next: 10.5 });
     expect(segment.length).toBeCloseTo(0.505, 9);
+  });
+});
+
+describe("sound for a clip with no rendition", () => {
+  it("plays the rendition when there is one, the original until then, and nothing with no file", () => {
+    expect(soundSourceOf({ audio: "a.m4a", audioProxy: true })).toBe("rendition");
+    // The proxy is still building, its build failed, or the machine has no ffmpeg.
+    expect(soundSourceOf({ audio: "a.mov" })).toBe("original");
+    expect(soundSourceOf({ audio: "a.mov", audioProxy: false })).toBe("original");
+    // A still, a URL not signed yet, or media the project does not know.
+    expect(soundSourceOf({ audio: null })).toBe("none");
+    expect(soundSourceOf({ audio: null, audioProxy: true })).toBe("none");
+    expect(soundSourceOf(undefined)).toBe("none");
+  });
+
+  it("offers the clips under and just ahead of the playhead, earliest first", () => {
+    const plans = plansOf([clip("a", 0, 60), clip("b", 60, 60), clip("c", 120, 60)]);
+    const into: Array<(typeof plans)[number]> = [];
+    const near = (frame: number) =>
+      into.slice(0, originalsNear(plans, frame, 3 * RATE, into)).map((plan) => plan.key);
+    expect(near(0)).toEqual(["a", "b"]);
+    // A clip sounding is ahead of the one coming in, so a cap on elements never cuts it off.
+    expect(near(59)).toEqual(["a", "b", "c"]);
+    expect(near(60)).toEqual(["b", "c"]);
+    expect(near(180)).toEqual([]);
+  });
+
+  it("is heard under the playhead in forward play, on the source second the frame is at", () => {
+    const [plan] = plansOf([clip("a", 30, 90, { sourceFrame: 60, transform: { gain_db: -6 } })]);
+    const cue = originalCue(plan!, 60, RATE, RATE);
+    expect(cue.mode).toBe("sound");
+    expect(cue.at).toBeCloseTo(3, 9);
+    expect(cue.speed).toBe(1);
+    expect(cue.level).toBeCloseTo(10 ** (-6 / 20), 6);
+    // A sped-up clip runs through its source faster, at double shuttle faster again.
+    const [fast] = plansOf([clip("a", 0, 90, { speed: 1.5 })]);
+    expect(originalCue(fast!, 30, RATE, RATE)).toMatchObject({ mode: "sound", speed: 1.5 });
+    expect(originalCue(fast!, 30, RATE, RATE).at).toBeCloseTo(1.5, 9);
+  });
+
+  it("stays silent in reverse, above double speed and for a reversed clip", () => {
+    const [plan] = plansOf([clip("a", 0, 90)]);
+    expect(originalCue(plan!, 30, -RATE, RATE)).toMatchObject({ mode: "wait", level: 0 });
+    expect(originalCue(plan!, 30, 2 * RATE, RATE).mode).toBe("sound");
+    expect(originalCue(plan!, 30, 4 * RATE, RATE)).toMatchObject({ mode: "wait", level: 0 });
+    const [fast] = plansOf([clip("a", 0, 90, { speed: 1.5 })]);
+    expect(originalCue(fast!, 30, 2 * RATE, RATE).mode).toBe("wait");
+    const [reversed] = plansOf([clip("a", 0, 90, { speed: -1 })]);
+    expect(originalCue(reversed!, 30, RATE, RATE)).toMatchObject({ mode: "wait", level: 0 });
+  });
+
+  it("waits paused at the playhead, and runs up to a cut unheard so it arrives on time", () => {
+    const [plan] = plansOf([clip("a", 60, 90, { sourceFrame: 60 })]);
+    // Paused on the clip, it rests on the playhead's source second.
+    expect(originalCue(plan!, 90, 0, RATE)).toMatchObject({ mode: "wait", level: 0 });
+    expect(originalCue(plan!, 90, 0, RATE).at).toBeCloseTo(3, 9);
+    // A second before the cut it waits at the point its run-up starts from.
+    const waiting = originalCue(plan!, 30, RATE, RATE);
+    expect(waiting.mode).toBe("wait");
+    expect(waiting.at).toBeCloseTo(2 - 0.3, 9);
+    // 0.2 s before the cut it is playing, 0.2 s of source short of where the clip opens.
+    const running = originalCue(plan!, 54, RATE, RATE);
+    expect(running).toMatchObject({ mode: "preroll", level: 0, speed: 1 });
+    expect(running.at).toBeCloseTo(2 - 0.2, 9);
+    // A clip that opens on its file's first sample has nothing to run up through.
+    const [opening] = plansOf([clip("a", 60, 90)]);
+    expect(originalCue(opening!, 54, RATE, RATE)).toMatchObject({ mode: "wait", at: 0 });
   });
 });
