@@ -1,12 +1,14 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Hashing a media file's identity for its proxy key.
 import * as NodeCrypto from "node:crypto";
 
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -21,14 +23,22 @@ import {
   type ProxyEntry,
   type ProxyIndex,
   peaksFromPcm,
+  pngOrientation,
+  orientationFilters,
+  proxyIdentity,
   rateChangesFrom,
+  STILL_PATH,
+  STILL_RENDITION_EDGE,
   STRIP_TILE_HEIGHT,
+  type StillConverter,
+  type StillTools,
+  stillConverters,
+  stillFormat,
   stripSpacing,
 } from "./proxies.ts";
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 
-const STILL_PATH = /\.(png|jpe?g|heic|tiff?|psd|gif|webp|bmp)$/i;
 // Peaks are read from mono PCM at this rate; 40 samples per peak at 50 peaks a second.
 const PEAK_SAMPLE_RATE = 2000;
 
@@ -56,13 +66,61 @@ const VARIABLE_RATE_TOLERANCE = 0.001;
 // Pixel formats that carry an alpha plane: yuva444p12le, rgba, argb, gbrap and friends.
 const ALPHA_PIXEL_FORMAT = /^(yuva|ya\d|rgba|bgra|argb|abgr|gbrap)/;
 
+/** A tool that is missing or that failed on a file, in words the status badge can show. */
+export class ProxyToolError extends Schema.TaggedError<ProxyToolError>()("ProxyToolError", {
+  tool: Schema.String,
+  reason: Schema.String,
+}) {
+  override get message(): string {
+    return this.tool === "" ? this.reason : `${this.tool}: ${this.reason}`;
+  }
+}
+
+const REASON_LIMIT = 240;
+const isToolError = Schema.is(ProxyToolError);
+const reasonOf = (error: unknown) => (isToolError(error) ? error.message : String(error));
+
+/** Runs a tool to its end and returns its output; a non-zero exit fails with what it printed. */
 const run = Effect.fn("timeline.proxies.run")(function* (
   command: string,
   args: ReadonlyArray<string>,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  return yield* spawner.string(ChildProcess.make(command, args));
+  return yield* Effect.gen(function* () {
+    const handle = yield* spawner.spawn(ChildProcess.make(command, args));
+    const [output, errors, exit] = yield* Effect.all(
+      [
+        Stream.mkString(Stream.decodeText(handle.stdout)),
+        Stream.mkString(Stream.decodeText(handle.stderr)),
+        handle.exitCode,
+      ],
+      { concurrency: 3 },
+    );
+    if (Number(exit) === 0) return output;
+    const lines = errors.split("\n").filter((line) => line.trim() !== "");
+    return yield* new ProxyToolError({
+      tool: command,
+      reason: (lines.slice(-2).join(" ").trim() || `exited with code ${exit}`).slice(-REASON_LIMIT),
+    });
+  }).pipe(
+    Effect.scoped,
+    Effect.catchTags({
+      PlatformError: (error) =>
+        Effect.fail(
+          new ProxyToolError({
+            tool: command,
+            reason: error.reason._tag === "NotFound" ? "is not installed" : error.message,
+          }),
+        ),
+    }),
+  );
 });
+
+const installed = (command: string, args: ReadonlyArray<string>) =>
+  run(command, args).pipe(
+    Effect.as(true),
+    Effect.catch((error) => Effect.succeed(error.reason !== "is not installed")),
+  );
 
 const probe = Effect.fn("timeline.proxies.probe")(function* (file: string) {
   const output = yield* run("ffprobe", [
@@ -108,41 +166,195 @@ const probe = Effect.fn("timeline.proxies.probe")(function* (file: string) {
   } satisfies Probe;
 });
 
-/** Whether a previous build's entry still describes this file and all its outputs exist. */
-const reusable = Effect.fn("timeline.proxies.reusable")(function* (
-  previous: ProxyEntry | undefined,
-  key: string,
+const entryOutputs = (entry: ProxyEntry) =>
+  [entry.video, entry.strip?.file, entry.audio, entry.peaks, entry.still].filter(
+    (output) => output !== undefined,
+  );
+
+/** Whether an entry was made by a build that recorded everything, and all its outputs exist. */
+const complete = Effect.fn("timeline.proxies.complete")(function* (
+  previous: ProxyEntry,
   projectDir: string,
 ) {
-  if (previous === undefined || previous.key !== key || previous.alpha === undefined) return false;
+  if (previous.alpha === undefined) return false;
   if (previous.video !== undefined && previous.fps === undefined) return false;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const outputs = [previous.video, previous.strip?.file, previous.audio, previous.peaks];
-  for (const output of outputs) {
-    if (output !== undefined && !(yield* fs.exists(path.join(projectDir, output)))) return false;
+  for (const output of entryOutputs(previous)) {
+    if (!(yield* fs.exists(path.join(projectDir, output)))) return false;
   }
   return true;
+});
+
+const hashKey = (identity: string, size: unknown, modified: number) =>
+  NodeCrypto.createHash("sha256")
+    .update(`${identity}|${size}|${modified}`)
+    .digest("hex")
+    .slice(0, 16);
+
+interface BuildTools extends StillTools {
+  /** ffmpeg was built with libwebp; without it renditions are PNG. */
+  readonly webp: boolean;
+}
+
+/**
+ * Makes the picture the player draws for a still no browser decodes. The tool that reads the
+ * file writes a PNG, which keeps alpha, and ffmpeg turns it upright, sizes it and encodes it.
+ */
+const buildStill = Effect.fn("timeline.proxies.buildStill")(function* (input: {
+  readonly source: string;
+  readonly projectDir: string;
+  readonly key: string;
+  readonly tools: BuildTools;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const format = stillFormat(input.source);
+  if (format === null) return yield* new ProxyToolError({ tool: "", reason: "Not a still." });
+  const plan = stillConverters(format, input.tools);
+  if ("reason" in plan) return yield* new ProxyToolError({ tool: "", reason: plan.reason });
+  const still = `${PROXY_DIRECTORY}/${input.key}.still.${input.tools.webp ? "webp" : "png"}`;
+  const final = path.join(input.projectDir, still);
+  const partial = path.join(
+    input.projectDir,
+    `${PROXY_DIRECTORY}/${input.key}.still.part.${input.tools.webp ? "webp" : "png"}`,
+  );
+  const decoded = path.join(input.projectDir, `${PROXY_DIRECTORY}/${input.key}.decoded.part.png`);
+  const edge = STILL_RENDITION_EDGE;
+
+  const convert = Effect.fn("timeline.proxies.convertStill")(function* (tool: StillConverter) {
+    let picture = input.source;
+    let size: { readonly width: number; readonly height: number } | null = null;
+    let filters: ReadonlyArray<string> = [];
+    if (tool === "sips") {
+      const described = yield* run("sips", ["-g", "pixelWidth", "-g", "pixelHeight", input.source]);
+      const width = Number(/pixelWidth: (\d+)/.exec(described)?.[1] ?? 0);
+      const height = Number(/pixelHeight: (\d+)/.exec(described)?.[1] ?? 0);
+      yield* run("sips", [
+        "-Z",
+        String(edge),
+        "-s",
+        "format",
+        "png",
+        input.source,
+        "--out",
+        decoded,
+      ]);
+      const orientation = pngOrientation(yield* fs.readFile(decoded));
+      filters = orientationFilters(orientation);
+      size = orientation >= 5 ? { width: height, height: width } : { width, height };
+      picture = decoded;
+    } else if (tool !== "ffmpeg") {
+      yield* run(tool, [input.source, decoded]);
+      picture = decoded;
+    }
+    const info = yield* probe(picture);
+    size ??= { width: info.width, height: info.height };
+    if (size.width === 0 || size.height === 0) {
+      return yield* new ProxyToolError({ tool, reason: "read no picture from the file" });
+    }
+    yield* run("ffmpeg", [
+      "-v",
+      "error",
+      "-y",
+      "-i",
+      picture,
+      "-vf",
+      [
+        ...filters,
+        `scale=w='min(${edge},iw)':h='min(${edge},ih)':force_original_aspect_ratio=decrease`,
+      ].join(","),
+      "-frames:v",
+      "1",
+      "-update",
+      "1",
+      ...(input.tools.webp ? ["-c:v", "libwebp", "-q:v", "88"] : []),
+      partial,
+    ]);
+    yield* fs.rename(partial, final);
+    return {
+      key: input.key,
+      width: size.width,
+      height: size.height,
+      duration: 0,
+      alpha: info.hasAlpha,
+      still,
+    } satisfies ProxyEntry;
+  });
+
+  const reasons: Array<string> = [];
+  for (const tool of plan.converters) {
+    const made = yield* convert(tool).pipe(
+      Effect.catch((error) => {
+        reasons.push(reasonOf(error));
+        return Effect.succeed(null);
+      }),
+      Effect.ensuring(Effect.ignore(fs.remove(decoded, { force: true }))),
+    );
+    if (made !== null) return made;
+  }
+  return yield* new ProxyToolError({
+    tool: "",
+    reason: `No tool could read this still (${reasons.join("; ")}).`,
+  });
 });
 
 const buildEntry = Effect.fn("timeline.proxies.buildEntry")(function* (input: {
   readonly target: string;
   readonly source: string;
+  /** The file's path under the media root, which the key is made from. */
+  readonly identity: string;
   readonly projectDir: string;
   readonly previous: ProxyEntry | undefined;
+  readonly previousByKey: ReadonlyMap<string, ProxyEntry>;
+  /** The previous index keyed proxies by absolute path; an entry that still fits is adopted. */
+  readonly legacyKeys: boolean;
+  readonly tools: Effect.Effect<BuildTools, never, ChildProcessSpawner.ChildProcessSpawner>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const stat = yield* fs.stat(input.source);
+  const found = yield* fs.stat(input.source).pipe(Effect.option);
+  if (Option.isNone(found)) {
+    // Proxies outlive their originals going offline: an unplugged drive keeps its previews.
+    if (input.previous !== undefined && (yield* complete(input.previous, input.projectDir))) {
+      return input.previous;
+    }
+    return yield* new ProxyToolError({
+      tool: "",
+      reason: "The file is missing or its drive is offline.",
+    });
+  }
+  const stat = found.value;
   const modified = Option.match(stat.mtime, { onNone: () => 0, onSome: (d) => d.getTime() });
-  const key = NodeCrypto.createHash("sha256")
-    .update(`${input.source}|${stat.size}|${modified}`)
-    .digest("hex")
-    .slice(0, 16);
-  if (input.previous !== undefined && (yield* reusable(input.previous, key, input.projectDir))) {
-    return input.previous;
+  // Whole seconds: a copy to exFAT keeps a file's time only to 10 ms.
+  const key = hashKey(input.identity, stat.size, Math.floor(modified / 1000));
+  const previous = input.previous ?? input.previousByKey.get(key);
+  const usable = previous !== undefined && (yield* complete(previous, input.projectDir));
+  if (usable && previous.key === key) return previous;
+  if (stillFormat(input.source) !== null) {
+    return yield* buildStill({
+      source: input.source,
+      projectDir: input.projectDir,
+      key,
+      tools: yield* input.tools,
+    });
+  }
+  // The old key held the absolute path, so it only matches while the drive is where it was.
+  if (usable && input.legacyKeys && previous.key === hashKey(input.source, stat.size, modified)) {
+    return { ...previous, key };
   }
   const info = yield* probe(input.source);
+  if (
+    usable &&
+    input.legacyKeys &&
+    Math.abs(previous.duration - info.duration) < 0.001 &&
+    previous.width === info.width &&
+    previous.height === info.height
+  ) {
+    // The drive moved, so the old key can't be checked; the same file at the same place under
+    // the media root with the same length and size is taken to be the one the proxy was made of.
+    return { ...previous, key };
+  }
   const out = (suffix: string) => `${PROXY_DIRECTORY}/${key}${suffix}`;
   const abs = (relative: string) => path.join(input.projectDir, relative);
   const missing = (relative: string) => Effect.map(fs.exists(abs(relative)), (ok) => !ok);
@@ -316,6 +528,43 @@ const buildEntry = Effect.fn("timeline.proxies.buildEntry")(function* (input: {
   return entry;
 });
 
+// Every file a build writes is named by a 16-digit key; nothing else in the folder is touched.
+const PROXY_FILE = /^[0-9a-f]{16}\.[a-z0-9.]+$/;
+const UNFINISHED_FILE = /\.part\.[a-z0-9]+$|\.pcm$/;
+const UNFINISHED_GRACE_MS = 60 * 60 * 1000;
+
+/**
+ * Removes proxy files no index entry points at: those of media that left the project or
+ * changed. A half-written file is left for an hour, since another build may be writing it.
+ */
+const removeOrphans = Effect.fn("timeline.proxies.removeOrphans")(function* (
+  projectDir: string,
+  entries: ReadonlyArray<ProxyEntry>,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const directory = path.join(projectDir, PROXY_DIRECTORY);
+  const kept = new Set(entries.flatMap(entryOutputs).map((output) => path.basename(output)));
+  const now = yield* Clock.currentTimeMillis;
+  let removed = 0;
+  for (const name of yield* fs.readDirectory(directory)) {
+    if (!PROXY_FILE.test(name) || kept.has(name)) continue;
+    const file = path.join(directory, name);
+    const stat = yield* fs.stat(file).pipe(Effect.option);
+    if (Option.isNone(stat) || stat.value.type !== "File") continue;
+    if (UNFINISHED_FILE.test(name)) {
+      const written = Option.match(stat.value.mtime, {
+        onNone: () => now,
+        onSome: (d) => d.getTime(),
+      });
+      if (now - written < UNFINISHED_GRACE_MS) continue;
+    }
+    yield* fs.remove(file);
+    removed += 1;
+  }
+  return removed;
+});
+
 /**
  * Marks the index as building before a build is started in the background, so a client that
  * reads it straight away knows to keep reading until the build's last write clears the mark.
@@ -336,6 +585,7 @@ export const markProxiesBuilding = Effect.fn("timeline.markProxiesBuilding")(fun
   const index: ProxyIndex = {
     version: 1,
     media: previous?.media ?? {},
+    ...(previous?.keys === undefined ? {} : { keys: previous.keys }),
     building: { done: 0, total: 0 },
   };
   yield* fs.writeFileString(`${indexPath}.part`, serializeJson(index));
@@ -369,7 +619,8 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
   const files = (yield* fs
     .readDirectory(timelineDir)
     .pipe(Effect.orElseSucceed((): Array<string> => []))).filter((f) => f.endsWith(".otio"));
-  const targets = new Map<string, string>();
+  const targets = new Map<string, { readonly source: string; readonly identity: string }>();
+  const mediaRoot = path.dirname(projectDir);
   for (const file of files) {
     const timeline = (yield* decodeJson(
       yield* fs.readFileString(path.join(timelineDir, file)),
@@ -380,17 +631,25 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
       for (const child of track.children) {
         if (child.OTIO_SCHEMA !== "Clip.2") continue;
         const target = child.media_references.DEFAULT_MEDIA.target_url;
-        if (target === "" || STILL_PATH.test(target) || targets.has(target)) continue;
-        if (path.isAbsolute(target)) targets.set(target, target);
-        else if (root !== undefined) targets.set(target, path.join(root, target));
+        if (target === "" || targets.has(target)) continue;
+        // Stills a browser draws are played from the original file.
+        if (STILL_PATH.test(target) && stillFormat(target) === null) continue;
+        const identity = proxyIdentity(
+          target,
+          root === undefined ? [mediaRoot] : [root, mediaRoot],
+        );
+        if (path.isAbsolute(target)) targets.set(target, { source: target, identity });
+        else if (root !== undefined)
+          targets.set(target, { source: path.join(root, target), identity });
       }
     }
   }
   // Footage gets proxies as soon as it lands, before any timeline uses it. Its keys are the
   // same media-root-relative paths a pulled timeline stores, so both share one proxy.
-  const mediaRoot = path.dirname(projectDir);
   for (const target of yield* listFootage(mediaRoot)) {
-    if (!targets.has(target)) targets.set(target, path.join(mediaRoot, target));
+    if (!targets.has(target)) {
+      targets.set(target, { source: path.join(mediaRoot, target), identity: target });
+    }
   }
   yield* fs.makeDirectory(path.join(projectDir, PROXY_DIRECTORY), { recursive: true });
   const indexPath = path.join(projectDir, PROXY_INDEX_PATH);
@@ -399,8 +658,45 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
     Effect.map((value) => ((value as ProxyIndex).version === 1 ? (value as ProxyIndex) : null)),
     Effect.orElseSucceed(() => null),
   );
+  // Without these every file would fail one by one with nothing to say why.
+  const absent: Array<string> = [];
+  const encoders = yield* run("ffmpeg", ["-hide_banner", "-encoders"]).pipe(
+    Effect.catch((error) => {
+      if (error.reason === "is not installed") absent.push("ffmpeg");
+      return Effect.succeed("");
+    }),
+  );
+  if (!(yield* installed("ffprobe", ["-version"]))) absent.push("ffprobe");
+  if (absent.length > 0) {
+    const error = `${absent.join(" and ")} ${absent.length === 1 ? "is" : "are"} not installed on the machine that holds this project, so no previews can be made. Install ffmpeg (it includes ffprobe) and sync again.`;
+    const index: ProxyIndex = {
+      version: 1,
+      media: previous?.media ?? {},
+      ...(previous?.keys === undefined ? {} : { keys: previous.keys }),
+      error,
+    };
+    yield* fs.writeFileString(`${indexPath}.part`, serializeJson(index));
+    yield* fs.rename(`${indexPath}.part`, indexPath);
+    return { indexPath, count: Object.keys(index.media).length, failed: 0, error };
+  }
+  // Only a project with stills to convert pays for looking up the tools that read them.
+  const tools = yield* Effect.cached(
+    Effect.gen(function* () {
+      const sips = yield* installed("sips", ["--version"]);
+      const heif = (yield* installed("heif-dec", ["--version"]))
+        ? ("heif-dec" as const)
+        : (yield* installed("heif-convert", ["--version"]))
+          ? ("heif-convert" as const)
+          : null;
+      return { webp: /\blibwebp\b/.test(encoders), sips, heif } satisfies BuildTools;
+    }),
+  );
+  const previousByKey = new Map(
+    Object.values(previous?.media ?? {}).map((entry) => [entry.key, entry]),
+  );
   yield* report({ kind: "start", total: targets.size });
   const media: Record<string, ProxyEntry> = {};
+  const failures: Record<string, string> = {};
   let done = 0;
   let failed = 0;
   // The index is rewritten as each file finishes, so the player picks proxies up one by one
@@ -413,8 +709,9 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
         const index: ProxyIndex = {
           version: 1,
           media: { ...media },
+          keys: 2,
           ...(building ? { building: { done, total: targets.size } } : {}),
-          ...(failed > 0 ? { failed } : {}),
+          ...(failed > 0 ? { failed, failures: { ...failures } } : {}),
         };
         yield* fs.writeFileString(`${indexPath}.part`, serializeJson(index));
         yield* fs.rename(`${indexPath}.part`, indexPath);
@@ -422,14 +719,34 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
     );
   yield* Effect.forEach(
     [...targets],
-    ([target, source]) =>
-      buildEntry({ target, source, projectDir, previous: previous?.media[target] }).pipe(
+    ([target, { source, identity }]) =>
+      buildEntry({
+        target,
+        source,
+        identity,
+        projectDir,
+        previous: previous?.media[target],
+        previousByKey,
+        legacyKeys: previous !== null && previous.keys === undefined,
+        tools,
+      }).pipe(
         Effect.map((entry) => ({ entry, error: undefined })),
-        Effect.catch((error) => Effect.succeed({ entry: null, error: String(error) })),
+        Effect.catch((error) =>
+          Effect.succeed({
+            entry: null,
+            // Tools name the file by its full path; the badge already names it.
+            error: reasonOf(error)
+              .replaceAll(`${source}: `, "")
+              .replaceAll(source, path.basename(source))
+              .slice(0, REASON_LIMIT * 2),
+          }),
+        ),
         Effect.tap(({ entry, error }) => {
           done += 1;
-          if (entry === null) failed += 1;
-          else media[target] = entry;
+          if (entry === null) {
+            failed += 1;
+            failures[target] = error ?? "";
+          } else media[target] = entry;
           return Effect.andThen(
             report({
               kind: "file",
@@ -445,5 +762,8 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
     { concurrency: input.concurrency, discard: true },
   );
   yield* writeIndex(false);
-  return { indexPath, count: Object.keys(media).length, failed };
+  const removed = yield* removeOrphans(projectDir, Object.values(media)).pipe(
+    Effect.orElseSucceed(() => 0),
+  );
+  return { indexPath, count: Object.keys(media).length, failed, removed };
 });

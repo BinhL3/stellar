@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { indexMp4Video } from "./mp4Index";
+import {
+  indexMp4Video,
+  keyframeBefore,
+  keyframesOf,
+  locateMoov,
+  type Mp4Sample,
+  planRanges,
+  planSegments,
+  segmentOf,
+} from "./mp4Index";
 
 const u32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
 const u16 = (n: number) => [(n >>> 8) & 255, n & 255];
@@ -72,5 +81,83 @@ describe("indexMp4Video", () => {
 
   it("rejects files without a video track", () => {
     expect(indexMp4Video(new Uint8Array(box("free", [0, 0, 0, 0])).buffer)).toBeNull();
+  });
+});
+
+describe("locateMoov", () => {
+  const ftyp = box("ftyp", new Array(16).fill(0));
+  const moov = [...new Uint8Array(sampleMp4())];
+  const bytes = (...parts: Array<Array<number>>) => new Uint8Array(parts.flat()).buffer;
+
+  it("finds the index at the front of a faststart file, even when the head cuts it short", () => {
+    const whole = bytes(ftyp, moov, box("mdat", new Array(64).fill(0)));
+    expect(locateMoov(whole)).toEqual({ start: 24, end: 24 + moov.length });
+    expect(locateMoov(whole.slice(0, 40))).toEqual({ start: 24, end: 24 + moov.length });
+  });
+
+  it("points past the media when the index comes last", () => {
+    // Only the head of a large mdat is in hand; its size says where the next box starts.
+    const head = bytes(ftyp, [...u32(5000), ...[..."mdat"].map((c) => c.charCodeAt(0))], [1, 2]);
+    expect(locateMoov(head)).toEqual({ start: 24 + 5000, end: Number.POSITIVE_INFINITY });
+    expect(locateMoov(bytes([0, 0, 0, 3, 1, 2, 3, 4]))).toBeNull();
+  });
+});
+
+describe("range planning", () => {
+  // Ten GOPs of three 100-byte samples at 30 fps, back to back from byte 1000.
+  const samples: Array<Mp4Sample> = Array.from({ length: 30 }, (_, i) => ({
+    time: i / 30,
+    duration: 1 / 30,
+    key: i % 3 === 0,
+    offset: 1000 + i * 100,
+    size: 100,
+  }));
+
+  it("cuts segments at keyframes once they reach the target size", () => {
+    const segments = planSegments(samples, 500);
+    expect(segments.map((s) => [s.first, s.end, s.offset, s.size])).toEqual([
+      [0, 6, 1000, 600],
+      [6, 12, 1600, 600],
+      [12, 18, 2200, 600],
+      [18, 24, 2800, 600],
+      [24, 30, 3400, 600],
+    ]);
+    expect([0, 5, 6, 29].map((sample) => segmentOf(segments, sample))).toEqual([0, 0, 1, 4]);
+    // A small file is one segment: the whole thing.
+    expect(planSegments(samples, Number.POSITIVE_INFINITY)).toEqual([
+      { first: 0, end: 30, offset: 1000, size: 3000 },
+    ]);
+    expect(planSegments([], 500)).toEqual([]);
+  });
+
+  it("finds the keyframe to decode from for any time", () => {
+    const keys = keyframesOf(samples);
+    expect([0, 0.09, 0.1, 0.5, 99].map((time) => keyframeBefore(samples, keys, time))).toEqual([
+      0, 0, 3, 15, 27,
+    ]);
+    // In a real track decode order runs ahead of presentation order inside a GOP.
+    const reordered = indexMp4Video(sampleMp4())!.samples;
+    expect(
+      [0, 0.0667, 0.1, 0.1667].map((time) =>
+        keyframeBefore(reordered, keyframesOf(reordered), time),
+      ),
+    ).toEqual([0, 0, 3, 3]);
+  });
+
+  it("reads neighbouring missing segments in one request, within the size cap", () => {
+    const segments = planSegments(samples, 500);
+    const all = () => true;
+    expect(planRanges(segments, 0, 4, all, 1200)).toEqual([
+      { first: 0, last: 1, offset: 1000, size: 1200 },
+      { first: 2, last: 3, offset: 2200, size: 1200 },
+      { first: 4, last: 4, offset: 3400, size: 600 },
+    ]);
+    // What is already held splits the run; asking past either end is clamped.
+    expect(planRanges(segments, -2, 9, (segment) => segment !== 1, 10_000)).toEqual([
+      { first: 0, last: 0, offset: 1000, size: 600 },
+      { first: 2, last: 4, offset: 2200, size: 1800 },
+    ]);
+    expect(planRanges(segments, 1, 3, () => false, 10_000)).toEqual([]);
+    expect(planRanges(segments, 3, 2, all, 10_000)).toEqual([]);
   });
 });

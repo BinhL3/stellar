@@ -410,8 +410,10 @@ thousands of clips.
   decoders and correct drift; paused, reverse and fast speeds seek. Moving to WebCodecs and WebGL
   is the upgrade path if shaders or long reverse play need it. The timeline renders only the clips
   near the visible range and shows thumbnail strips and waveforms made with the proxies.
-- **Proxies today** come from `packages/timeline` (`proxies <project>`), keyed by each file's path,
-  size and modification time, with `proxies/index.json` mapping clips to them. The server builds
+- **Proxies today** come from `packages/timeline` (`proxies <project>`), keyed by each file's path
+  under the media root, size and modification time, so they survive the drive moving, with
+  `proxies/index.json` mapping clips to them. Files no entry points at are removed after a build,
+  and a file whose original is offline keeps its proxy. The server builds
   them when a project is created, when a pull brings new media, and when a sync finds a build
   that never finished.
   - One ffmpeg run per file makes the proxy, thumbnail strip, audio and waveform, with hardware
@@ -421,8 +423,13 @@ thousands of clips.
     runs, so clips switch from their original file to their proxy one by one.
   - Outputs are written under `.part` names and renamed, so a killed build leaves no truncated
     proxy that later counts as done.
-  - The player keeps the most recently used proxies in memory up to 768 MB and fetches the rest
-    three at a time, nearest the playhead first.
+  - A still no browser decodes (PSD, TIFF, HEIC, camera raw) gets a WebP at 1600 px that keeps
+    alpha, which the player draws in its place.
+  - The player reads a proxy by byte range: the first 4 MB, which is the whole file for most
+    clips of a short and the sample table plus opening seconds for a long one, then pieces of
+    about 1 MB cut at keyframes, ten seconds ahead of the playhead. The most recently used
+    pieces stay in memory up to 768 MB. A 35-minute proxy shows its first frame in 0.13 s
+    instead of 0.47 s and holds what was played instead of all 197 MB.
 - **Controls follow editors.** Space plays and pauses. J, K and L shuttle, with repeated presses
   speeding up. Left and right step a frame, Shift steps ten. Up and down jump between edits.
   Home and End go to the ends. I and O mark a range, and there's loop playback and full screen.
@@ -635,8 +642,9 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
    conformed copy (`IMG_8152_5994.mov`) has no recorded tie to its original.
 8. Transcripts aren't timeline data. `*.words.json` sits in `Audio/` and nothing links it to
    clips, so "cut by words" and beat alignment have nothing to stand on.
-9. Nothing checks for ffmpeg and ffprobe. A machine without them builds no proxies; the badge
-   now reports how many files failed, but not why.
+9. A machine without ffmpeg or ffprobe builds no proxies. The build checks for them first and
+   the badge says which is missing; a file that fails names its reason there too. Nothing
+   installs them or checks before a project is created.
 10. The dialog browses host folders (it now reopens where the last project was). No recent
     projects, no drag and drop, one sequence at a time.
 
@@ -659,17 +667,26 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 
 **Playback**
 
-18. A proxy is fetched whole into memory before it plays. Fine for shorts; a one-hour camera
-    file's proxy is over a gigabyte and won't load. Long-form needs ranged reads.
+18. Ranged reads share the browser's six connections with the audio. Each clip's audio element
+    can hold one open while it buffers a long file, and a range asked for at that moment
+    waits behind them (seconds, seen once after a burst of jumps). Audio read the same way
+    as picture (hole 20) or HTTP/2 to the server would end it. Sample tables stay in memory
+    for every proxy opened, a few MB per hour of footage.
 19. The preview draws Motion, Opacity, gain and plain text. It doesn't draw crop, speed,
     transitions, blend modes or easing (keyframes are linear), and text uses a system font at
     a guessed size. App renders for plugin effects (kind 3) are unbuilt.
 20. Audio is one media element per clip: no crossfades, steering by small rate changes, muted
     above 2×, silent in reverse.
-21. Stills are served as the original file. PSD, TIFF and HEIC don't decode in a browser, so
-    those layers draw nothing.
-22. Proxy keys include the absolute path. Moving the drive to another machine or mount point
-    orphans every proxy, which is the opposite of "proxies travel". Orphans are never cleaned.
+21. Renditions of PSD, TIFF, HEIC and camera raw stills lean on what the machine has. macOS
+    reads all four with `sips`. Elsewhere ffmpeg reads TIFF and a PSD's flattened composite,
+    HEIC needs libheif's `heif-dec`, and camera raw has no converter; the badge names the
+    file and the reason. Colour profiles are not converted, so a Display P3 photo draws
+    slightly off. Large JPEGs and PNGs are still sent whole and sized in the browser.
+22. Proxies travel with the media root, not beyond it. A file outside the root is still keyed
+    by its absolute path, and a timeline that names media by absolute path has to be relinked
+    after a move before its clips find their proxies. A proxy made before keys were relative
+    is adopted when its file sits at the same place under the root with the same length and
+    frame size, without comparing content.
 23. Without proxies the player uses the 4K originals through video elements. It now switches
     over file by file, but the first minutes of a new project still stutter.
 24. Remote clients fetch the same 960 px proxies over the relay, with no smaller rendition.

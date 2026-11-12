@@ -37,6 +37,11 @@ export interface ProxyEntry {
   readonly strip?: ProxyStrip;
   /** JSON of `{ perSecond, peaks }`, peaks 0–100. */
   readonly peaks?: string;
+  /**
+   * A WebP or PNG the player draws in place of a still no browser decodes (PSD, TIFF, HEIC,
+   * camera raw). It may be smaller than the original; `width` and `height` stay the original's.
+   */
+  readonly still?: string;
 }
 
 export interface RateChange {
@@ -75,6 +80,15 @@ export interface ProxyIndex {
   readonly building?: { readonly done: number; readonly total: number };
   /** Media files the last build could not make proxies for. */
   readonly failed?: number;
+  /** Why each of those files has no proxy or rendition, by its `target_url`. */
+  readonly failures?: Readonly<Record<string, string>>;
+  /** Why the last build made nothing at all, such as ffmpeg not being installed. */
+  readonly error?: string;
+  /**
+   * Entry keys come from each file's path relative to the media root, so they survive the drive
+   * moving. Absent on an index whose keys held the absolute path; its proxies are adopted.
+   */
+  readonly keys?: 2;
 }
 
 export interface ProxyPeaks {
@@ -107,4 +121,116 @@ export const peaksFromPcm = (pcm: Uint8Array, samplesPerPeak: number): Array<num
     peaks.push(Math.round((max / 32768) * 100));
   }
   return peaks;
+};
+
+export const STILL_PATH =
+  /\.(png|jpe?g|gif|webp|bmp|avif|heic|heif|tiff?|psd|dng|cr[23]|nef|arw|raf|orf|rw2)$/i;
+
+/** Long edge of a still's rendition. The player draws stills no larger than this. */
+export const STILL_RENDITION_EDGE = 1600;
+
+export type StillFormat = "heic" | "tiff" | "psd" | "raw";
+
+/** The kind of still no browser draws, which needs a rendition; null for the ones they do. */
+export const stillFormat = (file: string): StillFormat | null => {
+  const extension = /\.([a-z0-9]+)$/i.exec(file)?.[1]?.toLowerCase() ?? "";
+  if (extension === "heic" || extension === "heif") return "heic";
+  if (extension === "tif" || extension === "tiff") return "tiff";
+  if (extension === "psd") return "psd";
+  return /^(dng|cr[23]|nef|arw|raf|orf|rw2)$/.test(extension) ? "raw" : null;
+};
+
+export type StillConverter = "sips" | "ffmpeg" | "heif-dec" | "heif-convert";
+
+export interface StillTools {
+  /** macOS's image tool, which reads everything ImageIO does. */
+  readonly sips: boolean;
+  /** libheif's command-line decoder, under its current or its older name. */
+  readonly heif: "heif-dec" | "heif-convert" | null;
+}
+
+/**
+ * The tools to try for a still, best first, or why none can read it here. ffmpeg itself is
+ * taken as present: it reads TIFF and a PSD's flattened composite, but only one tile of a HEIC
+ * and no camera raw.
+ */
+export const stillConverters = (
+  format: StillFormat,
+  tools: StillTools,
+):
+  | { readonly converters: ReadonlyArray<StillConverter> }
+  | { readonly converters: readonly []; readonly reason: string } => {
+  const converters: Array<StillConverter> = [];
+  if (tools.sips) converters.push("sips");
+  if (format === "tiff" || format === "psd") converters.push("ffmpeg");
+  if (format === "heic" && tools.heif !== null) converters.push(tools.heif);
+  if (converters.length > 0) return { converters };
+  return {
+    converters: [],
+    reason:
+      format === "heic"
+        ? "HEIC stills need sips (macOS) or libheif's heif-dec, and neither is installed."
+        : "Camera raw stills are only converted on macOS, with sips.",
+  };
+};
+
+/**
+ * The EXIF orientation (1 to 8) a PNG carries in its `eXIf` chunk, or 1. sips keeps a photo's
+ * orientation as metadata instead of turning the pixels, and ffmpeg ignores it in a PNG.
+ */
+export const pngOrientation = (png: Uint8Array): number => {
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  let at = 8;
+  while (at + 12 <= png.byteLength) {
+    const length = view.getUint32(at);
+    const type = String.fromCharCode(png[at + 4]!, png[at + 5]!, png[at + 6]!, png[at + 7]!);
+    const body = at + 8;
+    if (type === "IDAT" || body + length > png.byteLength) return 1;
+    if (type === "eXIf" && length >= 14) {
+      const little = png[body] === 0x49;
+      const ifd = body + view.getUint32(body + 4, little);
+      if (ifd + 2 > body + length) return 1;
+      const entries = view.getUint16(ifd, little);
+      for (let i = 0; i < entries; i++) {
+        const entry = ifd + 2 + i * 12;
+        if (entry + 12 > body + length) return 1;
+        if (view.getUint16(entry, little) !== 0x0112) continue;
+        const value = view.getUint16(entry + 8, little);
+        return value >= 1 && value <= 8 ? value : 1;
+      }
+      return 1;
+    }
+    at = body + length + 4;
+  }
+  return 1;
+};
+
+/** The ffmpeg filters that turn a picture stored with an EXIF orientation upright. */
+export const orientationFilters = (orientation: number): ReadonlyArray<string> =>
+  (
+    [
+      [],
+      [],
+      ["hflip"],
+      ["hflip", "vflip"],
+      ["vflip"],
+      ["transpose=0"],
+      ["transpose=1"],
+      ["transpose=3"],
+      ["transpose=2"],
+    ] as const
+  )[orientation] ?? [];
+
+/**
+ * What a proxy key is made from: the file's place under the media root when it has one, so the
+ * key is the same wherever the drive is mounted. A file outside the root keeps its full path.
+ */
+export const proxyIdentity = (target: string, mediaRoots: ReadonlyArray<string>): string => {
+  const normal = target.replaceAll("\\", "/");
+  if (!/^(\/|[a-z]:\/)/i.test(normal)) return normal;
+  for (const root of mediaRoots) {
+    const prefix = `${root.replaceAll("\\", "/").replace(/\/+$/, "")}/`;
+    if (normal.startsWith(prefix)) return normal.slice(prefix.length);
+  }
+  return normal;
 };

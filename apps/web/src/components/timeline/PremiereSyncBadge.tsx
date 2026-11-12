@@ -21,6 +21,11 @@ export interface PremiereSyncStatus {
   readonly building: { readonly done: number; readonly total: number } | null;
   /** Media files the last proxy build couldn't read. */
   readonly failedProxies: number;
+  /** Why previews are missing: the build's own error, and each failed file with its reason. */
+  readonly proxyProblems?: {
+    readonly error: string | null;
+    readonly failures: ReadonlyArray<readonly [name: string, reason: string]>;
+  };
   /** Names of clips whose frame rate changes partway. */
   readonly rateChanging: ReadonlyArray<string>;
   readonly proxied: boolean;
@@ -35,6 +40,8 @@ export interface PremiereSyncStatus {
 }
 
 type State = VideoProjectSyncResult["state"];
+
+const FAILURES_SHOWN = 4;
 
 const SHORT: Record<State, string | null> = {
   current: null,
@@ -193,10 +200,25 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
                 ? "Draft preview from proxies."
                 : "Draft preview from the original files."}{" "}
             {props.failedProxies > 0
-              ? `${props.failedProxies} ${props.failedProxies === 1 ? "file has" : "files have"} no preview; check that the media is online and ffmpeg is installed. `
+              ? `${props.failedProxies} ${props.failedProxies === 1 ? "file has" : "files have"} no preview. `
               : ""}
             Presets and plugin effects render in Premiere.
           </p>
+          {props.proxyProblems?.error ? (
+            <p className="text-warning">{props.proxyProblems.error}</p>
+          ) : null}
+          {props.proxyProblems !== undefined && props.proxyProblems.failures.length > 0 ? (
+            <ul className="flex flex-col gap-0.5 text-warning">
+              {props.proxyProblems.failures.slice(0, FAILURES_SHOWN).map(([name, reason]) => (
+                <li key={name} className="break-words">
+                  {name}: {reason}
+                </li>
+              ))}
+              {props.proxyProblems.failures.length > FAILURES_SHOWN ? (
+                <li>and {props.proxyProblems.failures.length - FAILURES_SHOWN} more</li>
+              ) : null}
+            </ul>
+          ) : null}
           {props.rateChanging.length > 0 ? (
             <p className="text-warning">
               {props.rateChanging.join(", ")}{" "}
