@@ -56,6 +56,8 @@ export function VideoStageSelect(props: {
   readonly environmentId: EnvironmentId;
   readonly workspaceRoot: string;
   readonly hasTimeline: boolean;
+  /** Ghost sits quietly in a toolbar beside a more important control. */
+  readonly variant?: "ghost";
 }) {
   const file = useProjectFileQuery(props.environmentId, props.workspaceRoot, VIDEO_PROJECT_FILE);
   const canWrite = useEnvironmentScope(props.environmentId, AuthFilesystemWriteScope);
@@ -95,7 +97,11 @@ export function VideoStageSelect(props: {
         if (next !== undefined && next.value !== stage) void setStage(next.value);
       }}
     >
-      <SelectTrigger size="sm" aria-label="Stage">
+      <SelectTrigger
+        size="sm"
+        aria-label="Stage"
+        {...(props.variant ? { variant: props.variant } : {})}
+      >
         <SelectValue>
           {(value: string) =>
             `Stage: ${STAGES.find((candidate) => candidate.value === value)?.label ?? value}`

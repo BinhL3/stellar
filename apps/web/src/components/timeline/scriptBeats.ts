@@ -45,25 +45,3 @@ export const beatTime = (frame: number, rate: number): string => {
   const seconds = Math.floor(frame / rate + 1e-6);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 };
-
-const SCRIPT_SHOWN_KEY = "stellar.timeline.showScript";
-// Below this window width the script starts closed, so the timeline keeps its room.
-const SCRIPT_DEFAULT_OPEN_PX = 1280;
-
-export const readScriptShown = (): boolean => {
-  try {
-    const stored = window.localStorage.getItem(SCRIPT_SHOWN_KEY);
-    if (stored !== null) return stored === "true";
-  } catch {
-    // Falls through to the width default.
-  }
-  return window.innerWidth >= SCRIPT_DEFAULT_OPEN_PX;
-};
-
-export const writeScriptShown = (shown: boolean) => {
-  try {
-    window.localStorage.setItem(SCRIPT_SHOWN_KEY, String(shown));
-  } catch {
-    // Storage is a convenience; the toggle still works for this session.
-  }
-};

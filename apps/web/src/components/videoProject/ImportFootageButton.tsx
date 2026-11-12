@@ -3,6 +3,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, VideoProjectScanIntakeResult } from "@t3tools/contracts";
+import { ImportIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -130,6 +131,7 @@ export function ImportFootageButton(props: {
         disabled={busy !== null}
         onClick={() => void open()}
       >
+        <ImportIcon />
         {busy === "scanning" ? "Looking in Downloads…" : "Import footage"}
       </Button>
       <Dialog open={found !== null} onOpenChange={(next) => (next ? undefined : setFound(null))}>

@@ -25,7 +25,6 @@ import {
   MaximizeIcon,
   MessageSquarePlusIcon,
   MinusIcon,
-  PanelBottomIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
@@ -49,8 +48,10 @@ import { flushSync } from "react-dom";
 
 import { graphicText } from "~/components/timeline/clipTransform";
 import type { PreviewEngine } from "~/components/timeline/previewEngine";
+import { useTimelineLayoutStore } from "~/components/timeline/timelineLayoutStore";
 import { TimelinePlayerContext } from "~/components/timeline/timelinePlayer";
 import { type PreviewMedia, TimelinePreview } from "~/components/timeline/TimelinePreview";
+import { TimelineWorkspace } from "~/components/timeline/TimelineWorkspace";
 import { Button } from "~/components/ui/button";
 import { Kbd } from "~/components/ui/kbd";
 import {
@@ -78,7 +79,7 @@ const WHEEL_ZOOM_RATE = 0.002;
 const TICK_SECONDS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900] as const;
 // Show roughly this many seconds across the panel by default, then scroll.
 const DEFAULT_VISIBLE_SECONDS = 20;
-const LABEL_PX = 52;
+const LABEL_PX = 64;
 // Clips this far outside the visible range still render, so scrolling doesn't pop.
 const OVERSCAN_PX = 400;
 const MAX_SHUTTLE = 8;
@@ -144,22 +145,46 @@ const EXTENSION = /\.[a-z0-9]{2,5}$/i;
 
 type ClipKind = "video" | "still" | "text" | "audio" | "footageAudio";
 
-// Theme-tinted label colours; edges in the panel's own colour so every cut reads as a gap.
-const CLIP_CLASS: Record<ClipKind, string> = {
-  video: "border-background bg-clip-footage",
-  still: "border-background bg-clip-still",
-  text: "border-background bg-clip-graphic",
-  audio: "border-background bg-clip-audio",
-  footageAudio: "border-background bg-clip-footage",
+// Each kind keeps one hue; a footage file's sound is coloured as audio, as it plays as audio.
+const FILL_CLASS: Record<ClipKind, string> = {
+  video: "bg-clip-video",
+  still: "bg-clip-still",
+  text: "bg-clip-graphic",
+  audio: "bg-clip-audio",
+  footageAudio: "bg-clip-audio",
 };
 
-const WAVEFORM_CLASS: Record<ClipKind, string> = {
-  video: "text-clip-footage-accent",
-  still: "text-clip-still-accent",
-  text: "text-clip-graphic-accent",
-  audio: "text-clip-audio-accent",
-  footageAudio: "text-clip-footage-accent",
+// The tint draws a clip's top edge and its waveform.
+const TINT_CLASS: Record<ClipKind, string> = {
+  video: "text-clip-video-tint",
+  still: "text-clip-still-tint",
+  text: "text-clip-graphic-tint",
+  audio: "text-clip-audio-tint",
+  footageAudio: "text-clip-audio-tint",
 };
+
+const LEGEND: ReadonlyArray<readonly [ClipKind, string]> = [
+  ["video", "Video"],
+  ["audio", "Audio"],
+  ["still", "Image"],
+  ["text", "Text"],
+];
+
+// Minor ruler ticks between two labelled ones, by the labelled step in seconds.
+const MINOR_TICKS: Record<number, number> = {
+  1: 4,
+  2: 4,
+  5: 5,
+  10: 5,
+  15: 3,
+  30: 6,
+  60: 4,
+  120: 4,
+  300: 5,
+  600: 5,
+  900: 3,
+};
+const MIN_MINOR_TICK_PX = 6;
 
 const VIDEO_FILE = /\.(mov|mp4|m4v|mxf|avi|mkv|webm|mts|m2ts)$/i;
 
@@ -273,118 +298,12 @@ function createValueStore() {
 }
 type ValueStore = ReturnType<typeof createValueStore>;
 
-const PREVIEW_HEIGHT_KEY = "stellar.timeline.previewHeight";
-const MIN_PREVIEW_PX = 144;
-// The timeline keeps at least this much of the window below the preview.
-const MIN_TIMELINE_PX = 180;
-const RESIZE_STEP_PX = 24;
-
-const SHOW_TIMELINE_KEY = "stellar.timeline.showTimeline";
-
-const readShowTimeline = (): boolean => {
-  try {
-    return window.localStorage.getItem(SHOW_TIMELINE_KEY) !== "false";
-  } catch {
-    return true;
-  }
-};
-
-const writeShowTimeline = (show: boolean) => {
-  try {
-    window.localStorage.setItem(SHOW_TIMELINE_KEY, String(show));
-  } catch {
-    // Storage is a convenience; the toggle still works for this session.
-  }
-};
-
-const readPreviewHeight = (): number | null => {
-  try {
-    const value = Number(window.localStorage.getItem(PREVIEW_HEIGHT_KEY));
-    return Number.isFinite(value) && value > 0 ? value : null;
-  } catch {
-    return null;
-  }
-};
-
-const writePreviewHeight = (height: number | null) => {
-  try {
-    if (height === null) window.localStorage.removeItem(PREVIEW_HEIGHT_KEY);
-    else window.localStorage.setItem(PREVIEW_HEIGHT_KEY, String(Math.round(height)));
-  } catch {
-    // Storage can be unavailable (private windows); the size still applies this session.
-  }
-};
-
-/**
- * The bar between the preview and the timeline: drag it (or use the arrow keys) to trade height
- * between them; double-click resets. The preview scales to the space it gets.
- */
-function PreviewResizeHandle(props: {
-  readonly height: number | null;
-  readonly onResize: (height: number | null) => void;
-  readonly onReset: () => void;
-}) {
-  const clamp = (height: number) =>
-    Math.round(
-      Math.min(Math.max(height, MIN_PREVIEW_PX), window.innerHeight - MIN_TIMELINE_PX - 120),
-    );
-  // The preview box is the first child of the block just above the handle.
-  const previewBox = (handle: HTMLElement) =>
-    handle.previousElementSibling?.firstElementChild as HTMLElement | null | undefined;
-  const currentHeight = (handle: HTMLElement) =>
-    props.height ?? previewBox(handle)?.clientHeight ?? MIN_PREVIEW_PX;
-  return (
-    <div
-      role="separator"
-      aria-orientation="horizontal"
-      aria-label="Resize preview"
-      aria-valuenow={props.height ?? undefined}
-      tabIndex={0}
-      className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center border-y border-border/60 outline-none focus-visible:bg-accent"
-      onDoubleClick={props.onReset}
-      onKeyDown={(event) => {
-        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-        event.preventDefault();
-        const step = event.key === "ArrowUp" ? -RESIZE_STEP_PX : RESIZE_STEP_PX;
-        props.onResize(clamp(currentHeight(event.currentTarget) + step));
-      }}
-      onPointerDown={(event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        const handle = event.currentTarget;
-        const startY = event.clientY;
-        const startHeight = currentHeight(handle);
-        handle.setPointerCapture(event.pointerId);
-        const box = previewBox(handle);
-        let height = startHeight;
-        // Resize the box directly while dragging and save once on release, so the timeline
-        // doesn't re-render on every pointer move.
-        const onMove = (move: PointerEvent) => {
-          height = clamp(startHeight + move.clientY - startY);
-          if (box) box.style.height = `${height}px`;
-        };
-        const onEnd = () => {
-          handle.removeEventListener("pointermove", onMove);
-          handle.removeEventListener("pointerup", onEnd);
-          handle.removeEventListener("pointercancel", onEnd);
-          props.onResize(height);
-        };
-        handle.addEventListener("pointermove", onMove);
-        handle.addEventListener("pointerup", onEnd);
-        handle.addEventListener("pointercancel", onEnd);
-      }}
-    >
-      <span className="h-0.5 w-8 rounded-full bg-border group-hover:bg-muted-foreground" />
-    </div>
-  );
-}
-
 /** The speed badge (2×, ◀ 4×) and the play/pause button, which follow the speed store. */
 function SpeedBadge(props: { readonly store: ValueStore }) {
   const speed = useSyncExternalStore(props.store.subscribe, props.store.get);
   if (speed === 0 || speed === 1) return null;
   return (
-    <span className="rounded-sm bg-muted px-1 text-2xs tabular-nums">
+    <span className="rounded-sm bg-primary/15 px-1 text-2xs font-medium text-primary tabular-nums">
       {speed < 0 ? "◀ " : ""}
       {Math.abs(speed)}×
     </span>
@@ -399,8 +318,7 @@ function PlayPauseButton(props: {
   const playing = useSyncExternalStore(props.store.subscribe, props.store.get) !== 0;
   return (
     <Button
-      size="icon-sm"
-      variant="outline"
+      size="icon-sm-pill"
       aria-label={playing ? "Pause" : "Play"}
       disabled={props.disabled}
       onClick={props.onToggle}
@@ -417,8 +335,9 @@ function PlayheadTimecode(props: {
 }) {
   const frame = useSyncExternalStore(props.store.subscribe, props.store.get);
   return (
-    <span className="truncate text-muted-foreground tabular-nums">
-      {timecode(frame, props.rate)} / {timecode(props.duration, props.rate)}
+    <span className="font-mono text-xs whitespace-nowrap tabular-nums">
+      <span className="font-medium text-foreground">{timecode(frame, props.rate)}</span>
+      <span className="text-muted-foreground"> / {timecode(props.duration, props.rate)}</span>
     </span>
   );
 }
@@ -438,8 +357,15 @@ export default function TimelineViewer(props: {
   readonly onPendingEdits?: (pending: boolean) => void;
   /** The editing app's sync badge, shown in the transport row. */
   readonly premiere?: ReactNode;
-  /** A panel beside the preview and tracks, outside the shortcut scope; it can `useTimelinePlayer`. */
-  readonly aside?: ReactNode;
+  /**
+   * With a project, the monitor, tracks and script are panels in a dock that keeps the project's
+   * layout; without one (a timeline file opened on its own) only the tracks show.
+   */
+  readonly workspace?: {
+    readonly projectKey: string;
+    /** The Script panel's content; it can `useTimelinePlayer`. */
+    readonly script: ReactNode;
+  };
 }) {
   const [pending, setPendingState] = useState<{
     readonly base: string;
@@ -478,16 +404,14 @@ export default function TimelineViewer(props: {
   // The scroller's scroll offset as of its last scroll event: reading it live forces a layout.
   const scrollOffsetRef = useRef(0);
   const [speedStore] = useState(createValueStore);
-  const [previewHeight, setPreviewHeight] = useState<number | null>(readPreviewHeight);
-  const [timelineShown, setTimelineShown] = useState(readShowTimeline);
-  const toggleTimeline = (show: boolean) => {
-    setTimelineShown(show);
-    writeShowTimeline(show);
-  };
-  const resizePreview = (next: number | null) => {
-    setPreviewHeight(next);
-    writePreviewHeight(next);
-  };
+  // With the Timeline panel closed or behind another tab, the monitor shows its own scrub bar.
+  const projectKey = props.workspace?.projectKey;
+  const timelineVisible = useTimelineLayoutStore(
+    (state) =>
+      projectKey === undefined ||
+      state.active?.projectKey !== projectKey ||
+      state.active.visible.includes("timeline"),
+  );
   const [marks, setMarks] = useState<{ in: number | null; out: number | null }>({
     in: null,
     out: null,
@@ -501,15 +425,8 @@ export default function TimelineViewer(props: {
   const playheadRef = useRef(0);
   const pendingZoomRef = useRef<{ factor: number; frame: number; x: number } | null>(null);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Measures the scroller's width, which only a resize observer reports.
-  useEffect(() => {
-    const element = scrollerRef.current;
-    if (element === null) return;
-    return observeResize(element, () => setViewWidth(element.clientWidth));
-  }, []);
-
   const durationFrames = Math.max(layout?.durationFrames ?? 1, 1);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Re-places the DOM-driven playhead line when zoom or width rescales the track.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Re-places the DOM-driven playhead when zoom or width rescales the track, or its scrub bar mounts.
   useLayoutEffect(() => {
     const maxZoom = Math.max(
       1,
@@ -520,7 +437,11 @@ export default function TimelineViewer(props: {
     const x = (playheadRef.current / durationFrames) * trackWidth;
     if (lineRef.current) lineRef.current.style.transform = `translateX(${LABEL_PX + x}px)`;
     if (headRef.current) headRef.current.style.transform = `translateX(${x}px)`;
-  }, [zoomLevel, viewWidth, durationFrames, defaultZoom]);
+    // The monitor's scrub bar mounts when the tracks leave the screen.
+    if (!timelineVisible && scrubHeadRef.current) {
+      scrubHeadRef.current.style.transform = `translateX(${(playheadRef.current / durationFrames) * 100}%)`;
+    }
+  }, [zoomLevel, viewWidth, durationFrames, defaultZoom, timelineVisible]);
   /** Zooms keeping `frame` under `x` (px from the scroller's left), rendering the wider track first. */
   const zoomAround = (next: number, frame: number, x: number) => {
     flushSync(() => setZoomLevel(Math.max(1, next)));
@@ -530,9 +451,8 @@ export default function TimelineViewer(props: {
     element.scrollLeft = Math.max(0, LABEL_PX + (frame / durationFrames) * trackWidth - x);
   };
 
-  // Trackpad pinch (ctrl+wheel) and Option+wheel zoom around the pointer, as in Premiere. React's
-  // wheel listener is passive, so it can't stop the page zooming; this one is attached directly.
-  const onWheel = useEffectEvent((event: WheelEvent) => {
+  // Trackpad pinch (ctrl+wheel) and Option+wheel zoom around the pointer, as in Premiere.
+  const onWheel = (event: WheelEvent) => {
     const element = scrollerRef.current;
     if (element === null || !(event.ctrlKey || event.altKey)) return;
     event.preventDefault();
@@ -556,15 +476,13 @@ export default function TimelineViewer(props: {
       const current = target.scrollWidth / Math.max(1, target.clientWidth);
       zoomAround(current * next.factor, next.frame, next.x);
     });
-  });
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Attaches a non-passive wheel listener so pinch zooms the timeline instead of the page.
-  useEffect(() => {
-    const element = scrollerRef.current;
-    if (element === null) return;
-    const listener = (event: WheelEvent) => onWheel(event);
-    element.addEventListener("wheel", listener, { passive: false });
-    return () => element.removeEventListener("wheel", listener);
-  }, []);
+  };
+  /** The scroller reports its size, and its scroll offset, which a move between panels resets. */
+  const onScrollerMeasure = (width: number, left: number) => {
+    setViewWidth(width);
+    scrollOffsetRef.current = left;
+    setScrollLeft(Math.floor(left / (OVERSCAN_PX / 2)) * (OVERSCAN_PX / 2));
+  };
 
   if (typeof timeline === "string" || layout === null) {
     return (
@@ -590,6 +508,7 @@ export default function TimelineViewer(props: {
     { length: Math.floor(durationSeconds / tickSeconds) + 1 },
     (_, i) => i * tickSeconds * rate,
   );
+  const minorTickPx = (tickSeconds * rate * pxPerFrame) / (MINOR_TICKS[tickSeconds] ?? 1);
   const visibleStart = (scrollLeft - OVERSCAN_PX) / pxPerFrame;
   const visibleEnd = (scrollLeft + viewWidth + OVERSCAN_PX) / pxPerFrame;
   const inView = (item: LaidOutClip) =>
@@ -1128,33 +1047,53 @@ export default function TimelineViewer(props: {
     if (runAction(action)) event.preventDefault();
   };
 
-  // Preview-only needs a preview; without one the timeline always shows.
-  const previewOnly = !timelineShown && Boolean(props.media) && Boolean(frame);
-  const viewer = (
-    // The viewer is a focus scope for editor shortcuts, like an editor's timeline panel.
+  const previewOnly = !timelineVisible;
+  // Each panel is a focus scope for the editor shortcuts, like an editor's monitor and timeline.
+  const focusScope = (label: string, children: ReactNode) => (
     <div
       role="application"
-      aria-label={`${timeline.name} timeline`}
+      aria-label={label}
       tabIndex={-1}
       onKeyDown={onKeyDown}
       onPointerDown={(event) => {
         if (!isTyping(event.target)) event.currentTarget.focus({ preventScroll: true });
       }}
-      className="flex min-h-0 min-w-0 flex-1 flex-col outline-none"
+      className="@container/viewer flex h-full min-h-0 min-w-0 flex-1 flex-col outline-none"
     >
-      {props.media && frame ? (
-        <div
-          className={cn(
-            "flex flex-col items-center gap-2 px-3 pt-3 pb-2",
-            previewOnly ? "min-h-0 flex-1" : "shrink-0",
-          )}
-        >
+      {children}
+    </div>
+  );
+  const pendingBar =
+    edits.length > 0 ? (
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 bg-warning/10 px-3 py-2 text-xs">
+        <span className="font-medium">
+          {edits.length} pending {edits.length === 1 ? "edit" : "edits"}
+        </span>
+        <span className="truncate text-muted-foreground">
+          {edits.map(editLabel).join(", ")} · playing in the preview, not saved yet
+        </span>
+        <span className="ml-auto flex items-center gap-1">
+          <Button size="xs" variant="ghost" onClick={undoEdit}>
+            Undo <Kbd>⌘Z</Kbd>
+          </Button>
+          <Button size="xs" variant="ghost" onClick={discardEdits}>
+            Discard
+          </Button>
+          <Button size="xs" disabled={committing} onClick={() => void commitEdits()}>
+            {committing ? "Committing…" : "Commit"}
+          </Button>
+        </span>
+      </div>
+    ) : null;
+  const monitor = focusScope(
+    "Program monitor",
+    props.media && frame ? (
+      <>
+        {/* The tracks show pending edits; without them on screen, the monitor does. */}
+        {previewOnly ? pendingBar : null}
+        <div className="flex min-h-0 flex-1 flex-col items-center gap-2 px-3 pt-3 pb-1.5">
           <div
-            className={cn(
-              "flex min-h-36 w-full items-center justify-center",
-              previewOnly ? "flex-1" : "h-[36vh]",
-            )}
-            style={previewOnly || previewHeight === null ? undefined : { height: previewHeight }}
+            className="flex min-h-0 w-full flex-1 items-center justify-center rounded-lg bg-viewer p-2 ring-1 ring-border/60 ring-inset"
             onContextMenu={showPreviewMenu}
           >
             <TimelinePreview
@@ -1183,8 +1122,8 @@ export default function TimelineViewer(props: {
               onContextMenu={showPreviewMenu}
             />
           ) : null}
-          <div className="flex w-full items-center gap-1 text-xs">
-            <div className="flex min-w-0 flex-1 items-center gap-1">
+          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-x-2 gap-y-1 text-xs [grid-template-areas:'time_transport_tools'] @max-[30rem]/viewer:grid-cols-[auto_1fr] @max-[30rem]/viewer:[grid-template-areas:'time_tools'_'transport_transport'] @max-[20rem]/viewer:grid-cols-1 @max-[20rem]/viewer:[grid-template-areas:'time'_'transport'_'tools']">
+            <div className="flex min-w-0 items-center gap-1.5 [grid-area:time] @max-[20rem]/viewer:justify-center">
               <PlayheadTimecode store={playheadStore} rate={rate} duration={duration} />
               <SpeedBadge store={speedStore} />
               {marks.in !== null || marks.out !== null ? (
@@ -1196,48 +1135,50 @@ export default function TimelineViewer(props: {
                 />
               ) : null}
             </div>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Go to start"
-              disabled={!playable}
-              onClick={() => seek(0)}
-            >
-              <SkipBackIcon />
-            </Button>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Previous frame"
-              disabled={!playable}
-              onClick={() => seek(Math.round(currentFrame()) - 1)}
-            >
-              <ChevronLeftIcon />
-            </Button>
-            <PlayPauseButton
-              store={speedStore}
-              disabled={!playable}
-              onToggle={() => shuttle(speedStore.get() === 0 ? 1 : 0)}
-            />
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Next frame"
-              disabled={!playable}
-              onClick={() => seek(Math.round(currentFrame()) + 1)}
-            >
-              <ChevronRightIcon />
-            </Button>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Go to end"
-              disabled={!playable}
-              onClick={() => seek(layout.durationFrames)}
-            >
-              <SkipForwardIcon />
-            </Button>
-            <div className="flex flex-1 items-center justify-end gap-1">
+            <div className="flex items-center justify-center gap-0.5 [grid-area:transport]">
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Go to start"
+                disabled={!playable}
+                onClick={() => seek(0)}
+              >
+                <SkipBackIcon />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Previous frame"
+                disabled={!playable}
+                onClick={() => seek(Math.round(currentFrame()) - 1)}
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <PlayPauseButton
+                store={speedStore}
+                disabled={!playable}
+                onToggle={() => shuttle(speedStore.get() === 0 ? 1 : 0)}
+              />
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Next frame"
+                disabled={!playable}
+                onClick={() => seek(Math.round(currentFrame()) + 1)}
+              >
+                <ChevronRightIcon />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Go to end"
+                disabled={!playable}
+                onClick={() => seek(layout.durationFrames)}
+              >
+                <SkipForwardIcon />
+              </Button>
+            </div>
+            <div className="flex min-w-0 items-center justify-end gap-1 [grid-area:tools] @max-[20rem]/viewer:justify-center">
               {props.onReference ? (
                 <Tooltip>
                   <TooltipTrigger
@@ -1261,23 +1202,6 @@ export default function TimelineViewer(props: {
                 </Tooltip>
               ) : null}
               {props.premiere}
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Toggle
-                      size="xs"
-                      aria-label="Show timeline"
-                      pressed={timelineShown}
-                      onPressedChange={toggleTimeline}
-                    />
-                  }
-                >
-                  <PanelBottomIcon />
-                </TooltipTrigger>
-                <TooltipPopup side="top">
-                  {timelineShown ? "Hide timeline" : "Show timeline"}
-                </TooltipPopup>
-              </Tooltip>
               <Toggle
                 size="xs"
                 aria-label="Loop playback"
@@ -1298,23 +1222,22 @@ export default function TimelineViewer(props: {
             </div>
           </div>
         </div>
-      ) : null}
-      {props.media && frame && !previewOnly ? (
-        <PreviewResizeHandle
-          height={previewHeight}
-          onResize={resizePreview}
-          onReset={() => resizePreview(null)}
-        />
-      ) : null}
-
-      {/* Hidden, not unmounted: the scroller's resize and wheel listeners attach once. */}
+      </>
+    ) : (
+      <p className="m-auto p-6 text-center text-xs text-muted-foreground">
+        This timeline has no picture size, so it can't play here.
+      </p>
+    ),
+  );
+  const tracksPanel = focusScope(
+    `${timeline.name} timeline`,
+    <>
       <div
-        className={cn(
-          "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-2",
-          previewOnly && "hidden",
-        )}
+        role="toolbar"
+        aria-label="Timeline tools"
+        className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 bg-background px-2"
       >
-        <div className="ml-auto flex items-center gap-1 text-xs">
+        <div className="flex items-center gap-0.5">
           {playable ? (
             <ShortcutsMenu
               keymap={shortcuts.keymap}
@@ -1359,6 +1282,8 @@ export default function TimelineViewer(props: {
               </TooltipPopup>
             </Tooltip>
           ) : null}
+        </div>
+        <div className="ml-auto flex items-center rounded-md border border-border/80 text-xs">
           <Button
             size="icon-xs"
             variant="ghost"
@@ -1368,7 +1293,7 @@ export default function TimelineViewer(props: {
           >
             <MinusIcon />
           </Button>
-          <span className="w-10 text-center text-muted-foreground tabular-nums">
+          <span className="w-10 text-center font-mono text-2xs text-muted-foreground tabular-nums">
             {zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}×
           </span>
           <Button
@@ -1383,25 +1308,21 @@ export default function TimelineViewer(props: {
         </div>
       </div>
 
-      <div
-        ref={scrollerRef}
+      <TrackScroller
+        scrollerRef={scrollerRef}
+        onMeasure={onScrollerMeasure}
+        onWheel={onWheel}
         // Clips are culled to the view plus an overscan, so the view only re-renders when the
         // scroll crosses half an overscan, not on every scroll event.
-        onScroll={(event) => {
-          scrollOffsetRef.current = event.currentTarget.scrollLeft;
-          setScrollLeft(
-            Math.floor(event.currentTarget.scrollLeft / (OVERSCAN_PX / 2)) * (OVERSCAN_PX / 2),
-          );
+        onScroll={(left) => {
+          scrollOffsetRef.current = left;
+          setScrollLeft(Math.floor(left / (OVERSCAN_PX / 2)) * (OVERSCAN_PX / 2));
         }}
-        className={cn(
-          "min-h-0 flex-1 overflow-auto border-y border-border/60",
-          previewOnly && "hidden",
-        )}
       >
         <div className="relative min-w-full" style={{ width: `${zoom * 100}%` }}>
-          <div className="sticky top-0 z-50 flex h-7 bg-background">
+          <div className="sticky top-0 z-50 flex h-8 border-b border-border bg-background">
             <div
-              className="sticky left-0 z-10 shrink-0 bg-background"
+              className="sticky left-0 z-10 shrink-0 border-r border-border bg-background"
               style={{ width: LABEL_PX }}
             />
             <TimelineRuler
@@ -1438,10 +1359,17 @@ export default function TimelineViewer(props: {
                   style={{ left: percent(marks.out) }}
                 />
               ) : null}
+              {minorTickPx >= MIN_MINOR_TICK_PX ? (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-0 bottom-0 h-1.5 ruler-ticks"
+                  style={{ backgroundSize: `${minorTickPx}px 100%` }}
+                />
+              ) : null}
               {ticks.map((tick) => (
                 <span
                   key={tick}
-                  className="absolute top-1.5 border-l border-border pl-1 text-2xs text-muted-foreground tabular-nums"
+                  className="absolute inset-y-0 border-l border-foreground/20 pt-1 pl-1 font-mono text-2xs leading-none text-muted-foreground tabular-nums"
                   style={{ left: percent(tick) }}
                 >
                   {rulerLabel(tick, rate)}
@@ -1451,34 +1379,40 @@ export default function TimelineViewer(props: {
               <span
                 aria-hidden
                 ref={headRef}
-                className="pointer-events-none absolute bottom-0 -left-px h-3 w-0.5 rounded-full bg-destructive"
-              />
+                className="pointer-events-none absolute inset-y-0 left-0 w-0"
+              >
+                <span className="absolute top-1 -left-[5px] h-3 w-[11px] rounded-t-xs bg-destructive [clip-path:polygon(0_0,100%_0,100%_60%,50%_100%,0_60%)]" />
+                <span className="absolute top-3.5 bottom-0 left-0 w-px bg-destructive" />
+              </span>
             </TimelineRuler>
           </div>
           {tracks.map((track, row) => (
             <div
               key={track.name}
               className={cn(
-                "flex",
-                track.kind === "Video" ? "h-11" : "h-9",
-                row % 2 === 1 && "bg-muted/25",
+                "flex h-11 border-b border-border/50",
                 track.kind === "Audio" &&
                   tracks[row - 1]?.kind === "Video" &&
-                  "border-t border-border/70",
+                  "border-t-2 border-t-input",
               )}
             >
               <div
-                className="sticky left-0 z-40 flex shrink-0 items-center bg-background px-1.5"
+                className="sticky left-0 z-40 flex shrink-0 items-center gap-1.5 border-r border-border bg-background pr-2 text-muted-foreground"
                 style={{ width: LABEL_PX }}
               >
                 <span
+                  aria-hidden
                   className={cn(
-                    "flex h-6 w-full items-center justify-center gap-1 rounded-md text-2xs font-medium tabular-nums",
-                    track.kind === "Video"
-                      ? "bg-info/10 text-info-foreground"
-                      : "bg-success/10 text-success-foreground",
+                    "h-full w-[3px] shrink-0",
+                    track.kind === "Video" ? FILL_CLASS.video : FILL_CLASS.audio,
                   )}
-                >
+                />
+                {track.kind === "Video" ? (
+                  <FilmIcon aria-hidden className="size-3 shrink-0 opacity-70" />
+                ) : (
+                  <AudioLinesIcon aria-hidden className="size-3 shrink-0 opacity-70" />
+                )}
+                <span className="truncate font-mono text-2xs font-semibold text-foreground/85">
                   {track.name}
                 </span>
               </div>
@@ -1498,7 +1432,7 @@ export default function TimelineViewer(props: {
                     <span
                       key={`ghost:${item.key}`}
                       aria-hidden
-                      className="pointer-events-none absolute inset-y-0.5 rounded-xs border border-dashed border-white/35 bg-white/5"
+                      className="pointer-events-none absolute inset-y-1 rounded-sm border border-dashed border-foreground/35 bg-foreground/5"
                       style={{
                         left: percent(item.startFrame),
                         width: percent(item.endFrame - item.startFrame),
@@ -1511,6 +1445,8 @@ export default function TimelineViewer(props: {
                   const source = props.media?.sources.get(targetOf(item));
                   const widthPx = (item.endFrame - item.startFrame) * pxPerFrame;
                   const KindIcon = KIND_ICON[kind];
+                  const isSelected = item.key === selectedKey;
+                  const isAudio = kind === "audio" || kind === "footageAudio";
                   return (
                     <button
                       key={item.key}
@@ -1551,14 +1487,19 @@ export default function TimelineViewer(props: {
                         seek(item.startFrame);
                       }}
                       className={cn(
-                        "absolute inset-y-0.5 flex items-center gap-1 overflow-hidden rounded-xs border px-1.5 text-left text-xs whitespace-nowrap text-white shadow-xs hover:brightness-125",
-                        CLIP_CLASS[kind],
-                        item.key === selectedKey &&
-                          "z-10 border-white ring-2 ring-white/30 brightness-125",
-                        editable && "group/clip cursor-grab touch-none active:cursor-grabbing",
+                        // The lane-coloured border keeps a gap at every cut; the tinted top edge
+                        // names the kind even where a clip is too short for its name.
+                        "group/clip absolute inset-y-1 flex flex-col overflow-hidden rounded-sm border border-lanes px-1.5 pt-1 text-left text-2xs leading-none whitespace-nowrap outline-none",
+                        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-current before:opacity-90",
+                        "after:pointer-events-none after:absolute after:inset-0 after:bg-white/0 hover:after:bg-white/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                        FILL_CLASS[kind],
+                        TINT_CLASS[kind],
+                        isSelected &&
+                          "z-10 ring-2 ring-primary ring-offset-1 ring-offset-lanes after:bg-white/10",
+                        editable && "cursor-grab touch-none active:cursor-grabbing",
                         touched.has(item.key) &&
                           "z-10 outline-2 -outline-offset-2 outline-white/90 outline-dashed",
-                        drag?.active && drag.id === item.key && "opacity-90 shadow-lg",
+                        drag?.active && drag.id === item.key && "opacity-90",
                         !item.clip.enabled && "opacity-40 saturate-0",
                       )}
                       style={{
@@ -1566,31 +1507,46 @@ export default function TimelineViewer(props: {
                         width: percent(item.endFrame - item.startFrame),
                       }}
                     >
-                      {editable && widthPx > TRIM_HANDLE_PX * 3 ? (
-                        <>
+                      {editable && widthPx > TRIM_HANDLE_PX * 3
+                        ? (["left", "right"] as const).map((side) => (
+                            <span
+                              key={side}
+                              aria-hidden
+                              className={cn(
+                                "absolute inset-y-0 z-10 flex w-1.5 cursor-ew-resize items-center justify-center bg-white/0 group-hover/clip:bg-white/25",
+                                side === "left" ? "left-0" : "right-0",
+                                isSelected && "bg-white/25",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "h-3 w-px rounded-full bg-transparent group-hover/clip:bg-white",
+                                  isSelected && "bg-white",
+                                )}
+                              />
+                            </span>
+                          ))
+                        : null}
+                      {isAudio ? (
+                        source?.peaks ? (
+                          <Waveform item={item} url={source.peaks} />
+                        ) : (
                           <span
                             aria-hidden
-                            className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-ew-resize rounded-l-xs bg-white/0 group-hover/clip:bg-white/40"
+                            className="absolute inset-x-1.5 top-[calc(50%+5px)] h-px bg-current opacity-50"
                           />
-                          <span
-                            aria-hidden
-                            className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-ew-resize rounded-r-xs bg-white/0 group-hover/clip:bg-white/40"
-                          />
-                        </>
-                      ) : null}
-                      {(kind === "audio" || kind === "footageAudio") && source?.peaks ? (
-                        <Waveform item={item} url={source.peaks} className={WAVEFORM_CLASS[kind]} />
+                        )
                       ) : null}
                       {widthPx > 28 ? (
-                        <span className="relative flex min-w-0 items-center gap-1">
-                          <KindIcon className="size-3 shrink-0 opacity-70" />
+                        <span className="relative flex min-w-0 items-center gap-1 text-white">
+                          <KindIcon className="size-3 shrink-0 opacity-75" />
                           {animated ? <SparklesIcon className="size-3 shrink-0" /> : null}
                           <span className="truncate font-medium">{clipTitle(kind, item)}</span>
-                        </span>
-                      ) : null}
-                      {widthPx > 120 ? (
-                        <span className="relative ml-auto shrink-0 pl-1 text-3xs text-white/60 tabular-nums">
-                          {seconds(item.endFrame - item.startFrame, rate)}
+                          {widthPx > 120 ? (
+                            <span className="ml-auto shrink-0 pl-1 font-mono text-3xs text-white/65 tabular-nums">
+                              {seconds(item.endFrame - item.startFrame, rate)}
+                            </span>
+                          ) : null}
                         </span>
                       ) : null}
                     </button>
@@ -1605,32 +1561,9 @@ export default function TimelineViewer(props: {
             className="pointer-events-none absolute top-0 bottom-0 left-0 z-30 w-px bg-destructive"
           />
         </div>
-      </div>
-
-      {edits.length > 0 ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 bg-warning/10 px-3 py-2 text-xs">
-          <span className="font-medium">
-            {edits.length} pending {edits.length === 1 ? "edit" : "edits"}
-          </span>
-          <span className="truncate text-muted-foreground">
-            {edits.map(editLabel).join(", ")} · playing in the preview, not saved yet
-          </span>
-          <span className="ml-auto flex items-center gap-1">
-            <Button size="xs" variant="ghost" onClick={undoEdit}>
-              Undo <Kbd>⌘Z</Kbd>
-            </Button>
-            <Button size="xs" variant="ghost" onClick={discardEdits}>
-              Discard
-            </Button>
-            <Button size="xs" disabled={committing} onClick={() => void commitEdits()}>
-              {committing ? "Committing…" : "Commit"}
-            </Button>
-          </span>
-        </div>
-      ) : null}
-      <div
-        className={cn("max-h-56 shrink-0 overflow-auto px-3 py-3 text-xs", previewOnly && "hidden")}
-      >
+      </TrackScroller>
+      {pendingBar}
+      <div className="flex max-h-56 min-h-10 shrink-0 flex-col justify-center overflow-auto bg-background px-3 py-2 text-xs">
         {selected ? (
           <ClipDetails
             track={selected.track}
@@ -1645,20 +1578,73 @@ export default function TimelineViewer(props: {
               : {})}
           />
         ) : (
-          <div className="flex flex-col gap-2 text-muted-foreground">
-            <p>Select a clip to see its details.</p>
+          <div className="flex items-center gap-3 text-muted-foreground">
+            <p className="min-w-0 truncate">Select a clip to see its details.</p>
+            <ul
+              aria-label="Clip colours"
+              className="ml-auto flex shrink-0 items-center gap-2.5 text-2xs @max-[26rem]/viewer:hidden"
+            >
+              {LEGEND.map(([kind, label]) => (
+                <li key={kind} className="flex items-center gap-1">
+                  <span aria-hidden className={cn("size-2 rounded-xs", FILL_CLASS[kind])} />
+                  {label}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>
-    </div>
+    </>,
   );
-  if (!props.aside) return viewer;
+  if (props.workspace === undefined) return tracksPanel;
   return (
-    <div className="flex min-h-0 flex-1">
-      {viewer}
-      <TimelinePlayerContext value={{ playhead: playheadStore, seek, rate }}>
-        {props.aside}
-      </TimelinePlayerContext>
+    <TimelinePlayerContext value={{ playhead: playheadStore, seek, rate }}>
+      <TimelineWorkspace
+        projectKey={props.workspace.projectKey}
+        panels={{ monitor, timeline: tracksPanel, script: props.workspace.script }}
+      />
+    </TimelinePlayerContext>
+  );
+}
+
+/**
+ * The tracks' scroll area. It measures itself and takes the zoom wheel from inside the panel,
+ * so both follow the element as the panel is moved, stacked behind a tab or closed and reopened.
+ */
+function TrackScroller(props: {
+  readonly scrollerRef: React.RefObject<HTMLDivElement | null>;
+  readonly onMeasure: (width: number, scrollLeft: number) => void;
+  readonly onWheel: (event: WheelEvent) => void;
+  readonly onScroll: (scrollLeft: number) => void;
+  readonly children: ReactNode;
+}) {
+  const { scrollerRef } = props;
+  const measure = useEffectEvent(props.onMeasure);
+  const wheel = useEffectEvent(props.onWheel);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Measures the scroller, which only a resize observer reports, and attaches a non-passive wheel listener so pinch zooms the timeline instead of the page.
+  useEffect(() => {
+    const element = scrollerRef.current;
+    if (element === null) return;
+    // Hidden behind a tab the panel leaves the document and measures 0, which stops the
+    // playhead following; shown again, its scroll offset may have reset.
+    const stopObserving = observeResize(element, () =>
+      measure(element.clientWidth, element.scrollLeft),
+    );
+    const listener = (event: WheelEvent) => wheel(event);
+    element.addEventListener("wheel", listener, { passive: false });
+    return () => {
+      stopObserving();
+      element.removeEventListener("wheel", listener);
+      measure(0, 0);
+    };
+  }, [scrollerRef]);
+  return (
+    <div
+      ref={scrollerRef}
+      onScroll={(event) => props.onScroll(event.currentTarget.scrollLeft)}
+      className="min-h-0 flex-1 overflow-auto border-b border-border/60 bg-lanes"
+    >
+      {props.children}
     </div>
   );
 }
@@ -1952,11 +1938,8 @@ const loadPeaks = (url: string) => {
 };
 const MAX_WAVEFORM_POINTS = 240;
 
-function Waveform(props: {
-  readonly item: LaidOutClip;
-  readonly url: string;
-  readonly className: string;
-}) {
+/** Peaks in the clip's tint, below its name. */
+function Waveform(props: { readonly item: LaidOutClip; readonly url: string }) {
   const [peaks, setPeaks] = useState<ProxyPeaks | null>(null);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Fetches the clip's waveform file from the server.
   useEffect(() => {
@@ -1986,11 +1969,11 @@ function Waveform(props: {
   return (
     <svg
       aria-hidden
-      className={cn("pointer-events-none absolute inset-0 size-full", props.className)}
+      className="pointer-events-none absolute inset-x-0 top-4 h-[calc(100%-1.125rem)] w-full"
       viewBox={`0 0 ${Math.max(1, points.length - 1)} 100`}
       preserveAspectRatio="none"
     >
-      <path d={`M${top} L${bottom} Z`} fill="currentColor" opacity={0.85} />
+      <path d={`M${top} L${bottom} Z`} fill="currentColor" opacity={0.7} />
     </svg>
   );
 }
@@ -2020,8 +2003,8 @@ function ClipDetails(props: {
         <span
           aria-hidden
           className={cn(
-            "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border text-white",
-            CLIP_CLASS[kind],
+            "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-white",
+            FILL_CLASS[kind],
           )}
         >
           <KindIcon className="size-3.5" />

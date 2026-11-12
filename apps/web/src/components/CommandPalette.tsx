@@ -65,6 +65,7 @@ import {
   FolderGit2Icon,
   FolderIcon,
   FolderPlusIcon,
+  LayoutPanelTopIcon,
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
@@ -163,6 +164,11 @@ import {
   useCommandPaletteStore,
 } from "../commandPaletteStore";
 import { PULL_REQUESTS_PANEL_REF, useRightPanelStore } from "../rightPanelStore";
+import {
+  TIMELINE_PANEL_IDS,
+  TIMELINE_PANEL_TITLES,
+  useTimelineLayoutStore,
+} from "./timeline/timelineLayoutStore";
 import { getLatestThreadForProject, sortThreads } from "@t3tools/client-runtime/state/thread-sort";
 import {
   cn,
@@ -467,6 +473,7 @@ function OpenCommandPaletteDialog(props: {
     reportFailure: false,
   });
   const { environments } = useEnvironments();
+  const timelineWorkspace = useTimelineLayoutStore((state) => state.active);
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
@@ -1478,6 +1485,36 @@ function OpenCommandPaletteDialog(props: {
         });
         if (refreshed._tag === "Failure") throw squashAtomCommandFailure(refreshed);
       },
+    });
+  }
+
+  if (timelineWorkspace !== null) {
+    const { controls, open } = timelineWorkspace;
+    for (const id of TIMELINE_PANEL_IDS) {
+      const isOpen = open.includes(id);
+      const title = TIMELINE_PANEL_TITLES[id];
+      actionItems.push({
+        kind: "action",
+        value: `action:timeline-panel:${id}`,
+        searchTerms: [
+          "timeline",
+          "panel",
+          "workspace",
+          title.toLowerCase(),
+          isOpen ? "hide" : "show",
+        ],
+        title: `${isOpen ? "Hide" : "Show"} ${title} panel`,
+        icon: <LayoutPanelTopIcon className={ITEM_ICON_CLASS} />,
+        run: async () => (isOpen ? controls.close(id) : controls.show(id)),
+      });
+    }
+    actionItems.push({
+      kind: "action",
+      value: "action:timeline-panel-reset",
+      searchTerms: ["timeline", "panels", "workspace", "layout", "reset"],
+      title: "Reset timeline panel layout",
+      icon: <LayoutPanelTopIcon className={ITEM_ICON_CLASS} />,
+      run: async () => controls.reset(),
     });
   }
 

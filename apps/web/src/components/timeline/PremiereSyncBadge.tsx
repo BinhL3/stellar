@@ -112,11 +112,13 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
           <button
             type="button"
             aria-label="Premiere sync"
-            className="flex h-5 shrink-0 items-center gap-1 rounded-sm bg-premiere-bg px-1 text-2xs font-bold text-premiere outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            className="flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-input py-0.5 pr-2 pl-0.5 text-2xs text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-popup-open:bg-accent"
           />
         }
       >
-        Pr
+        <span className="flex h-full items-center rounded-sm bg-premiere-bg px-1 font-bold text-premiere">
+          Pr
+        </span>
         {short !== null ? <span className="font-medium">{short}</span> : null}
         {props.syncing ? (
           <Spinner size="xs" />

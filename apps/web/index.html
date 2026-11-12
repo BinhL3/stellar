@@ -12,22 +12,22 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <script>
       (() => {
-        const LIGHT_BACKGROUND = "#fafafa";
-        const DARK_BACKGROUND = "#0a0a0a";
+        const LIGHT_BACKGROUND = "#f8f8f9";
+        const DARK_BACKGROUND = "#141517";
         const CUSTOM_THEMES_STORAGE_KEY = "t3code:themes:v1";
         const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "t3code:theme-follow-system";
         const THEME_APPEARANCE_MODE_STORAGE_KEY = "t3code:theme-appearance-mode";
         const THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
         const SPLASH_COLORS = {
           light: {
-            background: "#fafafa",
-            foreground: "#202020",
-            accent: "#262626",
+            background: "#f8f8f9",
+            foreground: "#1c1d20",
+            accent: "#4b55d0",
           },
           dark: {
-            background: "#0a0a0a",
-            foreground: "#eeeeee",
-            accent: "#eeeeee",
+            background: "#141517",
+            foreground: "#ececee",
+            accent: "#9ba3ff",
           },
         };
         // These are the runtime defaults used to complete a custom palette
@@ -36,31 +36,31 @@
         // app colors before React mounts.
         const DEFAULT_THEME_PALETTES = {
           light: {
-            background: "#fafafa",
-            foreground: "#202020",
-            accent: "#262626",
-            chrome: "#fafafa",
+            background: "#f8f8f9",
+            foreground: "#1c1d20",
+            accent: "#4b55d0",
+            chrome: "#f8f8f9",
           },
           dark: {
-            background: "#0a0a0a",
-            foreground: "#eeeeee",
-            accent: "#eeeeee",
-            chrome: "#0a0a0a",
+            background: "#141517",
+            foreground: "#ececee",
+            accent: "#9ba3ff",
+            chrome: "#141517",
           },
         };
         const BUILT_IN_THEME_PALETTES = {
           stellar: {
             light: {
-              background: "#fafafa",
-              foreground: "#202020",
-              accent: "#262626",
-              chrome: "#fafafa",
+              background: "#f8f8f9",
+              foreground: "#1c1d20",
+              accent: "#4b55d0",
+              chrome: "#f8f8f9",
             },
             dark: {
-              background: "#0a0a0a",
-              foreground: "#eeeeee",
-              accent: "#eeeeee",
-              chrome: "#0a0a0a",
+              background: "#141517",
+              foreground: "#ececee",
+              accent: "#9ba3ff",
+              chrome: "#141517",
             },
           },
           "night-edit": {

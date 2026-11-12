@@ -308,12 +308,92 @@ function editorPalette(
   };
 }
 
+/**
+ * Stellar's default: near-neutral graphite, so the surround doesn't tint how footage reads, with
+ * one blue-violet accent for actions, focus and selection. Chrome (sidebar, panel edges) sits a
+ * step below the canvas; hover, overlays and a user turn each get their own step above it.
+ */
+function stellarPalette(appearance: ThemeAppearance): ThemeColors {
+  const dark = appearance === "dark";
+  const tone = dark
+    ? {
+        chrome: "#0f1012",
+        canvas: "#141517",
+        surface: "#1b1c1f",
+        hover: "#212226",
+        raised: "#26272b",
+        overlay: "#1f2023",
+        border: "#2a2c31",
+        input: "#3a3d44",
+        text: "#ececee",
+        muted: "#a0a3aa",
+        accent: "#9ba3ff",
+        accentForeground: "#0f1012",
+        actionHover: "#aeb4ff",
+      }
+    : {
+        chrome: "#f1f2f4",
+        canvas: "#f8f8f9",
+        surface: "#ffffff",
+        hover: "#eceef1",
+        raised: "#eceef1",
+        overlay: "#ffffff",
+        border: "#e0e2e6",
+        input: "#c8cbd2",
+        text: "#1c1d20",
+        muted: "#5d6068",
+        accent: "#4b55d0",
+        accentForeground: "#ffffff",
+        actionHover: "#5a64dc",
+      };
+  const base = editorPalette(
+    appearance,
+    tone.canvas,
+    tone.surface,
+    tone.raised,
+    tone.border,
+    tone.accent,
+  );
+  return {
+    ...base,
+    toolbarForeground: tone.text,
+    toolbarControlHover: tone.hover,
+    surfaceOverlay: tone.overlay,
+    text: tone.text,
+    textMuted: tone.muted,
+    input: tone.input,
+    accentForeground: tone.accentForeground,
+    secondaryForeground: tone.text,
+    mutedForeground: tone.muted,
+    placeholder: tone.muted,
+    secondaryLabel: tone.muted,
+    iconMuted: tone.muted,
+    updateSurface: dark ? "#25284a" : "#e6e8fa",
+    accentSurface: tone.hover,
+    accentSurfaceForeground: tone.text,
+    messageForeground: tone.text,
+    messageActionForeground: tone.accentForeground,
+    messageActionHover: tone.actionHover,
+    codeForeground: tone.text,
+    sidebar: tone.chrome,
+    sidebarForeground: tone.text,
+    sidebarMutedForeground: tone.muted,
+    sidebarControlSurface: tone.surface,
+    sidebarRowHover: dark ? tone.surface : "#e8e9ec",
+    sidebarRowActive: dark ? tone.raised : tone.surface,
+    sidebarRowSelected: dark ? tone.hover : tone.surface,
+    terminalForeground: tone.text,
+    terminalSelection: dark ? "#2f3350" : "#d9dcf6",
+    terminalScrollbarHover: tone.muted,
+  };
+}
+
 export const STELLAR_THEME: ThemeDefinition = {
   id: "stellar",
   label: "Stellar",
   appearance: "light",
-  colors: editorPalette("light", "#fafafa", "#ffffff", "#ebebeb", "#cecece", "#262626"),
-  variants: { dark: editorPalette("dark", "#0a0a0a", "#141414", "#242424", "#383838", "#eeeeee") },
+  colors: stellarPalette("light"),
+  variants: { dark: stellarPalette("dark") },
 };
 
 export const NIGHT_EDIT_THEME: ThemeDefinition = {

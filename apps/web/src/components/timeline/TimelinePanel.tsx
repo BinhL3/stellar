@@ -13,6 +13,7 @@ import {
 } from "@t3tools/contracts";
 import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
+import { LayoutPanelTopIcon, ScrollTextIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useEffectEvent, useState } from "react";
 
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
@@ -27,6 +28,14 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "~/components/ui/empty";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import {
   Select,
   SelectItem,
@@ -49,8 +58,13 @@ import { VideoStageSelect } from "../videoProject/VideoStageSelect";
 import type { PremierePull } from "./premiereChanges";
 import { PremierePullNotice } from "./PremierePullNotice";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
-import { readScriptShown, writeScriptShown } from "./scriptBeats";
 import { ScriptPanel } from "./ScriptPanel";
+import {
+  TIMELINE_PANEL_IDS,
+  TIMELINE_PANEL_TITLES,
+  timelineProjectKey,
+  useTimelineLayoutStore,
+} from "./timelineLayoutStore";
 import type { PreviewMedia, PreviewMediaSource } from "./TimelinePreview";
 
 const TimelineViewer = lazy(() => import("../files/TimelineViewer"));
@@ -362,11 +376,11 @@ export default function TimelinePanel(props: {
     });
   };
 
-  const [scriptShown, setScriptShown] = useState(readScriptShown);
-  const showScript = (shown: boolean) => {
-    setScriptShown(shown);
-    writeScriptShown(shown);
-  };
+  const projectKey = timelineProjectKey(props.environmentId, props.workspaceRoot);
+  const workspace = useTimelineLayoutStore((state) =>
+    state.active?.projectKey === projectKey ? state.active : null,
+  );
+  const scriptOpen = workspace?.open.includes("script") ?? false;
 
   const writeFile = useAtomCommand(projectEnvironment.writeFile, { reportFailure: false });
   // Committing writes the edited timeline over the .otio, then reloads it, which clears the
@@ -395,11 +409,12 @@ export default function TimelinePanel(props: {
     return false;
   };
 
-  const stageSelect = (
+  const stageSelect = (variant?: "ghost") => (
     <VideoStageSelect
       environmentId={props.environmentId}
       workspaceRoot={props.workspaceRoot}
       hasTimeline={timelinePaths.length > 0}
+      {...(variant ? { variant } : {})}
     />
   );
 
@@ -423,7 +438,7 @@ export default function TimelinePanel(props: {
   if (selectedPath === null) {
     return (
       <Empty>
-        {stageSelect}
+        {stageSelect()}
         <EmptyHeader>
           <EmptyTitle>No timeline yet</EmptyTitle>
           <EmptyDescription>
@@ -454,11 +469,10 @@ export default function TimelinePanel(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-2 px-3 pt-2">
-        {stageSelect}
+      <div className="@container/bar flex h-11 shrink-0 items-center gap-1 border-b border-border/60 px-2">
         {timelinePaths.length > 1 ? (
           <Select value={selectedPath} onValueChange={(value) => setChosenPath(value)}>
-            <SelectTrigger size="sm" aria-label="Timeline">
+            <SelectTrigger size="sm" variant="ghost" aria-label="Timeline">
               <SelectValue>{(value: string) => timelineLabel(value)}</SelectValue>
             </SelectTrigger>
             <SelectPopup align="start" alignItemWithTrigger={false}>
@@ -469,12 +483,49 @@ export default function TimelinePanel(props: {
               ))}
             </SelectPopup>
           </Select>
-        ) : null}
+        ) : (
+          <h2 className="min-w-0 truncate px-1.5 text-sm font-semibold">
+            {timelineLabel(selectedPath)}
+          </h2>
+        )}
+        {stageSelect("ghost")}
         {intakeNote}
-        <span className="ml-auto flex items-center gap-2">
-          <Toggle size="xs" pressed={scriptShown} onPressedChange={showScript}>
-            Script
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          <Toggle
+            size="sm"
+            disabled={workspace === null}
+            pressed={scriptOpen}
+            onPressedChange={(open) =>
+              open ? workspace?.controls.show("script") : workspace?.controls.close("script")
+            }
+          >
+            <ScrollTextIcon />
+            <span className="@max-[34rem]/bar:sr-only">Script</span>
           </Toggle>
+          <Menu>
+            <MenuTrigger
+              disabled={workspace === null}
+              render={<Button size="sm" variant="ghost" aria-label="Panels" />}
+            >
+              <LayoutPanelTopIcon />
+              <span className="@max-[34rem]/bar:sr-only">Panels</span>
+            </MenuTrigger>
+            <MenuPopup align="end" side="bottom">
+              {TIMELINE_PANEL_IDS.map((id) => (
+                <MenuCheckboxItem
+                  key={id}
+                  checked={workspace?.open.includes(id) ?? false}
+                  onCheckedChange={(open) =>
+                    open ? workspace?.controls.show(id) : workspace?.controls.close(id)
+                  }
+                >
+                  {TIMELINE_PANEL_TITLES[id]}
+                </MenuCheckboxItem>
+              ))}
+              <MenuSeparator />
+              <MenuItem onClick={() => workspace?.controls.reset()}>Reset layout</MenuItem>
+            </MenuPopup>
+          </Menu>
           {canWriteFiles ? importFootage("sm") : null}
         </span>
       </div>
@@ -516,22 +567,21 @@ export default function TimelinePanel(props: {
                   : {})}
               />
             }
-            {...(scriptShown
-              ? {
-                  aside: (
-                    <ScriptPanel
-                      environmentId={props.environmentId}
-                      workspaceRoot={props.workspaceRoot}
-                      timeline={selectedPath}
-                      revision={file.data?.contents ?? ""}
-                      transcribed={transcripts?.ready ?? 0}
-                      threadRef={props.threadRef}
-                      canWrite={canWriteFiles}
-                      onClose={() => showScript(false)}
-                    />
-                  ),
-                }
-              : {})}
+            workspace={{
+              projectKey,
+              script: (
+                <ScriptPanel
+                  environmentId={props.environmentId}
+                  workspaceRoot={props.workspaceRoot}
+                  timeline={selectedPath}
+                  revision={file.data?.contents ?? ""}
+                  transcribed={transcripts?.ready ?? 0}
+                  threadRef={props.threadRef}
+                  canWrite={canWriteFiles}
+                  onClose={() => workspace?.controls.close("script")}
+                />
+              ),
+            }}
             {...(canWriteFiles ? { onCommit: commit } : {})}
           />
         </Suspense>
@@ -541,8 +591,8 @@ export default function TimelinePanel(props: {
         </div>
       )}
       {canWriteFiles ? (
-        // Under the tracks, where narration is recorded against the picture.
-        <div className="flex shrink-0 items-center gap-2 border-t border-border/60 px-3 py-2">
+        // The workspace's footer: recording runs against playback wherever the panels are.
+        <div className="flex h-11 shrink-0 items-center gap-2.5 border-t border-border/60 bg-background px-3">
           <RecordVoiceOverButton
             environmentId={props.environmentId}
             workspaceRoot={props.workspaceRoot}
@@ -553,7 +603,7 @@ export default function TimelinePanel(props: {
               });
             }}
           />
-          <span className="text-xs text-muted-foreground">
+          <span className="min-w-0 truncate text-2xs text-muted-foreground">
             Press play, then record, to narrate to picture. Takes are saved in Audio/VO.
           </span>
         </div>

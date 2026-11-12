@@ -8,17 +8,32 @@ import type {
   VideoScriptBeat,
   VideoScriptView,
 } from "@t3tools/contracts";
-import { RefreshCwIcon, XIcon } from "lucide-react";
+import {
+  ClipboardPasteIcon,
+  ExternalLinkIcon,
+  RefreshCwIcon,
+  ScrollTextIcon,
+  XIcon,
+} from "lucide-react";
 import { type MouseEvent, useEffect, useEffectEvent, useState, useSyncExternalStore } from "react";
 
 import { canOpenLinksInApp, isWebUrl } from "~/browser/browserLinkTarget";
 import { openUrlInPreview } from "~/browser/openFileInPreview";
 import { recordVisitForThread } from "~/browserHistoryStore";
 import { Button } from "~/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { previewEnvironment } from "~/state/preview";
@@ -52,52 +67,62 @@ function BeatList(props: { readonly beats: ReadonlyArray<VideoScriptBeat> }) {
     beatAtFrame(beats, player.playhead.get(), player.rate),
   );
   return (
-    <div className="flex flex-col gap-2 px-1 pb-2">
+    <div className="flex flex-col pb-3">
       {groupBeatsBySection(beats).map((group, index) => (
         // Headings can repeat, so a section's place in the script is its identity.
         // oxlint-disable-next-line react/no-array-index-key
         <section key={index} className="flex flex-col">
           {group.section !== null ? (
-            <h3 className="px-2 pt-1 pb-0.5 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+            <h3 className="sticky top-0 z-10 border-b border-border/60 bg-card px-4 pt-3 pb-1.5 text-xs font-semibold text-foreground">
               {group.section}
             </h3>
           ) : null}
-          {group.beats.map((beat) => {
-            const { startFrame } = beat;
-            if (startFrame === null) {
+          <div className="flex flex-col gap-px px-2 pt-1.5">
+            {group.beats.map((beat) => {
+              const { startFrame } = beat;
+              if (startFrame === null) {
+                return (
+                  <p
+                    key={beat.id}
+                    className="flex gap-2 rounded-md px-2 py-1.5 text-sm leading-5 text-muted-foreground"
+                  >
+                    <span
+                      aria-hidden
+                      className="w-9 shrink-0 font-mono text-2xs leading-5 text-muted-foreground/60"
+                    >
+                      –:––
+                    </span>
+                    <span className="min-w-0 wrap-anywhere">{beat.text}</span>
+                    <span className="sr-only">Not on the timeline</span>
+                  </p>
+                );
+              }
+              const current = beat.id === currentId;
               return (
-                <p key={beat.id} className="flex gap-2 px-2 py-1 text-xs text-muted-foreground/70">
-                  <span aria-hidden className="w-9 shrink-0" />
-                  <span className="min-w-0 wrap-anywhere">{beat.text}</span>
-                  <span className="sr-only">Not on the timeline</span>
-                </p>
-              );
-            }
-            const current = beat.id === currentId;
-            return (
-              <button
-                key={beat.id}
-                type="button"
-                aria-current={current ? "true" : undefined}
-                onClick={() => player.seek(startFrame)}
-                className={cn(
-                  "flex w-full cursor-pointer gap-2 rounded-sm px-2 py-1 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                  // The audio clip colour: these are the words on the audio track.
-                  current ? "bg-clip-audio text-white" : "hover:bg-accent",
-                )}
-              >
-                <span
+                <button
+                  key={beat.id}
+                  type="button"
+                  aria-current={current ? "true" : undefined}
+                  onClick={() => player.seek(startFrame)}
                   className={cn(
-                    "w-9 shrink-0 font-mono text-2xs leading-4 tabular-nums",
-                    current ? "text-clip-audio-accent" : "text-muted-foreground",
+                    "relative flex w-full cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-sm leading-5 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    "before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full",
+                    current ? "bg-primary/10 before:bg-primary" : "hover:bg-accent",
                   )}
                 >
-                  {beatTime(startFrame, player.rate)}
-                </span>
-                <span className="min-w-0 wrap-anywhere">{beat.text}</span>
-              </button>
-            );
-          })}
+                  <span
+                    className={cn(
+                      "w-9 shrink-0 font-mono text-2xs leading-5 tabular-nums",
+                      current ? "font-medium text-primary" : "text-muted-foreground",
+                    )}
+                  >
+                    {beatTime(startFrame, player.rate)}
+                  </span>
+                  <span className="min-w-0 wrap-anywhere">{beat.text}</span>
+                </button>
+              );
+            })}
+          </div>
         </section>
       ))}
     </div>
@@ -211,99 +236,114 @@ export function ScriptPanel(props: {
   const linkDraft = link ?? (view !== null && docUrl === null && props.canWrite ? "" : null);
   const linkReady = linkDraft !== null && isWebUrl(linkDraft.trim());
 
+  const linkForm =
+    linkDraft !== null && pasted === null ? (
+      <form
+        className="flex w-full flex-wrap items-center justify-center gap-1"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!linkReady || saving) return;
+          void save({ docUrl: linkDraft.trim() }).then((saved) => {
+            if (saved) setLink(null);
+          });
+        }}
+      >
+        <label htmlFor={DOC_LINK_ID} className="sr-only">
+          Google Doc link
+        </label>
+        <Input
+          id={DOC_LINK_ID}
+          className="min-w-0 flex-1 basis-36"
+          size="compact"
+          type="url"
+          placeholder="Google Doc link"
+          value={linkDraft}
+          onChange={(event) => setLink(event.currentTarget.value)}
+        />
+        <Button type="submit" size="xs" variant="outline" disabled={!linkReady || saving}>
+          Save link
+        </Button>
+        {link !== null && docUrl !== null ? (
+          <Button size="xs" variant="ghost" onClick={() => setLink(null)}>
+            Cancel
+          </Button>
+        ) : null}
+      </form>
+    ) : null;
+  const empty = view !== null && view.beats.length === 0;
+
   return (
     <aside
       aria-label="Script"
-      className="flex w-72 max-w-[45%] shrink-0 flex-col border-l border-border/60 text-xs"
+      className="@container/script flex h-full min-h-0 min-w-0 flex-col bg-card text-xs"
     >
-      <div className="flex shrink-0 flex-col gap-1.5 px-3 pt-2 pb-2">
-        <div className="flex items-center gap-1">
-          <h2 className="text-xs font-medium">Script</h2>
-          {view !== null && view.beats.length > 0 ? (
-            <span className="min-w-0 truncate text-muted-foreground">
-              {placed} of {view.beats.length} on the timeline
-            </span>
-          ) : null}
-          <span className="ml-auto flex items-center">
-            {reading ? (
-              <Spinner size="xs" />
-            ) : (
-              <Button size="icon-xs" variant="ghost" aria-label="Reload script" onClick={reload}>
-                <RefreshCwIcon />
-              </Button>
-            )}
-            <Button size="icon-xs" variant="ghost" aria-label="Hide script" onClick={props.onClose}>
-              <XIcon />
-            </Button>
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 pr-1.5 pl-4">
+        <h2 className="text-sm font-semibold">Script</h2>
+        {view !== null && view.beats.length > 0 ? (
+          <span className="min-w-0 truncate text-2xs text-muted-foreground tabular-nums @max-[15rem]/script:hidden">
+            {placed} of {view.beats.length} placed
           </span>
-        </div>
-        {view !== null && pasted === null ? (
-          <div className="flex flex-wrap items-center gap-1">
-            {docUrl !== null ? (
-              <Button
-                size="xs"
-                variant="outline"
-                render={<a href={docUrl} target="_blank" rel="noreferrer noopener" />}
-                onClick={(event) => void openScript(event, docUrl)}
+        ) : null}
+        <span className="ml-auto flex shrink-0 items-center">
+          {docUrl !== null ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Open script"
+                    render={<a href={docUrl} target="_blank" rel="noreferrer noopener" />}
+                    onClick={(event) => void openScript(event, docUrl)}
+                  />
+                }
               >
-                Open script
-              </Button>
-            ) : null}
-            {props.canWrite ? (
-              <Button size="xs" variant="outline" onClick={() => setPasted("")}>
-                Paste script
-              </Button>
-            ) : null}
-            {props.canWrite && docUrl !== null && link === null ? (
-              <Button size="xs" variant="ghost" onClick={() => setLink(docUrl)}>
-                Change link
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        {linkDraft !== null && pasted === null ? (
-          <form
-            className="flex items-center gap-1"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!linkReady || saving) return;
-              void save({ docUrl: linkDraft.trim() }).then((saved) => {
-                if (saved) setLink(null);
-              });
-            }}
-          >
-            <label htmlFor={DOC_LINK_ID} className="sr-only">
-              Google Doc link
-            </label>
-            <Input
-              id={DOC_LINK_ID}
-              size="compact"
-              type="url"
-              placeholder="Paste the Google Doc link"
-              value={linkDraft}
-              onChange={(event) => setLink(event.currentTarget.value)}
-            />
-            <Button type="submit" size="xs" variant="outline" disabled={!linkReady || saving}>
-              Save
+                <ExternalLinkIcon />
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">Open the Google Doc</TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {props.canWrite && view !== null && !empty && pasted === null ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Paste script"
+                    onClick={() => setPasted("")}
+                  />
+                }
+              >
+                <ClipboardPasteIcon />
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">Paste script</TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {reading ? (
+            <span className="flex size-6 items-center justify-center">
+              <Spinner size="xs" />
+            </span>
+          ) : (
+            <Button size="icon-xs" variant="ghost" aria-label="Reload script" onClick={reload}>
+              <RefreshCwIcon />
             </Button>
-            {link !== null && docUrl !== null ? (
-              <Button size="xs" variant="ghost" onClick={() => setLink(null)}>
-                Cancel
-              </Button>
-            ) : null}
-          </form>
-        ) : null}
+          )}
+          <Button size="icon-xs" variant="ghost" aria-label="Hide script" onClick={props.onClose}>
+            <XIcon />
+          </Button>
+        </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {pasted !== null ? (
-          <div className="flex flex-col gap-2 px-3 pb-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
             <p className="text-muted-foreground">
               Paste the whole script. It replaces the snapshot kept in this project; the Google Doc
               is not changed.
             </p>
             <Textarea
               size="sm"
-              rows={10}
+              rows={14}
               aria-label="Script text"
               placeholder="Paste the script here"
               value={pasted}
@@ -331,29 +371,59 @@ export function ScriptPanel(props: {
             <Spinner />
           </div>
         ) : view === null ? (
-          <div role="alert" className="flex flex-col items-start gap-2 px-3 pb-3">
+          <div role="alert" className="flex flex-col items-start gap-2 p-4">
             <p className="text-destructive">Could not read the script. {loaded.error}</p>
             <Button size="xs" variant="outline" onClick={reload}>
               Try again
             </Button>
           </div>
-        ) : view.beats.length === 0 ? (
-          <p className="px-3 pb-3 text-muted-foreground">
-            {props.canWrite
-              ? "No script in this project yet. Paste it here, or ask an agent to refresh it from the Google Doc."
-              : "No script in this project yet. An agent can refresh it from the Google Doc."}
-          </p>
+        ) : empty ? (
+          <Empty size="compact">
+            <EmptyMedia variant="icon">
+              <ScrollTextIcon />
+            </EmptyMedia>
+            <EmptyHeader>
+              <EmptyTitle>No script yet</EmptyTitle>
+              <EmptyDescription>
+                {props.canWrite
+                  ? "Paste the script and each line sits where it is said. An agent can also refresh it from the Google Doc."
+                  : "An agent can refresh the script from the Google Doc."}
+              </EmptyDescription>
+            </EmptyHeader>
+            {props.canWrite ? (
+              <EmptyContent>
+                <Button size="sm" onClick={() => setPasted("")}>
+                  Paste script
+                </Button>
+                {linkForm ? (
+                  <div className="flex w-full flex-col gap-1.5 border-t border-border/60 pt-4">
+                    <p className="text-2xs text-muted-foreground">Or link its Google Doc</p>
+                    {linkForm}
+                  </div>
+                ) : null}
+              </EmptyContent>
+            ) : null}
+          </Empty>
         ) : (
-          <>
-            <BeatList beats={view.beats} />
-            <p className="px-3 pb-3 text-2xs text-muted-foreground">
-              {view.savedAt !== null ? `Snapshot saved ${savedLabel(view.savedAt)}. ` : ""}
-              {placed < view.beats.length ? "Muted lines aren't on this timeline. " : ""}
-              An agent can refresh it from the Google Doc.
-            </p>
-          </>
+          <BeatList beats={view.beats} />
         )}
       </div>
+      {view !== null && !empty && pasted === null ? (
+        <div className="flex shrink-0 flex-col gap-2 border-t border-border/60 px-4 py-2.5">
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 flex-1 text-2xs leading-4 text-muted-foreground">
+              {view.savedAt !== null ? `Snapshot saved ${savedLabel(view.savedAt)}. ` : ""}
+              {placed < view.beats.length ? "Faded lines aren't on this timeline." : ""}
+            </p>
+            {props.canWrite && docUrl !== null && link === null ? (
+              <Button size="xs" variant="ghost" onClick={() => setLink(docUrl)}>
+                Change link
+              </Button>
+            ) : null}
+          </div>
+          {linkForm}
+        </div>
+      ) : null}
     </aside>
   );
 }

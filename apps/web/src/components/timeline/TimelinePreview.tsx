@@ -58,7 +58,7 @@ export function TimelinePreview(props: {
   return (
     <canvas
       ref={canvasRef}
-      className="h-full max-w-full rounded-md bg-black"
+      className="h-full max-w-full rounded-sm bg-black"
       style={{ aspectRatio: `${props.frame.width} / ${props.frame.height}` }}
     />
   );
