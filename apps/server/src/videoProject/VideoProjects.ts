@@ -2158,6 +2158,7 @@ const make = Effect.gen(function* () {
               building: index.building ?? null,
               ready: Object.keys(index.media).length,
               failed: index.failed ?? 0,
+              error: index.error ?? null,
             },
       transcripts: {
         ready: coverage.total - coverage.missing.length,

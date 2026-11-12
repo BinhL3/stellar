@@ -192,3 +192,149 @@ export function indexMp4Video(buffer: ArrayBuffer): Mp4VideoIndex | null {
   }
   return null;
 }
+
+/**
+ * Where the `moov` box sits, read from the first bytes of a file: `faststart` files have it
+ * right after `ftyp`, others after `mdat`. Null when the head holds no box that leads to it.
+ */
+export function locateMoov(
+  head: ArrayBuffer,
+): { readonly start: number; readonly end: number } | null {
+  const view = new DataView(head);
+  let at = 0;
+  while (at + 8 <= head.byteLength) {
+    let size = view.getUint32(at);
+    const type = String.fromCharCode(
+      view.getUint8(at + 4),
+      view.getUint8(at + 5),
+      view.getUint8(at + 6),
+      view.getUint8(at + 7),
+    );
+    if (size === 1) {
+      if (at + 16 > head.byteLength) return null;
+      size = Number(view.getBigUint64(at + 8));
+    }
+    if (type === "moov") return size >= 8 ? { start: at, end: at + size } : null;
+    // A box that runs to the end of the file (size 0) has nothing after it.
+    if (size < 8) return null;
+    at += size;
+  }
+  // The next box starts at or past the end of the head: that is where to read on from.
+  return { start: at, end: Number.POSITIVE_INFINITY };
+}
+
+/** A run of whole GOPs that is fetched and cached as one piece. */
+export interface Mp4Segment {
+  /** Samples `first` up to `end`, in decode order; `first` is a keyframe. */
+  readonly first: number;
+  readonly end: number;
+  /** The byte range that holds them. */
+  readonly offset: number;
+  readonly size: number;
+}
+
+/**
+ * Splits a track into segments of about `targetBytes`, cut only at keyframes so decoding from
+ * any keyframe needs bytes from the segments it runs through and nothing else.
+ */
+export function planSegments(
+  samples: ReadonlyArray<Mp4Sample>,
+  targetBytes: number,
+): Array<Mp4Segment> {
+  const segments: Array<Mp4Segment> = [];
+  let first = 0;
+  let low = Number.POSITIVE_INFINITY;
+  let high = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const sample = samples[i]!;
+    if (sample.key && i > first && high - low >= targetBytes) {
+      segments.push({ first, end: i, offset: low, size: high - low });
+      first = i;
+      low = Number.POSITIVE_INFINITY;
+      high = 0;
+    }
+    low = Math.min(low, sample.offset);
+    high = Math.max(high, sample.offset + sample.size);
+  }
+  if (samples.length > first) {
+    segments.push({ first, end: samples.length, offset: low, size: high - low });
+  }
+  return segments;
+}
+
+/** The segment that holds a sample. */
+export function segmentOf(segments: ReadonlyArray<Mp4Segment>, sample: number): number {
+  let low = 0;
+  let high = segments.length - 1;
+  while (low < high) {
+    const middle = (low + high + 1) >> 1;
+    if (segments[middle]!.first <= sample) low = middle;
+    else high = middle - 1;
+  }
+  return low;
+}
+
+/**
+ * The decode-order positions of a track's keyframes. Their presentation times rise, so the
+ * one a decoder must start from to reach a time is found by bisection: `keyframeBefore`.
+ */
+export function keyframesOf(samples: ReadonlyArray<Mp4Sample>): Int32Array {
+  const keys: Array<number> = [];
+  for (let i = 0; i < samples.length; i++) if (samples[i]!.key) keys.push(i);
+  return Int32Array.from(keys);
+}
+
+export function keyframeBefore(
+  samples: ReadonlyArray<Mp4Sample>,
+  keys: Int32Array,
+  time: number,
+): number {
+  let low = 0;
+  let high = keys.length - 1;
+  while (low < high) {
+    const middle = (low + high + 1) >> 1;
+    if (samples[keys[middle]!]!.time <= time + 1e-4) low = middle;
+    else high = middle - 1;
+  }
+  return keys[low] ?? 0;
+}
+
+/** Segments `first` to `last`, read with one request for `size` bytes at `offset`. */
+export interface Mp4Range {
+  readonly first: number;
+  readonly last: number;
+  readonly offset: number;
+  readonly size: number;
+}
+
+/**
+ * Groups the segments to fetch into as few byte ranges as it takes: neighbours are read in one
+ * request, up to `maxBytes` each, and only the segments `missing` says are needed.
+ */
+export function planRanges(
+  segments: ReadonlyArray<Mp4Segment>,
+  from: number,
+  to: number,
+  missing: (segment: number) => boolean,
+  maxBytes: number,
+): Array<Mp4Range> {
+  const ranges: Array<{ -readonly [K in keyof Mp4Range]: Mp4Range[K] }> = [];
+  for (let i = Math.max(0, from); i <= Math.min(to, segments.length - 1); i++) {
+    if (!missing(i)) continue;
+    const segment = segments[i]!;
+    const open = ranges.at(-1);
+    const end = segment.offset + segment.size;
+    if (
+      open !== undefined &&
+      open.last === i - 1 &&
+      segment.offset >= open.offset &&
+      end - open.offset <= maxBytes
+    ) {
+      open.last = i;
+      open.size = Math.max(open.size, end - open.offset);
+    } else {
+      ranges.push({ first: i, last: i, offset: segment.offset, size: segment.size });
+    }
+  }
+  return ranges;
+}

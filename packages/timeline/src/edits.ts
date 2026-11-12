@@ -13,6 +13,7 @@ import {
   timeRange,
   type TrackChild,
 } from "./otio.ts";
+import { STILL_PATH } from "./proxies.ts";
 import { reslicedSourceStart, timeScalarOf } from "./speed.ts";
 
 export type TimelineEdit =
@@ -62,7 +63,7 @@ interface Placed {
 }
 
 /** Stills and graphics have no source time: only their length means anything. */
-export const STILL_PATH = /\.(png|jpe?g|heic|tiff?|psd|gif|webp|bmp)$/i;
+export { STILL_PATH };
 
 const withMetadata = (clip: Clip, start: number, end: number, id?: string): Clip => {
   const premiere = clip.metadata["premiere"] as Record<string, unknown> | undefined;

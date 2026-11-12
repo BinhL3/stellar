@@ -5,6 +5,7 @@
  */
 import { layoutTimeline } from "./layout.ts";
 import { type Clip, type Timeline, TIMELINE_NAMESPACE } from "./otio.ts";
+import { STILL_PATH } from "./proxies.ts";
 import { sourceSecondsAt, timeScalarOf } from "./speed.ts";
 
 /** What short-form platforms normalise towards; quieter or louder gets turned up or down. */
@@ -45,8 +46,6 @@ export const CUT_DETECTION = {
   strong: { min: 10, ratio: 4 },
   confirm: { min: 3, ratio: 2 },
 } as const;
-
-const STILL_PATH = /\.(png|jpe?g|heic|tiff?|psd|gif|webp|bmp)$/i;
 
 /** A span of timeline frames, end exclusive. */
 export interface FrameSpan {

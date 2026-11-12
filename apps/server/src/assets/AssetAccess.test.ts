@@ -373,17 +373,38 @@ describe("AssetAccess", () => {
         const asset = yield* resolveAsset(token, suffix.slice(separator + 1));
         expect(asset).toMatchObject({ kind: "file", path: yield* fs.realPath(filePath), mimeType });
         if (asset?.kind !== "file") throw new Error("Expected draft media file");
-        for (const [range, status, body] of [
-          [undefined, 200, "media bytes"],
-          ["bytes=2-5", 206, "dia "],
+        // The timeline player reads proxies by byte range: the index first, then what is near
+        // the playhead. A range it cannot honour must not be answered with other bytes.
+        for (const [range, status, body, contentRange] of [
+          [undefined, 200, "media bytes", null],
+          ["bytes=2-5", 206, "dia ", "bytes 2-5/11"],
+          ["bytes=0-0", 206, "m", "bytes 0-0/11"],
+          ["bytes=6-", 206, "bytes", "bytes 6-10/11"],
+          ["bytes=-5", 206, "bytes", "bytes 6-10/11"],
+          // Past the end is clamped; a suffix longer than the file is the whole file.
+          ["bytes=6-999", 206, "bytes", "bytes 6-10/11"],
+          ["bytes=-999", 206, "media bytes", "bytes 0-10/11"],
+          // Starting at or past the end cannot be satisfied.
+          ["bytes=11-", 416, "", "bytes */11"],
+          ["bytes=50-60", 416, "", "bytes */11"],
+          ["bytes=-0", 416, "", "bytes */11"],
+          // Malformed, reversed and multi-part ranges are ignored, as a server may.
+          ["bytes=5-2", 200, "media bytes", null],
+          ["bytes=a-b", 200, "media bytes", null],
+          ["bytes=0-1,4-5", 200, "media bytes", null],
+          ["items=0-1", 200, "media bytes", null],
         ] as const) {
           const resolved = yield* resolveAsset(token, suffix.slice(separator + 1));
           if (resolved?.kind !== "file") throw new Error("Expected draft media file");
           const response = HttpServerResponse.toWeb(yield* assetFileResponse(resolved, range));
-          expect(response.status).toBe(status);
+          expect([range, response.status]).toEqual([range, status]);
           expect(response.headers.get("content-type")).toBe(mimeType);
-          expect(response.headers.get("content-length")).toBe(String(body.length));
-          if (range) expect(response.headers.get("content-range")).toBe("bytes 2-5/11");
+          expect(response.headers.get("accept-ranges")).toBe("bytes");
+          expect(response.headers.get("cache-control")).toBe("private, no-store");
+          if (status !== 416) {
+            expect(response.headers.get("content-length")).toBe(String(body.length));
+          }
+          expect(response.headers.get("content-range")).toBe(contentRange);
           expect(yield* Effect.promise(() => response.text())).toBe(body);
         }
         for (const requestedPath of [

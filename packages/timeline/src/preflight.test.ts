@@ -90,6 +90,13 @@ describe("derivePreflight", () => {
       "importFootage",
     ]);
     expect(failed.proxies).toEqual(["warn", "1 file has no preview", null]);
+    // A build that could not run at all says why, whatever an earlier build left ready.
+    expect(
+      summary({
+        ...finished,
+        proxies: { building: null, ready: 30, failed: 0, error: "ffmpeg is not installed." },
+      }).proxies,
+    ).toEqual(["fail", "ffmpeg is not installed.", "sync"]);
     expect(failed.transcripts).toEqual(["todo", "20 of 27 clips, 2 failed", "transcribe"]);
     expect(
       summary({

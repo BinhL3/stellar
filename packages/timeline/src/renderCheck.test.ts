@@ -127,7 +127,12 @@ describe("timelineRenderFacts", () => {
         // B-roll over the middle hides what happens under it and is itself a cut in and out.
         track("V2", "Video", [gap(40), clip("broll", 0, 30)]),
         // An emoji coming and going is not a cut.
-        track("V3", "Video", [gap(10), clip("emoji", 0, 10, "emoji.png")]),
+        // Nor is a camera raw photo, which the preview draws from a rendition.
+        track("V3", "Video", [
+          gap(10),
+          clip("emoji", 0, 10, "emoji.png"),
+          clip("photo", 0, 10, "photo.dng"),
+        ]),
         // Captions change with the words, not with the picture.
         track("C1", "Video", [gap(20), clip("a caption", 0, 25, ""), clip("the next", 0, 25, "")], {
           stellar: { captions: true },

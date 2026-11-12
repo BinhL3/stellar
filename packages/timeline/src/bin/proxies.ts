@@ -29,7 +29,11 @@ const proxiesCommand = Command.make(
           : Console.log(
               `[${progress.done}/${progress.total}] ${progress.error ? `! ${progress.target}: ${progress.error}` : progress.target}`,
             ),
-    }).pipe(Effect.flatMap((result) => Console.log(`Wrote ${result.indexPath}`))),
+    }).pipe(
+      Effect.flatMap((result) =>
+        Console.log("error" in result ? result.error : `Wrote ${result.indexPath}`),
+      ),
+    ),
 ).pipe(
   Command.withDescription(
     "Make preview proxies, thumbnail strips and waveforms for every clip in a project's timelines.",

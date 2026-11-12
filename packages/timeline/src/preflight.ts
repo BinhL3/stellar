@@ -62,6 +62,8 @@ export interface PreflightFacts {
     readonly building: Progress | null;
     readonly ready: number;
     readonly failed: number;
+    /** Why the last build made nothing at all, such as ffmpeg not being installed. */
+    readonly error?: string | null | undefined;
   } | null;
   readonly transcripts: {
     readonly ready: number;
@@ -141,14 +143,16 @@ export const derivePreflight = (facts: PreflightFacts): Array<PreflightStep> => 
             "working",
             `Making ${proxies.building.done} of ${proxies.building.total}`,
           )
-        : proxies.failed > 0
-          ? step(
-              "proxies",
-              "Previews",
-              "warn",
-              `${count(proxies.failed, "file has", "files have")} no preview`,
-            )
-          : step("proxies", "Previews", "done", `Ready for ${count(proxies.ready, "file")}`),
+        : typeof proxies.error === "string"
+          ? step("proxies", "Previews", "fail", proxies.error, "sync")
+          : proxies.failed > 0
+            ? step(
+                "proxies",
+                "Previews",
+                "warn",
+                `${count(proxies.failed, "file has", "files have")} no preview`,
+              )
+            : step("proxies", "Previews", "done", `Ready for ${count(proxies.ready, "file")}`),
 
     transcripts.building !== null
       ? step(

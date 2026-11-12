@@ -12,7 +12,7 @@ import {
   type VideoTranscriptStatus,
 } from "@t3tools/contracts";
 import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
-import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
+import { PROXY_INDEX_PATH, type ProxyIndex, STILL_PATH } from "@t3tools/timeline/proxies";
 import { LayoutPanelTopIcon, ScrollTextIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useEffectEvent, useState } from "react";
 
@@ -104,8 +104,6 @@ const mediaTargets = (text: string | undefined): ReadonlyArray<readonly [string,
   }
 };
 
-const STILL_PATH = /\.(png|jpe?g|heic|tiff?|psd|gif|webp|bmp)$/i;
-
 const parseProxyIndex = (text: string | undefined): ProxyIndex | null => {
   if (text === undefined) return null;
   try {
@@ -137,7 +135,8 @@ const planMedia = (
     return {
       target,
       entry,
-      still: still ? slot(original) : -1,
+      // A still no browser decodes is drawn from the rendition the proxy build made of it.
+      still: still ? slot(entry?.still ?? original) : -1,
       video: still ? -1 : slot(entry?.video ?? original),
       audio: still ? -1 : slot(entry?.audio ?? original),
       peaks: slot(entry?.peaks),
@@ -591,6 +590,13 @@ export default function TimelinePanel(props: {
                 syncing={syncing}
                 building={building}
                 failedProxies={proxyIndex?.failed ?? 0}
+                proxyProblems={{
+                  error: proxyIndex?.error ?? null,
+                  failures: Object.entries(proxyIndex?.failures ?? {}).map(([target, reason]) => [
+                    target.slice(target.lastIndexOf("/") + 1),
+                    reason,
+                  ]),
+                }}
                 rateChanging={Object.entries(proxyIndex?.media ?? {}).flatMap(([target, entry]) =>
                   entry.rateChanges === undefined
                     ? []
