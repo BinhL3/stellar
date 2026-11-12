@@ -25,6 +25,7 @@ import {
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentRpcSubscriptionAtomFamily,
 } from "./runtime.ts";
 import { createProject, deleteProject, updateProject } from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
@@ -200,6 +201,57 @@ export function createProjectEnvironmentAtoms<R, E>(
       tag: WS_METHODS.projectsCreateNew,
       scheduler: projectScheduler,
       concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
+    createCarousel: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:carousel:create",
+      tag: WS_METHODS.carouselCreate,
+      scheduler: projectScheduler,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
+    editCarousel: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:carousel:edit",
+      tag: WS_METHODS.carouselEdit,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
+    importCarouselPhotos: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:carousel:import-photos",
+      tag: WS_METHODS.carouselImportPhotos,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
+    uploadCarouselPhoto: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:carousel:upload-photo",
+      tag: WS_METHODS.carouselUploadPhoto,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
+    submitCarouselRender: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:carousel:submit-render",
+      tag: WS_METHODS.carouselSubmitRender,
+      scheduler: projectScheduler,
+      concurrency: { mode: "parallel" },
+    }),
+    exportCarousel: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:carousel:export",
+      tag: WS_METHODS.carouselExport,
+      scheduler: projectScheduler,
+      concurrency: { mode: "parallel" },
+    }),
+    watchCarousel: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:carousel:watch",
+      tag: WS_METHODS.carouselWatch,
+      // The server counts a subscriber as a client that can draw, so let go soon after the panel closes.
+      idleTtlMs: 1_000,
     }),
     inspectPremiere: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:video-projects:inspect-premiere",

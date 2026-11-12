@@ -286,6 +286,20 @@ import {
   ProjectWriteFileResult,
 } from "./project.ts";
 import {
+  CarouselCreateInput,
+  CarouselCreateResult,
+  CarouselEditInput,
+  CarouselExportInput,
+  CarouselExportResult,
+  CarouselImportPhotosInput,
+  CarouselImportResult,
+  CarouselReadInput,
+  CarouselSubmitRenderInput,
+  CarouselUploadPhotoInput,
+  CarouselView,
+  CarouselWatchState,
+} from "./carousel.ts";
+import {
   TerminalAttachInput,
   TerminalObserveInput,
   TerminalAttachStreamEvent,
@@ -464,6 +478,14 @@ export const WS_METHODS = {
   videoProjectsCheckRender: "videoProjects.checkRender",
   videoProjectsPreflight: "videoProjects.preflight",
   videoProjectsSetPosted: "videoProjects.setPosted",
+
+  carouselCreate: "carousel.create",
+  carouselEdit: "carousel.edit",
+  carouselImportPhotos: "carousel.importPhotos",
+  carouselUploadPhoto: "carousel.uploadPhoto",
+  carouselWatch: "carousel.watch",
+  carouselSubmitRender: "carousel.submitRender",
+  carouselExport: "carousel.export",
 
   shellOpenInEditor: "shell.openInEditor",
 
@@ -1516,6 +1538,53 @@ const WsVideoProjectsSetPostedRpc = Rpc.make(WS_METHODS.videoProjectsSetPosted, 
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const CarouselRpcError = Schema.Union([
+  OrchestrationDispatchCommandError,
+  EnvironmentAuthorizationError,
+]);
+
+const WsCarouselCreateRpc = Rpc.make(WS_METHODS.carouselCreate, {
+  payload: CarouselCreateInput,
+  success: CarouselCreateResult,
+  error: CarouselRpcError,
+});
+
+const WsCarouselEditRpc = Rpc.make(WS_METHODS.carouselEdit, {
+  payload: CarouselEditInput,
+  success: CarouselView,
+  error: CarouselRpcError,
+});
+
+const WsCarouselImportPhotosRpc = Rpc.make(WS_METHODS.carouselImportPhotos, {
+  payload: CarouselImportPhotosInput,
+  success: CarouselImportResult,
+  error: CarouselRpcError,
+});
+
+const WsCarouselUploadPhotoRpc = Rpc.make(WS_METHODS.carouselUploadPhoto, {
+  payload: CarouselUploadPhotoInput,
+  success: CarouselImportResult,
+  error: CarouselRpcError,
+});
+
+const WsCarouselWatchRpc = Rpc.make(WS_METHODS.carouselWatch, {
+  payload: CarouselReadInput,
+  success: CarouselWatchState,
+  error: CarouselRpcError,
+  stream: true,
+});
+
+const WsCarouselSubmitRenderRpc = Rpc.make(WS_METHODS.carouselSubmitRender, {
+  payload: CarouselSubmitRenderInput,
+  error: CarouselRpcError,
+});
+
+const WsCarouselExportRpc = Rpc.make(WS_METHODS.carouselExport, {
+  payload: CarouselExportInput,
+  success: CarouselExportResult,
+  error: CarouselRpcError,
+});
+
 const WsProjectsCreateFromThreadRpc = Rpc.make(WS_METHODS.projectsCreateFromThread, {
   payload: ProjectCreateFromThreadInput,
   success: ProjectCreateFromThreadResult,
@@ -2304,6 +2373,13 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsCheckRenderRpc,
   WsVideoProjectsPreflightRpc,
   WsVideoProjectsSetPostedRpc,
+  WsCarouselCreateRpc,
+  WsCarouselEditRpc,
+  WsCarouselImportPhotosRpc,
+  WsCarouselUploadPhotoRpc,
+  WsCarouselWatchRpc,
+  WsCarouselSubmitRenderRpc,
+  WsCarouselExportRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

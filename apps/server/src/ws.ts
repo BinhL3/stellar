@@ -219,6 +219,7 @@ import * as ProjectService from "./project/ProjectService.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as VideoProjects from "./videoProject/VideoProjects.ts";
+import * as CarouselProjects from "./carousel/CarouselProjects.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
@@ -1411,6 +1412,7 @@ export const layerWsRpc = (
       const projectService = yield* ProjectService.ProjectService;
       const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
       const videoProjects = yield* VideoProjects.VideoProjects;
+      const carouselProjects = yield* CarouselProjects.CarouselProjects;
       const scratchThreadPromotion = yield* ScratchThreadPromotion.ScratchThreadPromotion;
       const eventLoopMonitor = yield* EventLoopMonitor.EventLoopMonitor;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
@@ -3048,6 +3050,62 @@ export const layerWsRpc = (
             .setPosted(input)
             .pipe(
               Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.carouselCreate]: (input) =>
+          carouselProjects
+            .create(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.carouselEdit]: (input) =>
+          carouselProjects
+            .edit(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.carouselImportPhotos]: (input) =>
+          carouselProjects
+            .importPhotos(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.carouselUploadPhoto]: (input) =>
+          carouselProjects
+            .uploadPhoto(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.carouselSubmitRender]: (input) =>
+          carouselProjects
+            .submitRender(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.carouselExport]: (input) =>
+          carouselProjects
+            .export(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.carouselWatch]: (input) =>
+          carouselProjects
+            .watch(input)
+            .pipe(
+              Stream.mapError(
                 (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
               ),
             ),

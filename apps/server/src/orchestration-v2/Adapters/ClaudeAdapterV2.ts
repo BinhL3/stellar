@@ -1995,6 +1995,8 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__video_timeline_words",
   "mcp__t3-code__video_premiere_push",
   "mcp__t3-code__video_preflight",
+  "mcp__t3-code__carousel_read",
+  "mcp__t3-code__carousel_look",
   "mcp__t3-code__t3_worktree_list",
   "mcp__t3-code__t3_project_list",
   "mcp__t3-code__t3_project_read",

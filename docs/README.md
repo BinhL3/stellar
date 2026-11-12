@@ -12,6 +12,7 @@ finishing tool. Stellar is a fork of [pingdotgg/t3code](https://github.com/pingd
 - [Appearance and themes](./user/appearance.md)
 - [Keyboard shortcuts](./user/keybindings.md)
 - [Voice input](./user/voice-input.md)
+- [Photo carousels](./user/carousels.md)
 - [SnapShots](./user/snap-shot.md)
 - [Visual replies](./user/html-renders.md)
 - [Import browser sessions](./user/browser-import.md)

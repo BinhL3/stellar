@@ -625,6 +625,31 @@ skill steps (script, intake scan, transcription, generators) and report files an
 Cards are where a gate waits for Binh. While a card is open, nothing past that gate starts, and the
 thread shows it as waiting on him rather than working.
 
+### 8. A second project kind: photo carousels
+
+Stellar also makes Instagram photo carousels. This is a separate model beside the timeline, not a
+kind of timeline: a carousel has no time, tracks or Premiere adapter, and forcing it into OTIO
+would buy nothing.
+
+- **What a project is follows from what its Stellar folder holds.** `carousel.json` makes it a
+  carousel; `timelines/` makes it a video. There is no kind field to keep in step, and one folder
+  can hold both later (a short and the carousel cut from its stills) without a migration.
+- **Same shape as the video model (Decisions 1 and 3).** The document is the product: versioned
+  JSON whose schema is in `packages/contracts/src/carousel.ts`, changed only through a list of
+  edits that the UI and the `carousel_*` MCP tools both apply
+  (`packages/timeline/src/carousel.ts`). Structure is data; nothing is code.
+- **The client draws, for the preview and the export.** One routine
+  (`apps/web/src/components/carousel/drawSlide.ts`) draws the slide on screen and at 1080 px for
+  export, so the file posted is the picture approved. The server has ffmpeg, whose typography
+  cannot match a browser's, and no headless browser. The cost: an agent can export, or look at its
+  work, only while a client has the carousel open. The server asks over the stream that client
+  already follows, and says so plainly when none does.
+- **Photos are drawn at full size.** Originals a browser decodes are drawn as they are; HEIC,
+  TIFF, PSD and raw get a near-lossless copy up to 4320 px, not the 1600 px still renditions the
+  video preview uses.
+- **Not built:** posting to Instagram, video slides, stickers, music, templates beyond a title and
+  a photo layout, and mobile.
+
 ## Milestones
 
 All seven are in scope. Premiere stays the finishing tool, so Stellar never needs its own

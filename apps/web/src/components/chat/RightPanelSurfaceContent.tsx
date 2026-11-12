@@ -29,7 +29,7 @@ const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
 );
 const DiffPanel = lazy(() => import("../DiffPanel"));
-const TimelinePanel = lazy(() => import("../timeline/TimelinePanel"));
+const ProjectSurfacePanel = lazy(() => import("../carousel/ProjectSurfacePanel"));
 const DevicePanel = lazy(() =>
   import("../device/DevicePanel").then((module) => ({ default: module.DevicePanel })),
 );
@@ -122,7 +122,7 @@ export function RightPanelSurfaceContent(props: {
       if (!props.files.workspaceRoot) return null;
       return (
         <Suspense fallback={null}>
-          <TimelinePanel
+          <ProjectSurfacePanel
             // Sync state belongs to one project; another project starts fresh and syncs on open.
             key={`${props.environmentId}:${props.files.workspaceRoot}`}
             environmentId={props.environmentId}

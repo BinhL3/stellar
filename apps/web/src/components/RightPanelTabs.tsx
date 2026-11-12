@@ -145,6 +145,8 @@ export interface RightPanelTabsProps {
   onAddDevice: () => void;
   /** Present only in video projects. */
   onAddTimeline?: (() => void) | undefined;
+  /** What the project's own surface is called when it isn't a timeline, such as "Carousel". */
+  projectSurfaceLabel?: string | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -328,6 +330,8 @@ function RightPanelEmptyState(props: {
   onAddDevice: () => void;
   /** Present only in video projects. */
   onAddTimeline?: (() => void) | undefined;
+  /** What the project's own surface is called when it isn't a timeline, such as "Carousel". */
+  projectSurfaceLabel?: string | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -346,8 +350,11 @@ function RightPanelEmptyState(props: {
     ...(props.onAddTimeline
       ? [
           {
-            label: "Timeline",
-            description: "See the project's timeline.",
+            label: props.projectSurfaceLabel ?? "Timeline",
+            description:
+              props.projectSurfaceLabel === undefined
+                ? "See the project's timeline."
+                : "Lay out the project's slides.",
             icon: Clapperboard,
             shortcut: "V",
             available: true,
@@ -598,12 +605,13 @@ function surfaceTitle(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
   terminalLabelsById: ReadonlyMap<string, string>,
+  projectSurfaceLabel?: string,
 ): string {
   switch (surface.kind) {
     case "diff":
       return "Diff";
     case "timeline":
-      return "Timeline";
+      return projectSurfaceLabel ?? "Timeline";
     case "files":
       return "Files";
     case "file":
@@ -1125,7 +1133,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     ...(props.onAddTimeline
       ? [
           {
-            label: "Timeline",
+            label: props.projectSurfaceLabel ?? "Timeline",
             icon: Clapperboard,
             shortcut: "V",
             available: true,
@@ -1372,7 +1380,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       workspaceFocusKey={`panel:${props.environmentId}:${props.activeSurfaceId ?? "empty"}`}
       workspaceLabel={
         focusedSurface
-          ? `Workspace panel: ${surfaceTitle(focusedSurface, props.previewSessions, props.terminalLabelsById)}`
+          ? `Workspace panel: ${surfaceTitle(focusedSurface, props.previewSessions, props.terminalLabelsById, props.projectSurfaceLabel)}`
           : "Workspace panel"
       }
       mode={props.mode}
@@ -1416,7 +1424,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     dragDisabled={!props.onMoveSurface || renamingDevice === surface.id}
                     active={surface.id === props.activeSurfaceId}
                     pending={props.pendingSurfaceIds.has(surface.id)}
-                    title={surfaceTitle(surface, props.previewSessions, props.terminalLabelsById)}
+                    title={surfaceTitle(
+                      surface,
+                      props.previewSessions,
+                      props.terminalLabelsById,
+                      props.projectSurfaceLabel,
+                    )}
                     audio={tabAudioState(
                       previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
                     )}
@@ -1576,6 +1589,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         {props.activeSurfaceId === null ? (
           <RightPanelEmptyState
             onAddTimeline={props.onAddTimeline}
+            projectSurfaceLabel={props.projectSurfaceLabel}
             onAddBrowser={props.onAddBrowser}
             onAddBrowserInProfile={props.onAddBrowserInProfile}
             browserProfiles={browserProfiles}

@@ -58,6 +58,12 @@ export type T3McpToolSummaryAction =
   | "video-render-check"
   | "video-preflight"
   | "video-posted"
+  | "carousel-read"
+  | "carousel-edit"
+  | "carousel-look"
+  | "carousel-photos"
+  | "carousel-export"
+  | "carousel-start"
   | "project-list"
   | "project-read"
   | "project-create"
@@ -234,6 +240,12 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   video_render_check: tool(["Check", "Checking", "Checked", "the export"], "video-render-check"),
   video_preflight: tool(["Read", "Reading", "Read", "the run's steps"], "video-preflight"),
   video_posted: tool(["Record", "Recording", "Recorded", "the short as posted"], "video-posted"),
+  carousel_read: tool(["Read", "Reading", "Read", "the carousel"], "carousel-read"),
+  carousel_edit: tool(["Edit", "Editing", "Edited", "the carousel"], "carousel-edit"),
+  carousel_look: tool(["Look at", "Looking at", "Looked at", "the slides"], "carousel-look"),
+  carousel_photos: tool(["Import", "Importing", "Imported", "photos"], "carousel-photos"),
+  carousel_export: tool(["Export", "Exporting", "Exported", "the carousel"], "carousel-export"),
+  carousel_start: tool(["Start", "Starting", "Started", "a carousel project"], "carousel-start"),
   preview_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),
   preview_open: tool(
     ["Open", "Opening", "Opened", "a page in the preview browser"],
