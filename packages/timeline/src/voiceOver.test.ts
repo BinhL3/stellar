@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { applyEdits } from "./edits.ts";
 import { layoutTimeline } from "./layout.ts";
 import { type Clip, type Gap, rationalTime, type Timeline, timeRange, type Track } from "./otio.ts";
+import { linearTimeWarp } from "./speed.ts";
 import {
   addTake,
   chooseTake,
@@ -205,6 +206,25 @@ describe("placeTake", () => {
     expect(placement.short).toEqual([
       { clipId: "shot2b", name: "shot2b", track: "V1", frames: 10, atFrame: 190 },
       { clipId: "music", name: "music", track: "A1", frames: 30, atFrame: 260 },
+    ]);
+  });
+
+  it("stretches a sped-up or reversed clip only as far as its media reaches at that speed", () => {
+    const warped = timelineOf(
+      track("V1", "Video", [{ ...clip("fast", 0, 80), effects: [linearTimeWarp(2)] }]),
+      track("V2", "Video", [{ ...clip("back", 10, 80), effects: [linearTimeWarp(-1)] }]),
+      track("A1", "Audio", [voice(t2, 80)]),
+    );
+    const longer = take("t4", "b2", 110);
+    // fast.mov is 200 frames long, which at double speed is 100 frames of timeline. The reversed
+    // clip's tail plays toward its media's first frame, 10 frames before its source start.
+    const placement = place(warped, longer, [t2, longer], () => 200 / RATE);
+    const { V1, V2 } = spans(placement.timeline);
+    expect(V1).toEqual(["fast 0-100 src 0"]);
+    expect(V2).toEqual(["back 0-90 src 0"]);
+    expect(placement.short).toEqual([
+      { clipId: "fast", name: "fast", track: "V1", frames: 10, atFrame: 100 },
+      { clipId: "back", name: "back", track: "V2", frames: 20, atFrame: 90 },
     ]);
   });
 

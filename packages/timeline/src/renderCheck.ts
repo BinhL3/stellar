@@ -4,7 +4,8 @@
  * Everything in this file is pure; `renderProbe.ts` runs the tools.
  */
 import { layoutTimeline } from "./layout.ts";
-import { type Timeline, TIMELINE_NAMESPACE } from "./otio.ts";
+import { type Clip, type Timeline, TIMELINE_NAMESPACE } from "./otio.ts";
+import { sourceSecondsAt, timeScalarOf } from "./speed.ts";
 
 /** What short-form platforms normalise towards; quieter or louder gets turned up or down. */
 export const SHORT_FORM_LOUDNESS_LUFS = -14;
@@ -89,8 +90,7 @@ interface Placed {
   readonly start: number;
   readonly end: number;
   readonly target: string;
-  /** Seconds into the media at `start`. */
-  readonly sourceStart: number;
+  readonly clip: Clip;
   /** 0 is the top video track. */
   readonly layer: number;
 }
@@ -120,6 +120,10 @@ export const timelineRenderFacts = (timeline: Timeline): TimelineRenderFacts => 
   const slivers: Array<TimelineRenderFacts["slivers"][number]> = [];
   let layer = 0;
   for (const track of layout.tracks) {
+    // Captions are text Premiere keeps apart from the picture: no cut, no cover for black.
+    if ((track.metadata?.[TIMELINE_NAMESPACE] as { captions?: boolean } | undefined)?.captions) {
+      continue;
+    }
     if (track.kind === "Video") layer++;
     if (!enabledTracks.has(track.name)) continue;
     for (const item of track.clips) {
@@ -140,15 +144,8 @@ export const timelineRenderFacts = (timeline: Timeline): TimelineRenderFacts => 
       }
       const target = item.clip.media_references.DEFAULT_MEDIA.target_url;
       if (STILL_PATH.test(target)) stills.push(span);
-      else if (target !== "") {
-        const { start_time } = item.clip.source_range;
-        videoFiles.push({
-          ...span,
-          target,
-          sourceStart: start_time.value / start_time.rate,
-          layer: layer - 1,
-        });
-      }
+      else if (target !== "")
+        videoFiles.push({ ...span, target, clip: item.clip, layer: layer - 1 });
     }
   }
 
@@ -176,10 +173,16 @@ export const timelineRenderFacts = (timeline: Timeline): TimelineRenderFacts => 
     if (before === after) continue;
     const sameMedia = before !== undefined && after !== undefined && before.target === after.target;
     if (sameMedia) {
-      const sourceBefore = before.sourceStart + (frame - before.start) / layout.rate;
-      const sourceAfter = after.sourceStart + (frame - after.start) / layout.rate;
-      // A razor cut that removed nothing plays straight through.
-      if (Math.abs(sourceBefore - sourceAfter) < 1.5 / layout.rate) continue;
+      const scalar = timeScalarOf(before.clip);
+      const sourceBefore = sourceSecondsAt(before.clip, (frame - before.start) / layout.rate);
+      const sourceAfter = sourceSecondsAt(after.clip, (frame - after.start) / layout.rate);
+      // A razor cut that removed nothing plays straight through, at whatever speed both run.
+      if (
+        scalar === timeScalarOf(after.clip) &&
+        Math.abs(sourceBefore - sourceAfter) < (1.5 * Math.abs(scalar)) / layout.rate
+      ) {
+        continue;
+      }
     }
     const dissolved = transitions.some(
       (transition) => transition.startFrame <= frame && frame <= transition.endFrame,

@@ -7,11 +7,18 @@
 import { frameAt } from "../frameTimes.ts";
 import { layoutTimeline, type LaidOutClip, type LaidOutTrack } from "../layout.ts";
 import { type Timeline, TIMELINE_NAMESPACE } from "../otio.ts";
+import { mediaSpanSeconds, timeScalarOf } from "../speed.ts";
 
 export interface FcpXmlExport {
   readonly xml: string;
   /** Clips left out, as "track name: clip name (why)". */
   readonly skipped: ReadonlyArray<string>;
+  /**
+   * Clips written with less than they have, as "track name: clip name (what)". A speed change
+   * is one: the clip keeps its place and its source in, plays at normal speed, and needs its
+   * speed set again in Premiere.
+   */
+  readonly approximated: ReadonlyArray<string>;
 }
 
 const escape = (text: string) =>
@@ -61,6 +68,7 @@ export const toFcpXml = (
   const frame = stellar?.frame ?? { width: 1080, height: 1920 };
   const rate = rateOf(layout.rate);
   const skipped: Array<string> = [];
+  const approximated: Array<string> = [];
   const files = new Map<string, string>();
 
   const absolute = (target: string) =>
@@ -75,8 +83,7 @@ export const toFcpXml = (
   for (const track of layout.tracks) {
     for (const item of track.clips) {
       const target = item.clip.media_references.DEFAULT_MEDIA.target_url;
-      const { start_time, duration } = item.clip.source_range;
-      const end = Math.ceil(((start_time.value + duration.value) / start_time.rate) * layout.rate);
+      const end = Math.ceil(mediaSpanSeconds(item.clip).end * layout.rate);
       usedTo.set(target, Math.max(usedTo.get(target) ?? 0, end));
     }
   }
@@ -113,6 +120,12 @@ export const toFcpXml = (
       return "";
     }
     const { start_time } = item.clip.source_range;
+    const scalar = timeScalarOf(item.clip);
+    if (scalar !== 1 && channel < 2) {
+      approximated.push(
+        `${track.name}: ${item.clip.name} (${scalar < 0 ? "reversed, " : ""}${Math.abs(scalar) * 100}% speed is not written; set it in Premiere)`,
+      );
+    }
     const sourceSeconds = start_time.value / start_time.rate;
     const times = options.frameTimes?.[target];
     const sourceIn =
@@ -132,8 +145,15 @@ export const toFcpXml = (
     }</clipitem>`;
   };
 
+  // Captions are not video: xmeml has no place for them, and Premiere keeps them on their own.
+  const isCaptions = (track: LaidOutTrack) =>
+    (track.metadata?.[TIMELINE_NAMESPACE] as { captions?: boolean } | undefined)?.captions === true;
+  for (const track of layout.tracks.filter(isCaptions)) {
+    skipped.push(`${track.name}: ${track.clips.length} captions (captions are not written)`);
+  }
+
   const tracksOf = (kind: LaidOutTrack["kind"]) => {
-    const tracks = layout.tracks.filter((track) => track.kind === kind);
+    const tracks = layout.tracks.filter((track) => track.kind === kind && !isCaptions(track));
     if (kind === "Video") {
       // The layout lists video from the top track down; xmeml lists it from V1 up.
       return tracks
@@ -171,5 +191,5 @@ export const toFcpXml = (
     layout.durationFrames,
   )}</duration>${rate}<media><video><format><samplecharacteristics>${rate}<width>${frame.width}</width><height>${frame.height}</height><anamorphic>FALSE</anamorphic><pixelaspectratio>square</pixelaspectratio><fielddominance>none</fielddominance></samplecharacteristics></format>${video}</video><audio><numOutputChannels>2</numOutputChannels><format><samplecharacteristics><depth>16</depth><samplerate>48000</samplerate></samplecharacteristics></format><outputs><group><index>1</index><numchannels>1</numchannels><downmix>0</downmix><channel><index>1</index></channel></group><group><index>2</index><numchannels>1</numchannels><downmix>0</downmix><channel><index>2</index></channel></group></outputs>${audio}</audio></media></sequence></xmeml>
 `;
-  return { xml, skipped };
+  return { xml, skipped, approximated };
 };

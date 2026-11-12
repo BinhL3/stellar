@@ -12,6 +12,7 @@ import {
   timeRange,
   type Track,
 } from "./otio.ts";
+import { linearTimeWarp } from "./speed.ts";
 
 const RATE = 30;
 
@@ -247,6 +248,43 @@ describe("diffTimelines", () => {
       "removed A1 300-400 #a4 a4",
     ]);
     expect(a1.name).toBe("A1");
+  });
+});
+
+describe("speed changes", () => {
+  const one = (speed?: number) =>
+    timelineOf([
+      track("V1", "Video", [
+        speed === undefined
+          ? clip("v1", 0, 100)
+          : { ...clip("v1", 0, 100), effects: [linearTimeWarp(speed)] },
+      ]),
+    ]);
+
+  it("reports a new speed as a change, not a trim", () => {
+    expect(diffTimelines(one(), one(2)).changes).toMatchObject([
+      { kind: "changed", properties: ["speed"] },
+    ]);
+    expect(diffTimelines(one(2), one(2)).changes).toEqual([]);
+  });
+
+  it("reads a trim of a sped-up or reversed clip in timeline frames", () => {
+    for (const speed of [2, -1]) {
+      const trimmed = applyEdits(one(speed), [
+        { kind: "trim", clipId: "v1", edge: "start", frame: 20 },
+      ]);
+      expect(diffTimelines(one(speed), trimmed).changes).toMatchObject([
+        { kind: "trimmed", start: { before: 0, after: 20 } },
+      ]);
+    }
+  });
+
+  it("measures the media a sped-up clip uses against the file's length", () => {
+    // 100 frames at double speed play 200 source frames: 6.67 s of a 5 s file.
+    expect(checkTimeline(one(2), { "v1.mov": { duration: 5 } })).toMatchObject([
+      { kind: "source", message: "V1 v1 at frame 0 runs 1.67s past the end of its media." },
+    ]);
+    expect(checkTimeline(one(2), { "v1.mov": { duration: 7 } })).toEqual([]);
   });
 });
 

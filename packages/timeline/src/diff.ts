@@ -6,6 +6,7 @@
 import { applyEdits, STILL_PATH, type TimelineEdit } from "./edits.ts";
 import { clipIdOf, layoutTimeline } from "./layout.ts";
 import { type Clip, sortKeys, type Timeline, TIMELINE_NAMESPACE, type Track } from "./otio.ts";
+import { mediaSpanSeconds, playSpan, timeScalarOf } from "./speed.ts";
 
 /** Where a clip sits in one version of the timeline. */
 export interface ClipState {
@@ -184,6 +185,10 @@ const DERIVED: Readonly<Record<string, ReadonlyArray<string>>> = {
 const propertiesOf = (item: Clip | Track): ReadonlyMap<string, Property> => {
   const out = new Map<string, Property>([["enabled", { path: ["enabled"], value: item.enabled }]]);
   if (item.OTIO_SCHEMA === "Clip.2") out.set("name", { path: ["name"], value: item.name });
+  // A speed change is OTIO's own effect, outside metadata; unset reads as normal speed.
+  if (item.OTIO_SCHEMA === "Clip.2" && (item.effects !== undefined || timeScalarOf(item) !== 1)) {
+    out.set("speed", { path: ["effects"], value: item.effects });
+  }
   const add = (name: string, path: ReadonlyArray<string>, value: unknown) => {
     out.set(out.has(name) ? path.slice(1).join(".") : name, { path, value });
   };
@@ -241,11 +246,7 @@ const isStill = (clip: Clip) => targetOf(clip) === "" || STILL_PATH.test(targetO
 const textOf = (clip: Clip) => propertiesOf(clip).get("text")?.value;
 
 /** A clip's source in and out, in timeline frames. */
-const sourceSpan = (clip: Clip, rate: number) => {
-  const { start_time, duration } = clip.source_range;
-  const start = (start_time.value / start_time.rate) * rate;
-  return { start, end: start + (duration.value / duration.rate) * rate };
-};
+const sourceSpan = (clip: Clip, rate: number) => playSpan(clip, rate);
 
 /** How likely two clips of the same media are the same clip; zero when nothing ties them. */
 const similarity = (base: Placed, next: Placed, rate: number): number => {
@@ -813,7 +814,7 @@ export const checkTimeline = (
         }
         previous = { start, end };
         if (!isStill(child)) {
-          const sourceEnd = (start_time.value + duration.value) / start_time.rate;
+          const sourceEnd = mediaSpanSeconds(child).end;
           const known = media?.[targetOf(child)]?.duration;
           if (start_time.value < 0) report("source", "starts before its media's first frame");
           else if (known !== undefined && sourceEnd > known + 1 / rate) {

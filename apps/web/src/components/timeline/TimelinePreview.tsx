@@ -1,5 +1,7 @@
 import type { TimelineLayout } from "@t3tools/timeline/layout";
-import { useEffect, useEffectEvent, useRef } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 import { PreviewEngine, type PreviewSource } from "./previewEngine";
 
@@ -28,6 +30,8 @@ export function TimelinePreview(props: {
   const onTime = useEffectEvent((frame: number, now: number) => props.onTime(frame, now));
   const onSpeed = useEffectEvent((speed: number) => props.onSpeed(speed));
   const { onEngine } = props;
+  // What the engine can't draw at the playhead. It reports only when the list changes.
+  const [notDrawn, setNotDrawn] = useState<ReadonlyArray<string>>([]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Owns the canvas engine's lifetime: decoders, animation frames and a resize observer.
   useEffect(() => {
@@ -36,6 +40,7 @@ export function TimelinePreview(props: {
     const engine = new PreviewEngine(canvas, {
       onTime: (frame, now) => onTime(frame, now),
       onSpeed: (speed) => onSpeed(speed),
+      onNotDrawn: setNotDrawn,
     });
     engineRef.current = engine;
     onEngine(engine);
@@ -55,11 +60,27 @@ export function TimelinePreview(props: {
     });
   }, [props.layout, props.frame, props.media.sources]);
 
+  const missing = notDrawn.join(", ");
   return (
-    <canvas
-      ref={canvasRef}
-      className="h-full max-w-full rounded-sm bg-black"
+    <div
+      className="relative h-full max-w-full"
       style={{ aspectRatio: `${props.frame.width} / ${props.frame.height}` }}
-    />
+    >
+      <canvas ref={canvasRef} className="size-full rounded-sm bg-black" />
+      {notDrawn.length > 0 ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div className="absolute bottom-1.5 left-1.5 max-w-[calc(100%-0.75rem)] truncate rounded-sm bg-black/60 px-1.5 py-0.5 text-2xs leading-4 text-white/75" />
+            }
+          >
+            Not drawn: {missing}
+          </TooltipTrigger>
+          <TooltipPopup side="top">
+            The preview doesn't draw {missing}. Check it in Premiere.
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
+    </div>
   );
 }

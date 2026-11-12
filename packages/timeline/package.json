@@ -51,6 +51,10 @@
       "types": "./src/premiere/prproj.ts",
       "import": "./src/premiere/prproj.ts"
     },
+    "./premiere/textStyle": {
+      "types": "./src/premiere/textStyle.ts",
+      "import": "./src/premiere/textStyle.ts"
+    },
     "./premiere/shortcuts": {
       "types": "./src/premiere/shortcuts.ts",
       "import": "./src/premiere/shortcuts.ts"
@@ -90,6 +94,10 @@
     "./voiceOver": {
       "types": "./src/voiceOver.ts",
       "import": "./src/voiceOver.ts"
+    },
+    "./speed": {
+      "types": "./src/speed.ts",
+      "import": "./src/speed.ts"
     },
     "./words": {
       "types": "./src/words.ts",

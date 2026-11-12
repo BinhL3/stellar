@@ -16,6 +16,7 @@ import {
   type RenderCheckItem,
   timelineRenderFacts,
 } from "./renderCheck.ts";
+import { linearTimeWarp } from "./speed.ts";
 
 const RATE = 30;
 
@@ -115,6 +116,9 @@ describe("timelineRenderFacts", () => {
             clip("a", 80, 30),
             clip("b", 0, 30),
             clip("c", 0, 30),
+            // One clip at double speed, razored: the second piece starts where the first got to.
+            { ...clip("d", 0, 30), effects: [linearTimeWarp(2)] },
+            { ...clip("d", 60, 30), effects: [linearTimeWarp(2)] },
           ],
           {
             premiere: { transitions: [{ name: "Cross Dissolve", startFrame: 115, endFrame: 125 }] },
@@ -124,6 +128,10 @@ describe("timelineRenderFacts", () => {
         track("V2", "Video", [gap(40), clip("broll", 0, 30)]),
         // An emoji coming and going is not a cut.
         track("V3", "Video", [gap(10), clip("emoji", 0, 10, "emoji.png")]),
+        // Captions change with the words, not with the picture.
+        track("C1", "Video", [gap(20), clip("a caption", 0, 25, ""), clip("the next", 0, 25, "")], {
+          stellar: { captions: true },
+        }),
       ),
     );
     expect(facts.cuts).toEqual([
@@ -132,6 +140,7 @@ describe("timelineRenderFacts", () => {
       { frame: 70, hard: true },
       { frame: 90, hard: true },
       { frame: 120, hard: false },
+      { frame: 150, hard: true },
     ]);
   });
 
@@ -151,10 +160,13 @@ describe("timelineRenderFacts", () => {
       timelineOf(
         track("V1", "Video", [clip("a", 0, 60), { ...clip("b", 0, 2), enabled: false }]),
         track("A1", "Audio", [clip("vo", 0, 20, "vo.wav"), gap(30), clip("vo", 50, 12, "vo.wav")]),
+        track("C1", "Video", [gap(60), clip("a caption", 0, 2, "")], {
+          stellar: { captions: true },
+        }),
       ),
     );
     expect(muted.silent).toEqual([{ start: 20, end: 50 }]);
-    // A disabled clip draws nothing, so it is neither picture nor a sliver.
+    // A disabled clip draws nothing, so it is neither picture nor a sliver; nor is a caption.
     expect(muted.gaps).toEqual([{ start: 60, end: 62 }]);
     expect(muted.slivers).toEqual([]);
   });

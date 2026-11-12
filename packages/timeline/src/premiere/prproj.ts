@@ -22,6 +22,8 @@ import {
   sortKeys,
   timeRange,
 } from "../otio.ts";
+import { linearTimeWarp } from "../speed.ts";
+import { readTextStyle, type TextStyle, textOfRuns } from "./textStyle.ts";
 
 export const TICKS_PER_SECOND = 254016000000n;
 const STILL_EXTENSIONS = /\.(png|jpe?g|heic|tiff?|psd|gif|webp|bmp)$/i;
@@ -219,9 +221,11 @@ export const parsePrproj = (bytes: Uint8Array): PremiereProject => {
   };
 };
 
+const CROP = "AE.ADBE AECrop";
 const PORTABLE_EFFECTS = new Set([
   "AE.ADBE Motion",
   "AE.ADBE Opacity",
+  CROP,
   "Internal Volume Stereo",
   "Internal Volume Mono",
   "Internal Channel Volume",
@@ -234,6 +238,52 @@ const MAPPABLE_EFFECTS = new Set([
   "AE.ADBE Crop",
   "AE.ADBE Lumetri",
 ]);
+
+/**
+ * Premiere's Blend Mode menu, top to bottom, as the Opacity effect's second "Blend Mode" param
+ * indexes it: the menu's five separators take a number each, which is why the list has holes.
+ */
+const BLEND_MODES: ReadonlyArray<string | null> = [
+  "normal",
+  "dissolve",
+  null,
+  "darken",
+  "multiply",
+  "color-burn",
+  "linear-burn",
+  "darker-color",
+  null,
+  "lighten",
+  "screen",
+  "color-dodge",
+  "linear-dodge",
+  "lighter-color",
+  null,
+  "overlay",
+  "soft-light",
+  "hard-light",
+  "vivid-light",
+  "linear-light",
+  "pin-light",
+  "hard-mix",
+  null,
+  "difference",
+  "exclusion",
+  "subtract",
+  "divide",
+  null,
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+];
+
+/** A param is animated when it has keyframes and its stopwatch isn't off; newer saves omit the flag. */
+const isAnimated = (param: XmlNode): boolean => {
+  const flag = text(param, "IsTimeVarying");
+  if (flag !== undefined) return flag === "true";
+  return (text(param, "Keyframes") ?? "").includes(",");
+};
 
 const effectTier = (matchName: string): EffectRef["tier"] =>
   PORTABLE_EFFECTS.has(matchName)
@@ -287,6 +337,8 @@ const readSequence = (
     transform: Record<string, unknown>;
     words: string | undefined;
     textPosition: ReadonlyArray<number> | undefined;
+    textStyle: TextStyle | undefined;
+    blendMode: string | undefined;
   } => {
     const chain = graph.resolve(componentsRef);
     const effects: Array<EffectRef> = [];
@@ -294,6 +346,8 @@ const readSequence = (
     const keyframes: Record<string, unknown> = {};
     let words: string | undefined;
     let textPosition: ReadonlyArray<number> | undefined;
+    let textStyle: TextStyle | undefined;
+    let blendMode: string | undefined;
     const components = nodes(
       at(chain?.node, "ComponentChain", "Components")?.["Component"],
     ).toSorted(byIndex);
@@ -310,8 +364,22 @@ const readSequence = (
         .toSorted(byIndex)
         .map((p) => graph.resolve(p)?.node)
         .filter((p): p is XmlNode => p !== undefined);
-      const animated = params.some((p) => text(p, "IsTimeVarying") === "true");
+      const animated = params.some(isAnimated);
       const intrinsic = text(inner, "Intrinsic") === "true";
+      if (matchName === "AE.ADBE Opacity") {
+        // Of the two params named Blend Mode, the menu index is the one with ParameterID 3.
+        const menu = params.find(
+          (p) => text(p, "Name") === "Blend Mode" && text(p, "ParameterID") === "3",
+        );
+        const mode = BLEND_MODES[Number(text(menu, "StartKeyframe")?.split(",")[1] ?? 0)];
+        if (mode !== undefined && mode !== null && mode !== "normal") blendMode = mode;
+      }
+      if (matchName === CROP && text(inner, "Bypass") !== "true") {
+        // Crop is drawn from these values and also keeps its blob, which has Zoom and feather.
+        const { values, keyframes: animatedValues } = intrinsicValues(matchName, params, inPoint);
+        Object.assign(transform, values);
+        Object.assign(keyframes, animatedValues);
+      }
       if (intrinsic) {
         const { values, keyframes: animatedValues } = intrinsicValues(matchName, params, inPoint);
         Object.assign(transform, values);
@@ -328,7 +396,22 @@ const readSequence = (
       if (matchName === "AE.ADBE Text") {
         const source = params.find((p) => text(p, "Name") === "Source Text");
         const value = text(source, "StartKeyframeValue");
-        words ??= value === undefined ? undefined : sourceTextWords(value);
+        const style = value === undefined || words !== undefined ? undefined : readTextStyle(value);
+        if (style !== undefined) {
+          const scale = Number(
+            text(
+              params.find((p) => text(p, "Name") === "Scale"),
+              "StartKeyframe",
+            )?.split(",")[1] ?? 100,
+          );
+          textStyle = scale === 100 || !Number.isFinite(scale) ? style : { ...style, scale };
+        }
+        words ??=
+          style !== undefined
+            ? textOfRuns(style)
+            : value === undefined
+              ? undefined
+              : sourceTextWords(value);
         const position = text(
           params.find((p) => text(p, "Name") === "Position"),
           "StartKeyframe",
@@ -346,7 +429,7 @@ const readSequence = (
       });
     }
     if (Object.keys(keyframes).length > 0) transform["keyframes"] = keyframes;
-    return { effects, transform, words, textPosition };
+    return { effects, transform, words, textPosition, textStyle, blendMode };
   };
 
   const readItem = (
@@ -385,18 +468,28 @@ const readSequence = (
     // anything; the raw ticks stay in `metadata.premiere.sourceTicks` for push.
     const still = path === "" || STILL_EXTENSIONS.test(path);
     const mediaStart = still ? inPoint : bigint(text(logging?.node, "MediaInPoint"), 0n);
-    const { effects, transform, words, textPosition } = effectRefs(
+    const { effects, transform, words, textPosition, textStyle, blendMode } = effectRefs(
       at(clipTrackItem, "ComponentOwner", "Components"),
       inPoint,
     );
     const sourceStart = Number(inPoint - mediaStart) / Number(sourceTicksPerFrame);
     // A clip's OutPoint can stay at the media's end after a tail trim; the played length is the
-    // record length (speed changes are not read yet).
+    // record length, and the media it covers is that length times the speed.
     const sourceDuration = Number(end - start) / Number(sourceTicksPerFrame);
+    // InPoint stays the lowest source time whatever the speed. Reverse was not in any project
+    // read so far: a negative speed or a PlayBackwards flag are both taken to mean it.
+    const playbackSpeed = Number(text(clipNode, "PlaybackSpeed") ?? 1);
+    const backwards = text(clipNode, "PlayBackwards") === "true";
+    const speed =
+      !Number.isFinite(playbackSpeed) || playbackSpeed === 0 || still
+        ? 1
+        : (Math.round(Math.abs(playbackSpeed) * 1e6) / 1e6) *
+          (backwards || playbackSpeed < 0 ? -1 : 1);
     const clip: Clip = {
       OTIO_SCHEMA: "Clip.2",
       name,
       source_range: timeRange(sourceStart, sourceDuration, sourceRate),
+      ...(speed === 1 ? {} : { effects: [linearTimeWarp(speed)] }),
       media_references: {
         DEFAULT_MEDIA: {
           OTIO_SCHEMA: "ExternalReference.1",
@@ -411,6 +504,8 @@ const readSequence = (
           ...(words === undefined ? {} : { text: words }),
           // Where the text layer's anchor sits, as a fraction of the frame.
           ...(textPosition === undefined ? {} : { textPosition }),
+          ...(textStyle === undefined ? {} : { textStyle }),
+          ...(blendMode === undefined ? {} : { blendMode }),
           ...(Object.keys(transform).length > 0 ? { transform } : {}),
           ...(effects.length > 0 ? { effects } : {}),
         },
@@ -424,14 +519,103 @@ const readSequence = (
     return { clip, start, end, storedIndex };
   };
 
+  /**
+   * A caption track as a video track of text clips above the picture, so captions show in the
+   * timeline and the preview like any text. `metadata.stellar.captions` marks it: Premiere
+   * keeps captions apart from its video tracks, so it has no V number there.
+   */
+  const captionTrack = (trackObject: GraphObject, trackLabel: string): Track | undefined => {
+    const items = nodes(
+      at(trackObject.node, "DataClipTrack", "ClipTrack", "ClipItems", "TrackItems")?.["TrackItem"],
+    )
+      .map((entry) => graph.resolve(entry)?.node)
+      .filter((item): item is XmlNode => item !== undefined)
+      .map((item) => {
+        const trackItem = at(item, "DataClipTrackItem", "ClipTrackItem", "TrackItem");
+        const styles = nodes(at(item, "BlockVector")?.["BlockVectorItem"])
+          .toSorted(byIndex)
+          .map((block) => text(graph.resolve(block)?.node, "FormattedTextData"))
+          .flatMap((data) => (data === undefined ? [] : (readTextStyle(data) ?? [])));
+        return {
+          start: bigint(text(trackItem, "Start"), 0n),
+          end: bigint(text(trackItem, "End"), 0n),
+          nodeId: text(trackItem, "Node", "ID") ?? "",
+          styles,
+        };
+      })
+      .filter((item) => item.end > item.start && item.styles.length > 0)
+      .toSorted((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+    if (items.length === 0) return undefined;
+    const children: Array<TrackChild> = [];
+    let cursor = 0n;
+    for (const item of items) {
+      if (item.start < cursor) {
+        warnings.push(
+          `${trackLabel} caption at frame ${toFrames(item.start, "")} overlaps the previous one; skipped.`,
+        );
+        continue;
+      }
+      if (item.start > cursor) {
+        children.push(gap(toFrames(item.start - cursor, `${trackLabel} gap`), rate));
+      }
+      const [first, ...rest] = item.styles;
+      if (first === undefined) continue;
+      // A caption's blocks are its lines.
+      const style: TextStyle = {
+        ...first,
+        runs: [
+          ...first.runs,
+          ...rest.flatMap((block) => [{ ...block.runs[0], text: "\r" }, ...block.runs]),
+        ],
+      };
+      const words = textOfRuns(style);
+      const startFrame = toFrames(item.start, `${trackLabel} caption start`);
+      const endFrame = toFrames(item.end, `${trackLabel} caption end`);
+      children.push({
+        OTIO_SCHEMA: "Clip.2",
+        name: words.replace(/\s+/g, " ").slice(0, 60),
+        source_range: timeRange(0, endFrame - startFrame, rate),
+        media_references: {
+          DEFAULT_MEDIA: { OTIO_SCHEMA: "ExternalReference.1", target_url: "", metadata: {} },
+        },
+        active_media_reference_key: "DEFAULT_MEDIA",
+        enabled: true,
+        metadata: {
+          [TIMELINE_NAMESPACE]: { caption: true, text: words, textStyle: style },
+          premiere: {
+            nodeId: item.nodeId === "" ? null : Number(item.nodeId).toString(16).padStart(8, "0"),
+            record: { startFrame, endFrame },
+          },
+        },
+      });
+      cursor = item.end;
+    }
+    return {
+      OTIO_SCHEMA: "Track.1",
+      name: trackLabel,
+      kind: "Video",
+      children,
+      enabled: true,
+      metadata: { [TIMELINE_NAMESPACE]: { captions: true } },
+    };
+  };
+
   const tracks: Array<Track> = [];
+  const captionTracks: Array<Track> = [];
   for (const group of groups) {
     const kind =
       group.tag === "VideoTrackGroup" ? "Video" : group.tag === "AudioTrackGroup" ? "Audio" : null;
     const trackEntries = nodes(at(group.node, "TrackGroup", "Tracks")?.["Track"]).toSorted(byIndex);
     if (kind === null) {
-      if (trackEntries.length > 0)
-        warnings.push(`${group.tag}: ${trackEntries.length} track(s) not read yet (captions).`);
+      trackEntries.forEach((entry, trackIndex) => {
+        const trackObject = graph.resolve(entry);
+        if (trackObject?.tag !== "CaptionDataClipTrack") {
+          warnings.push(`${group.tag}: a ${trackObject?.tag ?? "missing"} track was not read.`);
+          return;
+        }
+        const captions = captionTrack(trackObject, `C${trackIndex + 1}`);
+        if (captions !== undefined) captionTracks.push(captions);
+      });
       continue;
     }
     trackEntries.forEach((entry, trackIndex) => {
@@ -486,16 +670,24 @@ const readSequence = (
         .filter((t): t is XmlNode => t !== undefined)
         .map((t) => {
           const transitionItem = at(t, "TransitionTrackItem");
+          const startTicks = bigint(text(transitionItem, "TrackItem", "Start"), 0n);
+          const matchName = text(transitionItem, "MatchName");
+          const alignment = text(transitionItem, "Alignment");
           return {
             name:
               text(transitionItem, "DisplayName") ??
               text(transitionItem, "MatchName") ??
               "transition",
-            startFrame:
-              Number(bigint(text(transitionItem, "TrackItem", "Start"), 0n)) /
-              Number(ticksPerFrame),
+            startFrame: Number(startTicks) / Number(ticksPerFrame),
             endFrame:
               Number(bigint(text(transitionItem, "TrackItem", "End"), 0n)) / Number(ticksPerFrame),
+            ...(matchName === undefined ? {} : { matchName }),
+            // Alignment is how far into the transition the cut sits.
+            ...(alignment === undefined
+              ? {}
+              : { cutFrame: Number(startTicks + bigint(alignment, 0n)) / Number(ticksPerFrame) }),
+            ...(text(transitionItem, "HasOutgoingClip") === "false" ? { outgoing: false } : {}),
+            ...(text(transitionItem, "HasIncomingClip") === "false" ? { incoming: false } : {}),
           };
         });
 
@@ -509,6 +701,10 @@ const readSequence = (
       });
     });
   }
+
+  // Captions go after the last video track, so they draw on top and V numbers keep their meaning.
+  const lastVideo = tracks.findLastIndex((track) => track.kind === "Video");
+  tracks.splice(lastVideo + 1, 0, ...captionTracks);
 
   const timeline: Timeline = {
     OTIO_SCHEMA: "Timeline.1",
@@ -572,6 +768,14 @@ const intrinsicParam = (
       isDefault: value === MOTION_DEFAULTS[name],
     };
   }
+  if (matchName === CROP && ["Left", "Top", "Right", "Bottom"].includes(name)) {
+    // Percent of the picture taken off that edge.
+    return {
+      key: `crop_${name.toLowerCase()}`,
+      value: Number(value),
+      isDefault: Number(value) === 0,
+    };
+  }
   if (matchName === "AE.ADBE Opacity" && name === "Opacity") {
     return { key: "opacity", value: Number(value), isDefault: value === "100" };
   }
@@ -583,9 +787,58 @@ const intrinsicParam = (
   return null;
 };
 
+/** How a keyframe leaves for the next one: held, or a cubic bezier as CSS writes it. */
+type Easing = "hold" | readonly [number, number, number, number];
+type KeyframePoint = readonly [number, IntrinsicValue] | readonly [number, IntrinsicValue, Easing];
+
+// Premiere's interpolation modes: 0 is linear, 4 hold, 5 bezier (which the ease presets write).
+const HOLD = "4";
+const BEZIER = "5";
+
 /**
- * Non-default static values of Motion, Opacity and Volume, plus `keyframes` for animated ones as
- * [seconds from the clip's start, value] pairs. Keyframe times are media ticks, like `InPoint`.
+ * The easing between two keyframes, undefined for linear. Premiere stores each key's speed in
+ * and out (units a second) and its "influence", how far along the stretch that speed holds.
+ */
+// A linear key's stored speed can be stale, so only a bezier key's is used. A point's speed is
+// along its path, taken as straight, which it can't overshoot; a number is kept near its values.
+const easingBetween = (
+  from: { readonly fields: ReadonlyArray<string>; readonly raw: IntrinsicValue },
+  to: { readonly fields: ReadonlyArray<string>; readonly raw: IntrinsicValue },
+  seconds: number,
+): Easing | undefined => {
+  if (from.fields[2] === HOLD) return "hold";
+  const [start, target] = [from.raw, to.raw];
+  const distance =
+    typeof start === "number" || typeof target === "number"
+      ? Number(target) - Number(start)
+      : Math.hypot(...start.map((value, index) => (target[index] ?? value) - value));
+  const [outSpeed, outInfluence] = [Number(from.fields[6]), Number(from.fields[7])];
+  const [inSpeed, inInfluence] = [Number(to.fields[4]), Number(to.fields[5])];
+  const eased = (fields: ReadonlyArray<string>) => fields[2] === BEZIER;
+  if (!eased(from.fields) && !eased(to.fields)) return undefined;
+  if (distance === 0 || seconds <= 0) return undefined;
+  if (![outSpeed, outInfluence, inSpeed, inInfluence].every(Number.isFinite)) return undefined;
+  const isPoint = typeof from.raw !== "number";
+  const round = (value: number) => {
+    const bounded = Math.min(isPoint ? 1 : 3, Math.max(isPoint ? 0 : -2, value));
+    return Math.round(bounded * 1e4) / 1e4;
+  };
+  const x1 = Math.min(1, Math.max(0, outInfluence));
+  const x2 = Math.min(1, Math.max(0, 1 - inInfluence));
+  const curve = [
+    round(x1),
+    round(eased(from.fields) ? (outSpeed * outInfluence * seconds) / distance : x1),
+    round(x2),
+    round(eased(to.fields) ? 1 - (inSpeed * inInfluence * seconds) / distance : x2),
+  ] as const;
+  const linear = Math.abs(curve[1] - curve[0]) < 0.002 && Math.abs(curve[3] - curve[2]) < 0.002;
+  return linear ? undefined : curve;
+};
+
+/**
+ * Non-default static values of Motion, Opacity, Crop and Volume, plus `keyframes` for animated
+ * ones as [seconds from the clip's start, value] points, with a third entry where the stretch
+ * to the next point is eased or held. Keyframe times are media ticks, like `InPoint`.
  */
 const intrinsicValues = (
   matchName: string,
@@ -593,26 +846,42 @@ const intrinsicValues = (
   inPoint: bigint,
 ): {
   readonly values: Record<string, IntrinsicValue>;
-  readonly keyframes: Record<string, ReadonlyArray<readonly [number, IntrinsicValue]>>;
+  readonly keyframes: Record<string, ReadonlyArray<KeyframePoint>>;
 } => {
   const out: Record<string, IntrinsicValue> = {};
-  const keyframes: Record<string, Array<readonly [number, IntrinsicValue]>> = {};
+  const keyframes: Record<string, Array<KeyframePoint>> = {};
   for (const param of params) {
     const name = text(param, "Name");
     if (name === undefined) continue;
-    if (text(param, "IsTimeVarying") === "true") {
+    if (isAnimated(param)) {
       const points = (text(param, "Keyframes") ?? "")
         .split(";")
         .map((entry) => entry.split(","))
         .filter((fields) => fields.length >= 2 && fields[0] !== "");
-      const parsed = points.flatMap(([time = "0", raw = ""]) => {
+      const parsed = points.flatMap((fields) => {
+        const [time = "0", raw = ""] = fields;
         const point = intrinsicParam(matchName, name, raw);
         if (point === null) return [];
         const seconds = Number(BigInt(time) - inPoint) / Number(TICKS_PER_SECOND);
-        return [{ key: point.key, point: [Math.round(seconds * 1e4) / 1e4, point.value] as const }];
+        // Speeds are in Premiere's own units: for Level that is amplitude, not the dB kept here.
+        const plain = raw.endsWith(".") ? raw.slice(0, -1) : raw;
+        const rawValue: IntrinsicValue = plain.includes(":")
+          ? plain.split(":").map(Number)
+          : Number(plain);
+        return [{ key: point.key, seconds, value: point.value, fields, raw: rawValue }];
       });
       const first = parsed[0];
-      if (first !== undefined) keyframes[first.key] = parsed.map((entry) => entry.point);
+      if (first !== undefined) {
+        keyframes[first.key] = parsed.map((entry, index): KeyframePoint => {
+          const next = parsed[index + 1];
+          const at = Math.round(entry.seconds * 1e4) / 1e4;
+          const easing =
+            next === undefined
+              ? undefined
+              : easingBetween(entry, next, next.seconds - entry.seconds);
+          return easing === undefined ? [at, entry.value] : [at, entry.value, easing];
+        });
+      }
       continue;
     }
     const raw = text(param, "StartKeyframe")?.split(",")[1];

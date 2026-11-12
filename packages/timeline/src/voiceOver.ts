@@ -14,6 +14,7 @@ import {
   type Track,
 } from "./otio.ts";
 import { alignBeats } from "./script.ts";
+import { mediaSpanSeconds, timeScalarOf } from "./speed.ts";
 import type { TranscriptWord } from "./words.ts";
 
 export interface VoiceOverTake {
@@ -307,16 +308,18 @@ export const placeTake = (
   /**
    * The longest a clip can play from its in point, in timeline frames. Stills stretch freely; a
    * file of unknown length is not extended. A clip that can't reach leaves a gap, listed in `short`.
+   * A speed change uses its media that many times faster, and a reversed clip's tail runs toward
+   * its media's first frame, which is as far as a trim lets it (`applyEdits`).
    */
   const longest = (item: Placed) => {
     const target = targetOf(item.clip);
     if (target === "" || STILL_PATH.test(target)) return Number.POSITIVE_INFINITY;
+    const scalar = timeScalarOf(item.clip);
+    const span = mediaSpanSeconds(item.clip);
+    if (scalar < 0) return item.end - item.start + Math.floor((span.start * rate) / -scalar);
     const seconds = input.mediaSeconds(target);
-    const { start_time } = item.clip.source_range;
     const available =
-      seconds === undefined
-        ? 0
-        : Math.floor((seconds - start_time.value / start_time.rate) * rate + 1e-6);
+      seconds === undefined ? 0 : Math.floor(((seconds - span.start) / scalar) * rate + 1e-6);
     return Math.max(item.end - item.start, available);
   };
 

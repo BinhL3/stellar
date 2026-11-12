@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { applyEdits, rippleDeleteBlocked } from "./edits.ts";
 import { layoutTimeline } from "./layout.ts";
 import { type Clip, type Gap, rationalTime, type Timeline, timeRange, type Track } from "./otio.ts";
+import { linearTimeWarp, timeScalarOf } from "./speed.ts";
 
 const RATE = 30;
 
@@ -194,5 +195,41 @@ describe("applyEdits", () => {
       V1: ["a 0–30 src 100", "c 60–90 src 50", "b 90–120 src 0"],
       V2: [],
     });
+  });
+
+  it("cuts and trims sped-up and reversed clips by the source frames they play", () => {
+    const warped = (speed: number): Timeline => ({
+      ...timeline,
+      tracks: {
+        ...timeline.tracks,
+        children: [
+          track("V1", "Video", [{ ...clip("a", 100, 30), effects: [linearTimeWarp(speed)] }]),
+        ],
+      },
+    });
+    const sources = (edited: Timeline) =>
+      layoutTimeline(edited).tracks[0]?.clips.map((item) => [
+        item.startFrame,
+        item.endFrame,
+        item.clip.source_range.start_time.value,
+        timeScalarOf(item.clip),
+      ]);
+    // Double speed plays source 100-160: a cut at frame 10 lands on source 120.
+    expect(sources(applyEdits(warped(2), [{ kind: "split", frame: 10 }]))).toEqual([
+      [0, 10, 100, 2],
+      [10, 30, 120, 2],
+    ]);
+    // Reversed, the first piece is the end of the media and the second its start.
+    expect(sources(applyEdits(warped(-1), [{ kind: "split", frame: 10 }]))).toEqual([
+      [0, 10, 120, -1],
+      [10, 30, 100, -1],
+    ]);
+    expect(
+      sources(applyEdits(warped(2), [{ kind: "trim", clipId: "a", edge: "start", frame: 5 }])),
+    ).toEqual([[5, 30, 110, 2]]);
+    // A reversed clip's tail runs toward the media's first frame: 100 source frames are left.
+    expect(
+      sources(applyEdits(warped(-2), [{ kind: "trim", clipId: "a", edge: "end", frame: 500 }])),
+    ).toEqual([[0, 80, 0, -2]]);
   });
 });

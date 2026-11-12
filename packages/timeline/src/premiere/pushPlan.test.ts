@@ -11,6 +11,7 @@ import {
   timeRange,
   type Track,
 } from "../otio.ts";
+import { linearTimeWarp } from "../speed.ts";
 import { pushPlan, type PushStep, secondsAtFrame } from "./pushPlan.ts";
 
 const clip = (
@@ -184,6 +185,57 @@ describe("pushPlan", () => {
       '2. trim start of "a1" on A1 at 0.000s: 0.000s → 0.333333s (frames 0 → 10; source in 0.333333s)',
     ]);
     expect(spans(follow(base, pushPlan(base, ours).steps))).toEqual(spans(ours));
+  });
+
+  it("names a sped-up clip's source point by its speed, and leaves a reversed clip's trim to a person", () => {
+    const warped = (speed: number, frames = 100) =>
+      timelineOf(
+        [
+          track("V1", "Video", [
+            { ...clip("v1", 30, frames, 30, "v1.mov"), effects: [linearTimeWarp(speed)] },
+          ]),
+        ],
+        30,
+      );
+    const trim: TimelineEdit = { kind: "trim", clipId: "v1", edge: "end", frame: 80 };
+    // 80 frames at double speed end 160 source frames after the in point at 1 s.
+    expect(lines(applyEdits(warped(2), [trim]), warped(2))).toEqual([
+      '1. trim end of "v1" on V1 at 0.000s: 3.333333s → 2.666667s (frames 100 → 80; source out 6.333333s)',
+    ]);
+    const reversed = pushPlan(warped(-1), applyEdits(warped(-1), [trim]));
+    expect(reversed.steps).toEqual([]);
+    expect(reversed.manual).toEqual(["Trimmed v1 on V1 at 0:00: cut 0.7s off its end"]);
+  });
+
+  it("leaves captions out of every step, as Premiere has no track number for them", () => {
+    const captioned = (words: string) =>
+      timelineOf(
+        [
+          track("V1", "Video", [clip("v1", 0, 100, 30, "v1.mov")]),
+          {
+            ...track("C1", "Video", [
+              {
+                ...clip("c1", 0, 100, 30, ""),
+                metadata: { premiere: { nodeId: "c1" }, [TIMELINE_NAMESPACE]: { text: words } },
+              },
+            ]),
+            metadata: { [TIMELINE_NAMESPACE]: { captions: true } },
+          },
+          track("V2", "Video", [clip("v2", 0, 100, 30, "v2.mov")]),
+        ],
+        30,
+      );
+    const from = captioned("Hello");
+    const ours = applyEdits(from, [
+      { kind: "setEnabled", clipId: "v2", enabled: false },
+      { kind: "delete", clipId: "c1" },
+    ]);
+    const plan = pushPlan(from, ours);
+    // V2 keeps its number although the caption track sits between it and V1 here.
+    expect(plan.steps).toMatchObject([
+      { kind: "setEnabled", clip: { track: { kind: "video", index: 2, name: "V2" } } },
+    ]);
+    expect(plan.manual).toEqual(["Removed c1 from C1 at 0:00"]);
   });
 
   it("moves a clip across tracks and in time", () => {

@@ -37,10 +37,25 @@ export interface EffectRef {
   readonly animated: boolean;
 }
 
+/**
+ * OTIO's constant speed change. A clip's `source_range.duration` stays its length on the track;
+ * the media it plays is `duration × |time_scalar|` long, starting at `source_range.start_time`,
+ * and a negative scalar plays that span backwards. See `speed.ts`.
+ */
+export interface LinearTimeWarp {
+  readonly OTIO_SCHEMA: "LinearTimeWarp.1";
+  readonly name: string;
+  readonly effect_name: "LinearTimeWarp";
+  readonly time_scalar: number;
+  readonly metadata: Readonly<Record<string, unknown>>;
+}
+
 export interface Clip {
   readonly OTIO_SCHEMA: "Clip.2";
   readonly name: string;
   readonly source_range: TimeRange;
+  /** OTIO's own effects list; only speed lives here, everything else is `metadata.stellar`. */
+  readonly effects?: ReadonlyArray<LinearTimeWarp>;
   readonly media_references: { readonly DEFAULT_MEDIA: ExternalReference };
   readonly active_media_reference_key: "DEFAULT_MEDIA";
   readonly enabled: boolean;

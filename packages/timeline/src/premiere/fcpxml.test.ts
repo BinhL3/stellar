@@ -2,7 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { footageStringout } from "../footage.ts";
 import { frameSeconds, frameTableFrom } from "../frameTimes.ts";
-import { timeRange } from "../otio.ts";
+import { TIMELINE_NAMESPACE, timeRange } from "../otio.ts";
+import { linearTimeWarp } from "../speed.ts";
 import { toFcpXml } from "./fcpxml.ts";
 
 describe("toFcpXml", () => {
@@ -100,5 +101,41 @@ describe("toFcpXml", () => {
       },
     };
     expect(toFcpXml(titled, { sequenceName: "x" }).skipped).toEqual(["V1: Title (no media file)"]);
+  });
+
+  it("says which clips lost their speed and that captions stayed behind", () => {
+    const timeline = footageStringout(
+      [{ target: "Footage/a.MOV", duration: 4, width: 1080, height: 1920 }],
+      "/media",
+    );
+    const [video, ...rest] = timeline.tracks.children;
+    const fast = {
+      ...timeline,
+      tracks: {
+        ...timeline.tracks,
+        children: [
+          {
+            ...video!,
+            children: video!.children.map((child) =>
+              child.OTIO_SCHEMA === "Clip.2" ? { ...child, effects: [linearTimeWarp(-2)] } : child,
+            ),
+          },
+          {
+            ...video!,
+            name: "C1",
+            metadata: { [TIMELINE_NAMESPACE]: { captions: true } },
+          },
+          ...rest,
+        ],
+      },
+    };
+    const exported = toFcpXml(fast, { sequenceName: "x" });
+    expect(exported.approximated).toEqual([
+      "V1: a.MOV (reversed, 200% speed is not written; set it in Premiere)",
+    ]);
+    expect(exported.skipped).toEqual(["C1: 1 captions (captions are not written)"]);
+    // The file is as long as the media the clip plays, not as its length on the track.
+    expect(exported.xml).toContain("<duration>480</duration><timecode>");
+    expect(exported.xml.match(/<track>/g)).toHaveLength(1);
   });
 });
