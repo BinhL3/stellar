@@ -333,7 +333,8 @@ export default function TimelinePanel(props: {
     INTAKE_STATUS_PATH,
   );
   const intake = parseIntakeStatus(intakeFile.data?.contents);
-  const isBuilding = building !== null || intake?.state === "copying";
+  const isBuilding =
+    building !== null || intake?.state === "copying" || intake?.state === "conforming";
   const transcriptFile = useProjectFileQuery(
     props.environmentId,
     props.workspaceRoot,
@@ -431,6 +432,11 @@ export default function TimelinePanel(props: {
     intake?.state === "copying" ? (
       <span className="text-xs text-muted-foreground">
         Copying footage: {intake.done} of {intake.total}
+      </span>
+    ) : intake?.state === "conforming" && intake.conform !== undefined ? (
+      <span className="text-xs text-muted-foreground">
+        Conforming {intake.conform.file.slice(intake.conform.file.lastIndexOf("/") + 1)} to 59.94:{" "}
+        {intake.conform.percent}% ({intake.conform.done + 1} of {intake.conform.total})
       </span>
     ) : intake?.state === "failed" ? (
       <span className="text-xs text-destructive">Import failed: {intake.error}</span>

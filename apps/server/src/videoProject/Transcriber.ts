@@ -3,6 +3,7 @@
  * `<command> words <media> -o <out.words.json> [--lang en|vi]` that writes `[{ w, start, end }]`.
  */
 import type { VideoTranscriptStatus } from "@t3tools/contracts";
+import { conformedPath, conformNames } from "@t3tools/timeline/conform";
 import { listFootage } from "@t3tools/timeline/footage";
 import { serializeJson } from "@t3tools/timeline/otio";
 import * as Effect from "effect/Effect";
@@ -41,17 +42,18 @@ const decodeProjectFile = Schema.decodeUnknownEffect(
 export const findTranscript = Effect.fnUntraced(function* (mediaRoot: string, target: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const name = `${path.basename(target, path.extname(target))}.words.json`;
+  // A conformed copy and its original share one transcript, whichever it was made from.
+  const names = conformNames(target).map((name) => `${name}.words.json`);
   const media = path.isAbsolute(target) ? target : path.join(mediaRoot, target);
   const folders = [mediaRoot];
   for (let folder = path.dirname(media), up = 0; up < 5; folder = path.dirname(folder), up++) {
     if (!folders.includes(folder)) folders.push(folder);
   }
   for (const folder of folders) {
-    for (const candidate of [
+    for (const candidate of names.flatMap((name) => [
       path.join(folder, TRANSCRIPT_FOLDER, name),
       path.join(folder, TRANSCRIPT_FOLDER, "transcripts", name),
-    ]) {
+    ])) {
       if (yield* fs.exists(candidate).pipe(Effect.orElseSucceed(() => false))) return candidate;
     }
   }
@@ -70,8 +72,11 @@ export const transcriptCoverage = Effect.fn("VideoProjects.transcriptCoverage")(
   const takes = yield* fs
     .readDirectory(path.join(mediaRoot, VOICE_OVER_FOLDER))
     .pipe(Effect.orElseSucceed((): Array<string> => []));
+  const footage = yield* listFootage(mediaRoot);
+  // A conformed copy is heard through its original's transcript, so only one is a candidate.
+  const copies = new Set(footage.map(conformedPath));
   const candidates = [
-    ...(yield* listFootage(mediaRoot)),
+    ...footage.filter((target) => !copies.has(target)),
     ...takes
       .filter((name) => /\.wav$/i.test(name) && !name.startsWith("."))
       .map((name) => `${VOICE_OVER_FOLDER}/${name}`)

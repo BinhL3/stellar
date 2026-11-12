@@ -4,6 +4,7 @@
  * ranges and enabled state. Effects, text graphics and anything without a media file stay
  * behind and are reported, so a push never claims more than it carried.
  */
+import { frameAt } from "../frameTimes.ts";
 import { layoutTimeline, type LaidOutClip, type LaidOutTrack } from "../layout.ts";
 import { type Timeline, TIMELINE_NAMESPACE } from "../otio.ts";
 
@@ -46,6 +47,11 @@ export const toFcpXml = (
     readonly media?: Readonly<
       Record<string, { readonly duration: number; readonly width: number; readonly height: number }>
     >;
+    /**
+     * Frame times of variable-rate media, by `target_url`. A clip's `in` is a source frame
+     * number, and in these files seconds times a rate names the wrong one.
+     */
+    readonly frameTimes?: Readonly<Record<string, ArrayLike<number>>>;
   },
 ): FcpXmlExport => {
   const layout = layoutTimeline(timeline);
@@ -107,7 +113,10 @@ export const toFcpXml = (
       return "";
     }
     const { start_time } = item.clip.source_range;
-    const sourceIn = Math.round((start_time.value / start_time.rate) * layout.rate);
+    const sourceSeconds = start_time.value / start_time.rate;
+    const times = options.frameTimes?.[target];
+    const sourceIn =
+      times === undefined ? Math.round(sourceSeconds * layout.rate) : frameAt(times, sourceSeconds);
     const start = Math.round(item.startFrame);
     const end = Math.round(item.endFrame);
     return `<clipitem id="${id}"${

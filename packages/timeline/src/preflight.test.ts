@@ -69,6 +69,12 @@ describe("derivePreflight", () => {
       },
     });
     expect(working.footage).toEqual(["working", "Copying 3 of 25", null]);
+    expect(
+      summary({
+        ...finished,
+        intake: { state: "conforming", done: 25, total: 25, conform: { done: 1, total: 3 } },
+      }).footage,
+    ).toEqual(["working", "Conforming 2 of 3 to a constant frame rate", null]);
     expect(working.proxies).toEqual(["working", "Making 4 of 31", null]);
     expect(working.transcripts).toEqual(["working", "Transcribing 2 of 25", null]);
 

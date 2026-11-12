@@ -299,7 +299,7 @@ Built from the past threads: it targets where time and failures actually went, a
     footage plays in the Timeline tab before a Premiere project exists. A pulled sequence is
     still the one shown first.
   - Not built: the card in chat (it is a dialog), flagging overlap with a neighbouring
-    project, deleting from Downloads after the copy, frame timestamp tables and conforming.
+    project, and deleting from Downloads after the copy.
 - **Agent tools: started (milestone 4, first two parts).** The `video_*` MCP tools call the
   same service the clients do: `video_timeline_read` (syncs with Premiere first, then one line
   per clip with its id and frames), `video_timeline_edit` (the typed edits in
@@ -327,10 +327,25 @@ Built from the past threads: it targets where time and failures actually went, a
   place each on a timeline by matching its words against the transcripts, so a beat knows its
   word numbers and frames. Stellar doesn't fetch the doc itself: an agent reads it and passes
   the text in.
-- **Frame rates: detected, not conformed.** The proxy build records each clip's nominal rate
-  and, for clips whose average is off it, reads every frame time and records where the rate
-  changes (`rateChanges` in the proxy index). The Premiere badge and `video_timeline_read`
-  warn about those clips. Conforming them is still done outside Stellar.
+- **Frame rates: tables and whole-clip conforming, built (milestone 2, second half).** Ahead
+  of every proxy build the server reads each footage clip's frame times from its packets
+  (`ffprobe`, no decoding: 1.6 s for a 3.3 GB, 8-minute 4K clip) and records them in
+  `media.json` in the project folder, with a frame table per variable-rate clip under
+  `frames/` (`packages/timeline/src/frameTimes.ts`, the port of `clip_fps`).
+  - Only a clip with more than one rate segment is conformed, as the pipeline did by hand;
+    a steady 30 fps clip or ordinary iPhone jitter is cut through its table instead. The copy
+    is the whole clip at constant 59.94, beside its original as `<name>_5994.mov`:
+    `ffmpeg -vf fps=60000/1001,setsar=1 -c:v hevc_videotoolbox -b:v 45M -tag:v hvc1 -c:a pcm_s16le`,
+    rotation baked in. About 5.8 MB per second and a little slower than real time for 4K.
+  - It runs by itself after an approved import, as a step in `intake.json` that the Timeline
+    tab shows. Footage that arrived another way is only measured; `video_footage` with
+    `conform` makes its copies. Nothing else writes into `Footage`.
+  - `media.json` ties each copy to its original with the original's size and modified time,
+    so a replaced original shows as stale. A `_5994.mov` made by hand is taken up as a tie
+    and never rewritten. Transcripts resolve by either name, proxies and the Footage
+    timeline use the copy, and the XML export takes a variable-rate clip's `in` frame from
+    its table. A timeline pulled from Premiere keeps whichever file it names.
+  - The proxy build still records `rateChanges` itself; the Premiere badge reads those.
 - **Voice-over per script line: built (milestone 5).** A take is a WAV under `Audio/VO`
   recorded for one beat; `voiceover.json` in the project folder lists the takes and which one
   each beat uses.
@@ -655,8 +670,14 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
    never removes the originals from Downloads.
 6. New sequences aren't discovered. Each `vN+1` needs the new-project dialog again, and the
    timeline picker doesn't say which version is the latest.
-7. Frame timestamp tables aren't in the model. Source ranges assume a constant rate, and a
-   conformed copy (`IMG_8152_5994.mov`) has no recorded tie to its original.
+7. Frame tables exist but the timeline doesn't cut by them. Source ranges in the `.otio` are
+   still seconds at a rate, not the source frame indices Decision 3 asks for; only the XML
+   export looks a frame up in a clip's table, and the push plan and the player don't. Nothing
+   stops an edit on a rate-switching clip that has no copy yet. Ties are recognised by the
+   `_5994.mov` name alone, so older copies under other names (`IMG_8168 CFR5994 FULL.mov`)
+   stay untied, and staleness goes by size and modified time, which a drive moved between
+   machines can shift. Conforming always targets 59.94 whatever the sequence, never checks
+   free space, and off a Mac falls back to slow software HEVC.
 8. Transcripts aren't timeline data. `*.words.json` sits in `Audio/` and nothing links it to
    clips, so "cut by words" and beat alignment have nothing to stand on.
 9. Nothing checks for ffmpeg and ffprobe. A machine without them builds no proxies; the badge

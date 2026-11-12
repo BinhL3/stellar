@@ -242,6 +242,12 @@ const handlers = {
           .pipe(Effect.mapError(refused));
         return { scan, importing: null };
       }
+      if (input.action === "conform") {
+        const conforming = yield* videoProjects
+          .conformFootage({ workspaceRoot })
+          .pipe(Effect.mapError(refused));
+        return { scan: null, importing: null, conforming };
+      }
       const { paths, folder } = input;
       if (paths === undefined || paths.length === 0 || folder === undefined) {
         return yield* new OrchestratorMcpFailure({

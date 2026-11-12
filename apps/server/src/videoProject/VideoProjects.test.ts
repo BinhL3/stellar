@@ -22,7 +22,7 @@ import { timelineFingerprint } from "@t3tools/timeline/renderProbe";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { runTranscription, transcriptCoverage } from "./Transcriber.ts";
+import { findTranscript, runTranscription, transcriptCoverage } from "./Transcriber.ts";
 import * as VideoProjects from "./VideoProjects.ts";
 
 // Tests close their scope after the service's layer, so background proxy builds have stopped
@@ -703,6 +703,8 @@ it.live("transcribes media that has no transcript and lists what failed", () =>
     }
     for (const media of [
       "Footage/00 Raw/a.MOV",
+      // A conformed copy shares its original's transcript and is never transcribed itself.
+      "Footage/00 Raw/a_5994.mov",
       "Footage/00 Raw/b.MOV",
       "Footage/00 Raw/broken.MOV",
       "Audio/VO/take.wav",
@@ -716,6 +718,10 @@ it.live("transcribes media that has no transcript and lists what failed", () =>
       total: 4,
       missing: ["Footage/00 Raw/b.MOV", "Footage/00 Raw/broken.MOV", "Audio/VO/take.wav"],
     });
+    assert.strictEqual(
+      yield* findTranscript(mediaRoot, "Footage/00 Raw/a_5994.mov"),
+      path.join(mediaRoot, "Audio", "transcripts", "a.words.json"),
+    );
     const progress: Array<number | null> = [];
     const status = yield* runTranscription({
       projectDir,

@@ -210,15 +210,18 @@ const PremierePullTool = Tool.make("video_premiere_pull", {
 
 const FootageTool = Tool.make("video_footage", {
   description:
-    "Bring footage into this thread's video project. `scan` lists videos and photos that arrived in the host's Downloads in the last few days (AirDrop keeps camera dates, so this goes by date added). `import` copies the `paths` the user approved into `Footage/<folder>`, size-checked, in the background, then builds previews and a Footage timeline; originals stay in Downloads. Show the scan and get the user's approval before importing.",
+    "Bring footage into this thread's video project. `scan` lists videos and photos that arrived in the host's Downloads in the last few days (AirDrop keeps camera dates, so this goes by date added). `import` copies the `paths` the user approved into `Footage/<folder>`, size-checked, in the background, then builds previews and a Footage timeline; originals stay in Downloads. Show the scan and get the user's approval before importing. An import also makes a whole constant 59.94 copy (`<name>_5994.mov`, about 6 MB per second) of any clip that switches frame rate partway; `conform` does the same for footage that arrived another way, so ask first.",
   parameters: Schema.Struct({
-    action: Schema.Literals(["scan", "import"]),
+    action: Schema.Literals(["scan", "import", "conform"]),
     paths: Schema.optional(Schema.Array(Schema.String)),
     folder: Schema.optional(Schema.String),
   }),
   success: Schema.Struct({
     scan: Schema.NullOr(VideoProjectScanIntakeResult),
     importing: Schema.NullOr(Schema.Struct({ files: Schema.Number, folder: Schema.String })),
+    conforming: Schema.optional(
+      Schema.Struct({ files: Schema.Array(Schema.String), megabytes: Schema.Number }),
+    ),
   }),
   failure: OrchestratorMcpFailure,
   failureMode: "return",

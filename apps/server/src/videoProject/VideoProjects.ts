@@ -47,6 +47,18 @@ import { premiereLinkStatus } from "@t3tools/timeline/premiereSync";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveCommandPath } from "@t3tools/shared/shell";
 import { editableView } from "@t3tools/timeline/compactView";
+import {
+  conformedMegabytes,
+  conformSummary,
+  mediaKey,
+  type MediaIndex,
+} from "@t3tools/timeline/conform";
+import {
+  loadFrameTimes,
+  prepareFootage,
+  readConformState,
+  readMediaIndex,
+} from "@t3tools/timeline/conformBuilder";
 import { changeLine, diffSentences } from "@t3tools/timeline/diff";
 import { applyEdits, type TimelineEdit } from "@t3tools/timeline/edits";
 import {
@@ -333,6 +345,17 @@ export class VideoProjects extends Context.Service<
       input: VideoProjectImportFootageInput,
     ) => Effect.Effect<void, VideoProjectError>;
     /**
+     * Makes whole constant-rate copies of the footage that switches frame rate partway, in the
+     * background, reporting to `intake.json`. An import does this by itself; this is for
+     * footage that reached the project another way. Returns what it will conform.
+     */
+    readonly conformFootage: (input: {
+      readonly workspaceRoot: string;
+    }) => Effect.Effect<
+      { readonly files: ReadonlyArray<string>; readonly megabytes: number },
+      VideoProjectError
+    >;
+    /**
      * Pulls Premiere's latest save into the project's timelines when the `.prproj` changed, and
      * (re)starts the proxy build when new media arrived or an earlier build never finished.
      * Cheap enough to call whenever a client comes back into focus.
@@ -612,6 +635,70 @@ const make = Effect.gen(function* () {
   const transcribeMissing = (projectFolder: string) =>
     startTranscripts(projectFolder, { everything: true, files: [], language: undefined });
 
+  // Projects whose rate-switching footage the next build may conform: an import the user
+  // approved, or an agent's ask. Other builds only read frame rates and write nothing to Footage.
+  const conformWanted = new Set<string>();
+  /**
+   * Reads the footage's frame rates and frame tables ahead of a proxy build, and conforms what
+   * needs it when that was asked for. Runs first so proxies are made from the conformed copies.
+   */
+  const prepareProjectFootage = Effect.fn("VideoProjects.prepareProjectFootage")(function* (
+    projectFolder: string,
+  ) {
+    const statusPath = path.join(projectFolder, INTAKE_STATUS_FILE);
+    const last = yield* fileSystem.readFileString(statusPath).pipe(
+      Effect.flatMap(decodeJson),
+      Effect.map((value) => value as VideoProjectIntakeStatus),
+      Effect.orElseSucceed(() => null),
+    );
+    // A status left at "conforming" is a run the server stopped in the middle of.
+    const conform = conformWanted.delete(projectFolder) || last?.state === "conforming";
+    const report = (status: Pick<VideoProjectIntakeStatus, "state" | "error" | "conform">) =>
+      fileSystem
+        .writeFileString(
+          statusPath,
+          serializeJson({
+            folder: last?.folder ?? path.join(path.dirname(projectFolder), FOOTAGE_DIRECTORY),
+            done: last?.done ?? 0,
+            total: last?.total ?? 0,
+            ...status,
+          }),
+        )
+        .pipe(Effect.ignore);
+    let conformed = false;
+    yield* onHost(
+      prepareFootage({
+        projectDir: projectFolder,
+        conform,
+        onProgress: (progress) => {
+          if (progress.kind !== "conforming") return Effect.void;
+          conformed = true;
+          const { file, done, total, percent } = progress;
+          return report({ state: "conforming", conform: { file, done, total, percent } });
+        },
+      }),
+    ).pipe(
+      Effect.tap(({ index, state }) => {
+        const failures = state.pending.flatMap((file) =>
+          index.failed?.[file] === undefined ? [] : [index.failed[file]],
+        );
+        if (!conformed && last?.state !== "conforming") return Effect.void;
+        return failures.length > 0
+          ? report({ state: "failed", error: `Could not conform ${failures.join("; ")}` })
+          : report({ state: "done" });
+      }),
+      Effect.catch((cause) =>
+        Effect.logWarning("Video project footage check failed", { projectFolder, cause }).pipe(
+          Effect.andThen(
+            conform
+              ? report({ state: "failed", error: "Could not conform the footage." })
+              : Effect.void,
+          ),
+        ),
+      ),
+    );
+  });
+
   /**
    * Builds a project's proxies in the background, one build per project at a time. A request
    * that arrives mid-build (a pull brought new media) runs another build when this one ends.
@@ -625,7 +712,10 @@ const make = Effect.gen(function* () {
       building.add(projectFolder);
       const build = FiberSet.run(
         background,
-        buildProjectProxies({ projectDir: projectFolder, concurrency: PROXY_CONCURRENCY }).pipe(
+        Effect.andThen(
+          prepareProjectFootage(projectFolder),
+          buildProjectProxies({ projectDir: projectFolder, concurrency: PROXY_CONCURRENCY }),
+        ).pipe(
           Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.provideService(Path.Path, path),
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -948,6 +1038,8 @@ const make = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.tap((done) => report({ state: "done", done })),
+      // Approving the import approves conforming what it brought in.
+      Effect.tap(() => Effect.sync(() => conformWanted.add(input.workspaceRoot))),
       Effect.andThen(startProxies(input.workspaceRoot)),
       Effect.catch((error) =>
         report({ state: "failed", done: 0, error: error.message }).pipe(
@@ -959,6 +1051,23 @@ const make = Effect.gen(function* () {
     importing.add(input.workspaceRoot);
     yield* report({ state: "copying", done: 0 });
     yield* FiberSet.run(background, copy);
+  });
+
+  const conformFootage: VideoProjects["Service"]["conformFootage"] = Effect.fn(
+    "VideoProjects.conformFootage",
+  )(function* (input) {
+    yield* requireProject(input.workspaceRoot);
+    // What the last build measured; the build started here also covers footage added since.
+    const { index, state } = yield* onHost(readConformState(input.workspaceRoot));
+    conformWanted.add(input.workspaceRoot);
+    yield* startProxies(input.workspaceRoot);
+    return {
+      files: state.pending,
+      megabytes: state.pending.reduce(
+        (sum, file) => sum + conformedMegabytes(index.media[file]?.duration ?? 0),
+        0,
+      ),
+    };
   });
 
   const syncWithPremiere = Effect.fn("VideoProjects.syncWithPremiere")(function* (
@@ -1070,6 +1179,8 @@ const make = Effect.gen(function* () {
           ? ` (${(yield* resolveTranscriber).unavailable ?? "video_transcribe makes the rest"})`
           : ""
     }`;
+    const conform = yield* onHost(readConformState(workspaceRoot));
+    const frameRates = conformSummary(conform.index, conform.state);
     const takes = (yield* names(path.join("Audio", "VO"))).filter((name) => name.endsWith(".wav"));
     const script = yield* loadScript(workspaceRoot);
     const scriptLine =
@@ -1102,6 +1213,7 @@ const make = Effect.gen(function* () {
       `Project folder: ${mediaRoot}`,
       `Premiere ${running}; ${linked}.`,
       `Footage: ${footage.length} videos in Footage/. Previews: ${previews}.`,
+      ...(frameRates === null ? [] : [frameRates]),
       `Transcripts: ${transcripts}. Script snapshot: ${scriptLine}. Voice-over takes: ${takes.length} in Audio/VO/.`,
       yield* runLine(workspaceRoot, {
         footage: footage.length,
@@ -1499,9 +1611,23 @@ const make = Effect.gen(function* () {
     const stamp = yield* DateTime.nowAsDate;
     const two = (value: number) => String(value).padStart(2, "0");
     const sequenceName = `${timeline.name} (Stellar ${two(stamp.getHours())}.${two(stamp.getMinutes())})`;
+    // A clip's `in` is a source frame number; variable-rate media finds it in its frame table.
+    const mediaIndex: MediaIndex = yield* onHost(readMediaIndex(input.workspaceRoot));
+    const frameTimes: Record<string, ArrayLike<number>> = {};
+    for (const track of timeline.tracks.children) {
+      for (const child of track.children) {
+        if (child.OTIO_SCHEMA !== "Clip.2") continue;
+        const target = child.media_references.DEFAULT_MEDIA.target_url;
+        if (target in frameTimes) continue;
+        const timing = mediaIndex.media[mediaKey(target, path.dirname(input.workspaceRoot))];
+        const times = yield* onHost(loadFrameTimes(input.workspaceRoot, timing));
+        if (times !== null) frameTimes[target] = times;
+      }
+    }
     const exported = toFcpXml(timeline, {
       sequenceName,
       media: index?.media ?? {},
+      frameTimes,
     });
     const folder = path.join(path.dirname(input.workspaceRoot), "Premiere");
     const file = path.join(folder, `${sequenceName.replace(/[/\\:]+/g, " ")}.xml`);
@@ -2153,6 +2279,7 @@ const make = Effect.gen(function* () {
     createFromIdea,
     scanIntake,
     importFootage,
+    conformFootage,
     sync,
   });
 });

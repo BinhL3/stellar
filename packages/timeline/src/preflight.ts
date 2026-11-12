@@ -50,10 +50,12 @@ export interface PreflightFacts {
   readonly footage: number;
   /** The last import, or null when nothing was imported through Stellar. */
   readonly intake: {
-    readonly state: "copying" | "done" | "failed";
+    readonly state: "copying" | "conforming" | "done" | "failed";
     readonly done: number;
     readonly total: number;
     readonly error?: string | undefined;
+    /** While `conforming`: how many of the clips that need a constant-rate copy have one. */
+    readonly conform?: { readonly done: number; readonly total: number } | undefined;
   } | null;
   /** The proxy index, or null before any build. */
   readonly proxies: {
@@ -107,17 +109,26 @@ export const derivePreflight = (facts: PreflightFacts): Array<PreflightStep> => 
 
     intake?.state === "copying"
       ? step("footage", "Footage", "working", `Copying ${intake.done} of ${intake.total}`)
-      : intake?.state === "failed"
+      : intake?.state === "conforming"
         ? step(
             "footage",
             "Footage",
-            "fail",
-            `Import failed${intake.error === undefined ? "" : `: ${intake.error}`}`,
-            "importFootage",
+            "working",
+            intake.conform === undefined
+              ? "Conforming frame rates"
+              : `Conforming ${intake.conform.done + 1} of ${intake.conform.total} to a constant frame rate`,
           )
-        : facts.footage === 0
-          ? step("footage", "Footage", "todo", "No footage imported", "importFootage")
-          : step("footage", "Footage", "done", count(facts.footage, "video")),
+        : intake?.state === "failed"
+          ? step(
+              "footage",
+              "Footage",
+              "fail",
+              `Import failed${intake.error === undefined ? "" : `: ${intake.error}`}`,
+              "importFootage",
+            )
+          : facts.footage === 0
+            ? step("footage", "Footage", "todo", "No footage imported", "importFootage")
+            : step("footage", "Footage", "done", count(facts.footage, "video")),
 
     proxies === null
       ? facts.footage === 0
