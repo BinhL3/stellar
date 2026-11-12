@@ -1,8 +1,10 @@
 import type { LaidOutClip, LaidOutTrack, TimelineLayout } from "@t3tools/timeline/layout";
-import { offsetAtSourceSeconds, timeScalarOf } from "@t3tools/timeline/speed";
+import { timeScalarOf } from "@t3tools/timeline/speed";
 
 import { observeResize } from "~/lib/observeResize";
 
+import { AudioEngine, type AudioStatus } from "./audioEngine";
+import { Transport } from "./audioSchedule";
 import { ClipDecoder, loadProxy, prefetchProxies, webCodecsAvailable } from "./clipDecoder";
 
 import {
@@ -14,7 +16,6 @@ import {
   effectPlanOf,
   effectsMatrixAt,
   emptyPose,
-  gainDbAt,
   graphicOf,
   graphicText,
   graphicTextPosition,
@@ -39,6 +40,8 @@ import {
 export interface PreviewSource {
   readonly video: string | null;
   readonly audio: string | null;
+  /** `audio` is a Stellar rendition (AAC by itself in MP4), which is what the engine plays. */
+  readonly audioProxy?: boolean;
   readonly still: string | null;
   /** `video` is a Stellar proxy (single H.264 track), which decodes through WebCodecs. */
   readonly videoProxy?: boolean;
@@ -73,15 +76,10 @@ interface StillImage {
 // RESYNC_SECONDS do they seek, because a seek flushes the decoder and stalls that clip.
 const MAX_NUDGE = 0.08;
 const RESYNC_SECONDS = 0.5;
-// Audio above this speed is noise, so it mutes, as editors do when shuttling fast.
-const MAX_AUDIO_SPEED = 2;
-
-interface AudioSlot {
-  readonly element: HTMLAudioElement;
-  readonly url: string;
-  /** The clip's gain stage in the mix; null until the first play creates the audio graph. */
-  gain: GainNode | null;
-}
+// The picture ignores a backward correction of the audio clock smaller than this.
+const CLOCK_SLACK_SECONDS = 0.25;
+// The level meter keeps drawing this long after sound stops, to fall back to rest.
+const METER_REST_MS = 700;
 
 interface VideoSlot {
   readonly element: HTMLVideoElement;
@@ -92,7 +90,7 @@ interface VideoSlot {
   failed: boolean;
 }
 
-// Changing an element's rate resets its audio resampler (a click), so rates move in steps.
+// Rates move in steps, so an element is not handed a new one every frame.
 const RATE_STEP = 0.01;
 // Upcoming clips start playing this early, silent and unseen, so they're running at the cut;
 // starting a paused element takes 50-200 ms, a visible hitch on every cut otherwise.
@@ -202,12 +200,21 @@ export class PreviewEngine {
   private context: CanvasRenderingContext2D | null;
   private frameNumber = 0;
   private speed = 0;
-  private anchor = { wall: 0, frame: 0 };
   /**
-   * The playing clip that keeps time, preferably audio: the playhead follows its media clock and
-   * every other clip follows the playhead, so nothing fights the element people are listening to.
+   * Where the playhead is at each moment of the current play. Sound is scheduled against it
+   * ahead of time and the picture reads it every frame, both on the audio device's clock, so
+   * neither chases the other. Null while paused.
    */
-  private lead: { readonly element: HTMLMediaElement; readonly item: LaidOutClip } | null = null;
+  private transport: Transport | null = null;
+  /** The transport a change of speed replaced, followed until the new one's sound begins. */
+  private outgoing: Transport | null = null;
+  private clockEpoch = 0;
+  private readonly sound: AudioEngine;
+  private meter: ((left: number, right: number) => void) | null = null;
+  private readonly levels = new Float32Array(2);
+  /** The meter is drawn until this page time after sound stops, so it falls back to rest. */
+  private meterUntil = 0;
+  private readonly statusListeners = new Set<() => void>();
   private loopRange: { readonly start: number; readonly end: number } | null = null;
   /** Forward playback stops here (play around, play to out), then clears. */
   private stopAt: number | null = null;
@@ -216,8 +223,6 @@ export class PreviewEngine {
   /** When the picture started waiting on a layer, or null when nothing is waiting. */
   private holdingSince: number | null = null;
   private readonly videos = new Map<string, VideoSlot>();
-  private readonly audios = new Map<string, AudioSlot>();
-  private mix: { readonly context: AudioContext; readonly bus: GainNode } | null = null;
   private readonly images = new Map<string, StillImage>();
   /** Derived from the layout once per scene, so no frame works them out again. */
   private videoTracks: ReadonlyArray<LaidOutTrack> = [];
@@ -227,10 +232,8 @@ export class PreviewEngine {
   private notDrawnBy: ReadonlyMap<string, ReadonlyArray<string>> = new Map();
   /** Reused every frame: the clips near the playhead and the layers to draw. */
   private readonly nearVideo: Array<Near> = [];
-  private readonly nearAudio: Array<Near> = [];
   private nearVideoCount = 0;
   private readonly layers: Array<Layer> = [];
-  private readonly audioMix = emptyMix();
   private readonly textLayouts = new WeakMap<object, TextLayout | null>();
   /** Bumped when a font finishes loading, so text measured with its fallback is measured again. */
   private fontEpoch = 0;
@@ -276,6 +279,15 @@ export class PreviewEngine {
     });
     document.addEventListener("visibilitychange", this.pauseWhenHidden);
     document.fonts.addEventListener("loadingdone", this.onFontsLoaded);
+    this.sound = new AudioEngine({
+      onChange: () => {
+        if (this.speed !== 0) this.invalidate();
+        else if (this.scene !== null) this.sound.prime(this.frameNumber);
+      },
+      onStatus: () => {
+        for (const listener of this.statusListeners) listener();
+      },
+    });
   }
 
   setScene(scene: PreviewScene) {
@@ -295,6 +307,12 @@ export class PreviewEngine {
       }
       this.notDrawnBy = missing;
       this.drawn = "";
+      this.sound.setScene(scene.layout, this.transitions, this.audioUrl);
+      // Playing, the sound already scheduled belongs to the old timeline.
+      if (this.speed !== 0) this.startTransport(performance.now(), true);
+      else this.sound.prime(this.frameNumber);
+    } else {
+      this.sound.setUrls(this.audioUrl);
     }
     // Fetch proxies in the background, nearest the playhead first, so a jump anywhere decodes
     // without waiting on the drive.
@@ -316,6 +334,7 @@ export class PreviewEngine {
 
   setLoop(range: { readonly start: number; readonly end: number } | null) {
     this.loopRange = range;
+    if (this.speed !== 0) this.startTransport(performance.now(), true);
   }
 
   get playing() {
@@ -327,45 +346,136 @@ export class PreviewEngine {
   }
 
   seek(frame: number) {
+    const from = this.frameNumber;
     this.frameNumber = this.clamp(frame);
-    this.anchor = { wall: performance.now(), frame: this.frameNumber };
-    this.listener.onTime(this.frameNumber, performance.now());
+    const now = performance.now();
+    if (this.speed !== 0) {
+      this.startTransport(now, false);
+    } else {
+      // A step or a drag is a gesture, which is when a browser lets sound start.
+      if (navigator.userActivation?.isActive === true) this.sound.unlock();
+      if (this.frameNumber !== from) {
+        this.sound.scrub(this.frameNumber, this.frameNumber - from);
+        this.meterUntil = now + METER_REST_MS;
+      }
+      this.sound.prime(this.frameNumber);
+    }
+    this.listener.onTime(this.frameNumber, now);
     this.invalidate();
   }
 
   /** Signed speed: 1 is normal play, negative is reverse, 0 pauses. `stopAt` ends forward play. */
   setSpeed(speed: number, options?: { readonly stopAt?: number }) {
+    const now = performance.now();
+    const was = this.speed;
     this.stopAt = speed > 0 ? (options?.stopAt ?? null) : null;
-    const end = this.scene?.layout.durationFrames ?? 0;
-    if (speed > 0 && this.frameNumber >= end) this.frameNumber = this.loopRange?.start ?? 0;
-    if (speed < 0 && this.frameNumber <= 0) this.frameNumber = end;
-    this.anchor = { wall: performance.now(), frame: this.frameNumber };
     this.speed = speed;
-    if (speed !== 0) this.ensureMix();
+    if (speed === 0) {
+      if (was !== 0) this.haltTransport(now);
+    } else {
+      this.sound.unlock();
+      // From rest, play starts where the playhead stands; a change of speed carries on.
+      this.startTransport(now, was !== 0);
+    }
     this.listener.onSpeed(speed);
     this.invalidate();
   }
 
+  private readonly audioUrl = (target: string): string | null => {
+    const source = target === "" ? undefined : this.scene?.sources.get(target);
+    return source?.audioProxy === true ? source.audio : null;
+  };
+
   /**
-   * The mix: each audio clip has a gain stage (so Premiere's boosts above 0 dB play as boosts)
-   * into a bus with a brick-wall limiter, so stacked dialogue, music and effects can't clip.
-   * Created on the first play, which is a user gesture, as browsers require.
+   * Starts a transport at the current speed and hands it to the sound. `continuing` joins it
+   * to the one playing, at the moment its sound can start, so a change of speed, loop or
+   * timeline carries on from where the old sound leaves off.
    */
-  private ensureMix() {
-    if (this.mix === null) {
-      const context = new AudioContext({ latencyHint: "playback" });
-      const limiter = new DynamicsCompressorNode(context, {
-        threshold: -1,
-        knee: 0,
-        ratio: 20,
-        attack: 0.002,
-        release: 0.12,
-      });
-      const bus = new GainNode(context);
-      bus.connect(limiter).connect(context.destination);
-      this.mix = { context, bus };
+  private startTransport(now: number, continuing: boolean) {
+    const scene = this.scene;
+    if (scene === null || this.speed === 0) return;
+    // Reading the clock first settles which clock it is, before anything is timed on it.
+    const heard = this.sound.clock(now);
+    const t0 = this.sound.startTime(now);
+    const previous = continuing && this.clockEpoch === this.sound.epoch ? this.transport : null;
+    this.clockEpoch = this.sound.epoch;
+    this.outgoing = previous !== null && heard < t0 ? previous : null;
+    this.transport = new Transport({
+      t0,
+      frame: previous === null ? this.frameNumber : previous.frameAt(t0),
+      speed: this.speed,
+      rate: scene.layout.rate,
+      duration: scene.layout.durationFrames,
+      loop: this.loopRange,
+      stopAt: this.stopAt,
+    });
+    if (previous === null) this.frameNumber = this.transport.startFrame;
+    this.sound.play(this.transport);
+  }
+
+  /** Ends the transport where the playhead is heard to be, and silences the sound. */
+  private haltTransport(now: number) {
+    this.advance(now);
+    this.transport = null;
+    this.outgoing = null;
+    this.stopAt = null;
+    this.sound.stop();
+    this.sound.prime(this.frameNumber);
+    this.meterUntil = now + METER_REST_MS;
+  }
+
+  /** Moves the playhead to where the transport is at page time `now`; true once it has ended. */
+  private advance(now: number): boolean {
+    let t = this.sound.clock(now);
+    if (this.sound.epoch !== this.clockEpoch) {
+      // The clock changed hands (sound started, stopped or was blocked): carry on from here.
+      if (this.speed === 0) return true;
+      this.startTransport(now, false);
+      t = this.sound.clock(now);
     }
-    if (this.mix.context.state === "suspended") void this.mix.context.resume();
+    const transport = this.transport;
+    if (transport === null) return true;
+    if (this.outgoing !== null && t >= transport.t0) this.outgoing = null;
+    const following = this.outgoing ?? transport;
+    let frame = following.frameAt(t);
+    // The audio clock is re-measured as it runs; a correction never steps the picture back.
+    const back = (this.frameNumber - frame) * Math.sign(following.fps);
+    if (back > 0 && back < Math.abs(following.fps) * CLOCK_SLACK_SECONDS) frame = this.frameNumber;
+    const ended = this.outgoing === null && t >= transport.endsAt;
+    this.frameNumber = ended ? transport.finalFrame : frame;
+    return ended;
+  }
+
+  /** Scrub audio: a moment of sound at each step or drag of the paused playhead. */
+  setScrubAudio(enabled: boolean) {
+    this.sound.scrubEnabled = enabled;
+  }
+
+  /** Lets sound start. Call from a click or a key press, which is when browsers allow it. */
+  unlockAudio() {
+    this.sound.unlock();
+    if (this.speed !== 0) this.invalidate();
+  }
+
+  get audioStatus(): AudioStatus {
+    return this.sound.currentStatus;
+  }
+
+  readonly subscribeAudioStatus = (listener: () => void) => {
+    this.statusListeners.add(listener);
+    return () => {
+      this.statusListeners.delete(listener);
+    };
+  };
+
+  /** Draws the output level, called with each channel's peak on frames where sound may play. */
+  setMeter(draw: ((left: number, right: number) => void) | null) {
+    this.meter = draw;
+  }
+
+  /** For measurement: the audio context and the node everything is heard through. */
+  audioProbe() {
+    return this.sound.probe();
   }
 
   /** Full screen keeps the frame's aspect; the picture letterboxes inside the screen. */
@@ -379,18 +489,14 @@ export class PreviewEngine {
     document.removeEventListener("visibilitychange", this.pauseWhenHidden);
     document.fonts.removeEventListener("loadingdone", this.onFontsLoaded);
     for (const slot of this.videos.values()) releaseMedia(slot.element);
-    for (const slot of this.audios.values()) {
-      slot.gain?.disconnect();
-      releaseMedia(slot.element);
-    }
     this.videos.clear();
-    this.audios.clear();
     for (const still of this.images.values()) still.bitmap?.close();
     for (const decoder of this.decoders.values()) decoder?.close();
     this.decoders.clear();
     this.images.clear();
-    void this.mix?.context.close();
-    this.mix = null;
+    this.sound.destroy();
+    this.statusListeners.clear();
+    this.meter = null;
   }
 
   private clamp(frame: number) {
@@ -406,47 +512,21 @@ export class PreviewEngine {
     this.handle = 0;
     const scene = this.scene;
     if (scene === null) return;
-    const rate = scene.layout.rate;
     if (this.speed !== 0) {
-      let frame = this.anchor.frame + ((now - this.anchor.wall) / 1000) * this.speed * rate;
-      const lead = this.lead;
-      if (
-        lead !== null &&
-        this.speed > 0 &&
-        !lead.element.paused &&
-        !lead.element.seeking &&
-        lead.element.readyState >= 3
-      ) {
-        const leadFrame =
-          lead.item.startFrame +
-          offsetAtSourceSeconds(lead.item.clip, lead.element.currentTime) * rate;
-        if (Math.abs(leadFrame - frame) < rate * RESYNC_SECONDS) {
-          // Never step back: media clocks jitter and round (0.833333 s against 25/30), and a
-          // playhead a hair before 0 would read as running off the timeline's start.
-          frame = Math.max(this.frameNumber, leadFrame);
-          this.anchor = { wall: now, frame };
-        }
-      }
-      const loop = this.loopRange;
-      const start = loop?.start ?? 0;
-      const end = loop?.end ?? scene.layout.durationFrames;
-      if (this.stopAt !== null && frame >= this.stopAt) {
-        frame = this.stopAt;
-        this.stopAt = null;
+      if (this.advance(now)) {
+        // Playback reached its end, or the place it was asked to stop.
         this.speed = 0;
+        this.haltTransport(now);
         this.listener.onSpeed(0);
-      } else if (frame >= end || frame < start) {
-        if (loop !== null && this.speed > 0) {
-          frame = start;
-          this.anchor = { wall: now, frame };
-        } else {
-          frame = Math.min(Math.max(frame, start), end);
-          this.speed = 0;
-          this.listener.onSpeed(0);
-        }
+      } else {
+        this.sound.pump();
       }
-      this.frameNumber = frame;
-      this.listener.onTime(frame, now);
+      this.listener.onTime(this.frameNumber, now);
+    }
+    const metering = this.meter !== null && (this.speed !== 0 || now < this.meterUntil);
+    if (metering && this.meter !== null) {
+      this.sound.readLevels(this.levels);
+      this.meter(this.levels[0]!, this.levels[1]!);
     }
     const settled = this.sync(scene);
     if (this.needsDraw || this.speed !== 0) {
@@ -464,7 +544,9 @@ export class PreviewEngine {
         }
       }
     }
-    if (this.speed !== 0 || this.needsDraw) this.handle = requestAnimationFrame(this.tick);
+    if (this.speed !== 0 || this.needsDraw || metering) {
+      this.handle = requestAnimationFrame(this.tick);
+    }
   };
 
   /**
@@ -506,8 +588,6 @@ export class PreviewEngine {
     const rate = scene.layout.rate;
     const nativePlayback = this.speed > 0 && this.speed <= 4;
     let settled = true;
-    let nextLead: { element: HTMLMediaElement; item: LaidOutClip } | null = null;
-    let videoLead: { element: HTMLMediaElement; item: LaidOutClip } | null = null;
 
     this.nearVideoCount = this.clipsNear(scene, this.videoTracks, this.nearVideo);
     const liveVideos = new Set<string>();
@@ -563,15 +643,9 @@ export class PreviewEngine {
           ? prerollTarget(source, from - this.frameNumber, rate, this.speed, mediaSpeed)
           : null;
       if (active && native) {
-        if (this.lead?.element === element) {
-          if (Math.abs(element.currentTime - source) > RESYNC_SECONDS) element.currentTime = source;
-          setRate(element, mediaSpeed);
-        } else {
-          follow(element, source, mediaSpeed);
-        }
+        follow(element, source, mediaSpeed);
         if (element.paused) void element.play().catch(() => undefined);
         slot.wanted = Number.NaN;
-        videoLead ??= { element, item };
       } else if (preroll !== null) {
         const target = preroll;
         if (element.paused) {
@@ -612,94 +686,6 @@ export class PreviewEngine {
       this.decoders.delete(key);
     }
 
-    const audioCount = this.clipsNear(scene, this.audioTracks, this.nearAudio);
-    const liveAudio = new Set<string>();
-    for (let index = 0; index < audioCount; index++) {
-      const { item, active } = this.nearAudio[index]!;
-      const transitions = this.transitions.get(item.key);
-      const from = windowStart(item, transitions);
-      const to = windowEnd(item, transitions);
-      const scalar = timeScalarOf(item.clip);
-      const mediaSpeed = this.speed * scalar;
-      // Reversed clips stay silent, as reverse play does.
-      const audible = this.speed > 0 && scalar > 0 && mediaSpeed <= MAX_AUDIO_SPEED;
-      const url = this.source(scene, item)?.audio;
-      if (!url) continue;
-      liveAudio.add(item.key);
-      let slot = this.audios.get(item.key);
-      if (slot !== undefined && slot.url !== url) {
-        slot.gain?.disconnect();
-        releaseMedia(slot.element);
-        slot = undefined;
-      }
-      if (slot === undefined) {
-        const created = new Audio();
-        // Routing a cross-origin element into Web Audio needs CORS, or it plays silence.
-        created.crossOrigin = "anonymous";
-        created.preload = "auto";
-        created.src = url;
-        slot = { element: created, url, gain: null };
-        this.audios.set(item.key, slot);
-      }
-      const element = slot.element;
-      if (slot.gain === null && this.mix !== null) {
-        slot.gain = new GainNode(this.mix.context);
-        this.mix.context.createMediaElementSource(element).connect(slot.gain).connect(this.mix.bus);
-      }
-      const source = clipSourceAt(item, rate, Math.max(this.frameNumber, from));
-      const preroll =
-        audible && slot.gain !== null && from > this.frameNumber
-          ? prerollTarget(source, from - this.frameNumber, rate, this.speed, mediaSpeed)
-          : null;
-      if (active && audible) {
-        // A crossfade is each clip's own fade over the stretch where both play.
-        const fade = mixAt(transitions, this.frameNumber, this.audioMix).gain;
-        const offset = clipOffset(item, rate, this.frameNumber);
-        const level = 10 ** (gainDbAt(transformOf(item), offset) / 20) * fade;
-        if (slot.gain === null) element.volume = Math.min(1, level);
-        else slot.gain.gain.value = level;
-        if (this.lead?.element === element) {
-          if (Math.abs(element.currentTime - source) > RESYNC_SECONDS) element.currentTime = source;
-          setRate(element, mediaSpeed);
-        } else {
-          follow(element, source, mediaSpeed);
-        }
-        if (element.paused) void element.play().catch(() => undefined);
-        // A clip fading in or out is on its media's handles, so it never keeps time.
-        if (item.startFrame <= this.frameNumber && this.frameNumber < item.endFrame) {
-          nextLead ??= { element, item };
-        }
-      } else if (preroll !== null && slot.gain !== null) {
-        // Silent until its cut, through its own gain stage.
-        slot.gain.gain.value = 0;
-        const target = preroll;
-        if (element.paused) {
-          // Parked at its pre-roll point already, so starting needs no seek (and no stall).
-          if (Math.abs(element.currentTime - target) > 0.05) element.currentTime = target;
-          void element.play().catch(() => undefined);
-        } else {
-          follow(element, target, mediaSpeed);
-        }
-      } else {
-        if (!element.paused) element.pause();
-        const target =
-          to <= this.frameNumber
-            ? null
-            : audible && from > this.frameNumber
-              ? parkTarget(source, mediaSpeed)
-              : source;
-        if (target !== null && Math.abs(element.currentTime - target) > 0.05) {
-          element.currentTime = target;
-        }
-      }
-    }
-    for (const [key, slot] of this.audios) {
-      if (liveAudio.has(key)) continue;
-      slot.gain?.disconnect();
-      releaseMedia(slot.element);
-      this.audios.delete(key);
-    }
-    this.lead = nativePlayback ? (nextLead ?? videoLead) : null;
     return settled;
   }
 

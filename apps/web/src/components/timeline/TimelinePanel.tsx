@@ -159,6 +159,7 @@ const planMedia = (
         ...(entry?.video !== undefined && entry.alpha !== true && plan.still < 0
           ? { videoProxy: true }
           : {}),
+        ...(entry?.audio !== undefined && plan.still < 0 ? { audioProxy: true } : {}),
         ...(entry ? { width: entry.width, height: entry.height } : {}),
         ...(entry?.peaks ? { peaks: at(plan.peaks) } : {}),
       });

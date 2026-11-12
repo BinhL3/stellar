@@ -484,6 +484,12 @@ const buildEntry = Effect.fn("timeline.proxies.buildEntry")(function* (input: {
         "160k",
         "-ac",
         "2",
+        // The player reads this file by byte range and plays it at 48 kHz: the index goes
+        // first so one request opens it, and the rate matches so nothing is resampled.
+        "-ar",
+        "48000",
+        "-movflags",
+        "+faststart",
         part(entry.audio),
       );
     }
