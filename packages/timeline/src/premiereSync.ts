@@ -486,3 +486,42 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
   };
   return result;
 });
+
+/**
+ * How the timelines stand against the linked Premiere project, read without pulling or writing
+ * anything: `behind` is a save in Premiere that no sync has read yet, `edited` is edits made
+ * here that Premiere doesn't have, `conflict` both on one timeline as the last sync found it.
+ */
+export const premiereLinkStatus = Effect.fn("timeline.premiereLinkStatus")(function* (
+  projectDir: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const link = yield* readLink(projectDir);
+  if (link === null) return { state: "unlinked" as const, project: null };
+  const stat = yield* fs.stat(link.project).pipe(Effect.option);
+  if (Option.isNone(stat)) return { state: "offline" as const, project: link.project };
+  const modified = Option.match(stat.value.mtime, { onNone: () => 0, onSome: (d) => d.getTime() });
+  const behind =
+    link.saved === null ||
+    link.saved.size !== Number(stat.value.size) ||
+    link.saved.modified !== modified;
+  let edited = false;
+  let conflict = false;
+  for (const [timelinePath, entry] of Object.entries(link.timelines)) {
+    const text = yield* fs.readFileString(path.join(projectDir, timelinePath)).pipe(Effect.option);
+    if (Option.isNone(text) || sha(text.value) === entry.pulled) continue;
+    edited = true;
+    if (entry.premiere !== entry.pulled) conflict = true;
+  }
+  return {
+    state: conflict
+      ? ("conflict" as const)
+      : behind
+        ? ("behind" as const)
+        : edited
+          ? ("edited" as const)
+          : ("current" as const),
+    project: link.project,
+  };
+});

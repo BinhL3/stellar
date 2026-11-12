@@ -43,6 +43,10 @@
       "types": "./src/premiere/shortcuts.ts",
       "import": "./src/premiere/shortcuts.ts"
     },
+    "./preflight": {
+      "types": "./src/preflight.ts",
+      "import": "./src/preflight.ts"
+    },
     "./premiereSync": {
       "types": "./src/premiereSync.ts",
       "import": "./src/premiereSync.ts"
@@ -58,6 +62,14 @@
     "./pullToProject": {
       "types": "./src/pullToProject.ts",
       "import": "./src/pullToProject.ts"
+    },
+    "./renderCheck": {
+      "types": "./src/renderCheck.ts",
+      "import": "./src/renderCheck.ts"
+    },
+    "./renderProbe": {
+      "types": "./src/renderProbe.ts",
+      "import": "./src/renderProbe.ts"
     },
     "./script": {
       "types": "./src/script.ts",

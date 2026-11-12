@@ -360,6 +360,15 @@ export function summarizeT3ToolCalls(
     case "video-footage":
       label = phrase("Brought in", "bring in", `footage ${times}`);
       break;
+    case "video-render-check":
+      label = phrase("Checked", "check", `the export ${times}`);
+      break;
+    case "video-preflight":
+      label = phrase("Read", "read", `the run's steps ${times}`);
+      break;
+    case "video-posted":
+      label = phrase("Recorded", "record", `the short as posted ${times}`);
+      break;
     case "project-list":
       label = phrase("Listed", "list", `projects ${times}`);
       break;

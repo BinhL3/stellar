@@ -55,6 +55,9 @@ export type T3McpToolSummaryAction =
   | "video-footage"
   | "video-premiere-export"
   | "video-premiere-push"
+  | "video-render-check"
+  | "video-preflight"
+  | "video-posted"
   | "project-list"
   | "project-read"
   | "project-create"
@@ -228,6 +231,9 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "video-premiere-push",
   ),
   video_footage: tool(["Bring in", "Bringing in", "Brought in", "footage"], "video-footage"),
+  video_render_check: tool(["Check", "Checking", "Checked", "the export"], "video-render-check"),
+  video_preflight: tool(["Read", "Reading", "Read", "the run's steps"], "video-preflight"),
+  video_posted: tool(["Record", "Recording", "Recorded", "the short as posted"], "video-posted"),
   preview_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),
   preview_open: tool(
     ["Open", "Opening", "Opened", "a page in the preview browser"],

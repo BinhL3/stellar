@@ -640,8 +640,12 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 1. A project started from an idea is only folders. The script, intake and preflight steps
    still have no surfaces in it (hole 2), and the Premiere link is made by hand from the
    Timeline tab rather than when the agent saves the rough cut.
-2. None of Decision 7's surfaces are built: no preflight strip, intake card, job rows, hook card,
-   catalog pill or beat markers. The run is still chat text.
+2. Of Decision 7's surfaces only the preflight strip is built, and not as drawn: it sits in the
+   Timeline tab and lists the run's steps (script, footage, previews, transcripts, Premiere link
+   and sync, render check, posted) from project data. It checks no drive, free space, connector
+   sign-in or MCP health, and has no Continue anyway. The intake card, job rows, hook card,
+   catalog pill and beat markers are unbuilt. Posted is recorded in the project; the catalog row
+   is moved by an agent through the Google connector, and nothing confirms that it was.
 3. Agents can't reach any of it. Creating, linking and syncing a video project are UI-only, and
    the `timeline` toolkit doesn't exist. Agents edit Premiere through its own MCP, so the
    `.otio` is a mirror of Premiere today, not the thing agents edit.
@@ -700,8 +704,9 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 **The Timeline tab**
 
 26. It exists on web and desktop only. Mobile has no timeline or preview.
-27. "Timeline saved" is true of the `.otio` and nothing else. The badge now says so, but
-    nothing reads the commit downstream.
+27. "Timeline saved" is true of the `.otio` and nothing else, and the badge says so. The only
+    thing downstream that reads a commit is the render check, which goes stale when the
+    timeline's text changes.
 28. No markers, beat markers, suggestion cards or version history. Undo stops at a commit.
 29. `TimelineViewer.tsx` is one 2,100-line component under `components/files/`.
 
@@ -711,7 +716,12 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
     library and no tier guard on writes, because nothing writes yet.
 31. The invariants in Decision 3 are prose. Only "items stay in time order" is checked, as a
     warning on pull.
-32. The render check (Decision 4) is unbuilt, so "done" still means "looked right in playback".
+32. The render check compares one whole export with the timeline: container facts, black, frozen
+    and silent stretches, loudness, and cuts between different clips, with a contact sheet. It
+    can't start the export, renders no ranges of the changed spans, and returns its sheet as a
+    file path, not as images in the thread. It looks for no jump cuts inside one file, cuts under
+    a transition, captions or speed changes, and assumes stills and text never cover the frame.
+    Its thresholds were set on test patterns, not yet on real exports.
 33. The namespace is `stellar` in code; this document still says `<product>` and lists the name
     as open.
 

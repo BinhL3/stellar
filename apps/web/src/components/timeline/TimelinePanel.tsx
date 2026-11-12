@@ -58,6 +58,7 @@ import { VideoStageSelect } from "../videoProject/VideoStageSelect";
 import type { PremierePull } from "./premiereChanges";
 import { PremierePullNotice } from "./PremierePullNotice";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
+import { PreflightStrip } from "./PreflightStrip";
 import { ScriptPanel } from "./ScriptPanel";
 import {
   TIMELINE_PANEL_IDS,
@@ -418,7 +419,7 @@ export default function TimelinePanel(props: {
     />
   );
 
-  const importFootage = (size?: "sm") => (
+  const importFootage = (size?: "sm" | "micro") => (
     <ImportFootageButton
       environmentId={props.environmentId}
       workspaceRoot={props.workspaceRoot}
@@ -435,35 +436,67 @@ export default function TimelinePanel(props: {
       <span className="text-xs text-destructive">Import failed: {intake.error}</span>
     ) : null;
 
+  const premiereDialog = (
+    <NewVideoProjectDialog
+      environmentId={props.environmentId}
+      open={pulling}
+      onOpenChange={setPulling}
+      premiereFolder={`${props.workspaceRoot.replace(/\/+$/, "").replace(/\/[^/]+$/, "")}/Premiere/`}
+      onPulled={refreshTimelines}
+    />
+  );
+  // The run's steps, under the bar. It reads what this tab already loads and adds no timer.
+  const preflightStrip = (
+    <PreflightStrip
+      environmentId={props.environmentId}
+      workspaceRoot={props.workspaceRoot}
+      watched={{
+        sync: link,
+        timeline: file.data?.contents,
+        proxies: proxyFile.data?.contents,
+        intake: intakeFile.data?.contents,
+        transcripts: transcriptFile.data?.contents,
+      }}
+      canWrite={canWriteFiles}
+      uncommittedEdits={hasPendingEdits}
+      actions={{
+        importFootage: importFootage("micro"),
+        linkPremiere: () => setPulling(true),
+        sync: () => void sync(),
+        merge: () => void sync({ merge: true }),
+        transcribe: () => void transcribe(),
+        ...(workspace === null ? {} : { openScript: () => workspace.controls.show("script") }),
+      }}
+      onBeforeRenderCheck={() => sync({ quiet: true })}
+    />
+  );
+
   if (selectedPath === null) {
     return (
-      <Empty>
-        {stageSelect()}
-        <EmptyHeader>
-          <EmptyTitle>No timeline yet</EmptyTitle>
-          <EmptyDescription>
-            {isBuilding
-              ? "Footage is on its way. It plays here as soon as its previews are made."
-              : "Import the footage you shot and it plays here. Once a rough cut exists, save the Premiere project in this project's Premiere folder and pull a sequence."}
-          </EmptyDescription>
-        </EmptyHeader>
-        {intakeNote}
-        {canWriteFiles ? (
-          <EmptyContent>
-            {importFootage()}
-            <Button variant="outline" onClick={() => setPulling(true)}>
-              Pull from Premiere
-            </Button>
-          </EmptyContent>
-        ) : null}
-        <NewVideoProjectDialog
-          environmentId={props.environmentId}
-          open={pulling}
-          onOpenChange={setPulling}
-          premiereFolder={`${props.workspaceRoot.replace(/\/+$/, "").replace(/\/[^/]+$/, "")}/Premiere/`}
-          onPulled={refreshTimelines}
-        />
-      </Empty>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {preflightStrip}
+        <Empty>
+          {stageSelect()}
+          <EmptyHeader>
+            <EmptyTitle>No timeline yet</EmptyTitle>
+            <EmptyDescription>
+              {isBuilding
+                ? "Footage is on its way. It plays here as soon as its previews are made."
+                : "Import the footage you shot and it plays here. Once a rough cut exists, save the Premiere project in this project's Premiere folder and pull a sequence."}
+            </EmptyDescription>
+          </EmptyHeader>
+          {intakeNote}
+          {canWriteFiles ? (
+            <EmptyContent>
+              {importFootage()}
+              <Button variant="outline" onClick={() => setPulling(true)}>
+                Pull from Premiere
+              </Button>
+            </EmptyContent>
+          ) : null}
+          {premiereDialog}
+        </Empty>
+      </div>
     );
   }
 
@@ -529,6 +562,8 @@ export default function TimelinePanel(props: {
           {canWriteFiles ? importFootage("sm") : null}
         </span>
       </div>
+      {preflightStrip}
+      {premiereDialog}
       {pull !== null && !pull.dismissed ? (
         <PremierePullNotice pull={pull} onDismiss={() => setPull({ ...pull, dismissed: true })} />
       ) : null}

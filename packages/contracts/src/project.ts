@@ -934,6 +934,135 @@ export const VideoVoiceOverSplitInput = Schema.Struct({
   timeline: VideoVoiceOverReadInput.fields.timeline,
 });
 export type VideoVoiceOverSplitInput = typeof VideoVoiceOverSplitInput.Type;
+/** One check of an exported file against the timeline it was cut from. */
+export const VideoRenderCheckItem = Schema.Struct({
+  /** Which check, such as `duration`, `black`, `cuts` or `loudness`. */
+  id: Schema.String,
+  level: Schema.Literals(["pass", "warn", "fail"]),
+  title: Schema.String,
+  /** What was found, with times as `m:ss.ff (frame n)` of the export. */
+  detail: Schema.String,
+});
+export type VideoRenderCheckItem = typeof VideoRenderCheckItem.Type;
+
+/**
+ * The last render check, kept as `render/report.json` in the project folder: an export from
+ * Premiere compared with a timeline. Stellar has no renderer, so this is what "done" rests on.
+ */
+export const VideoRenderReport = Schema.Struct({
+  /** The timeline path it was checked against, and a hash of that file's text at the time. */
+  timeline: Schema.String,
+  timelineHash: Schema.String,
+  /** The exported file, with the size and modified time it had when checked. */
+  exportPath: Schema.String,
+  exportSize: Schema.Number,
+  exportModifiedAt: Schema.Number,
+  /** Epoch milliseconds. */
+  checkedAt: Schema.Number,
+  /** The worst level among the items. */
+  level: VideoRenderCheckItem.fields.level,
+  items: Schema.Array(VideoRenderCheckItem),
+  /**
+   * An image of the export's frames, spread evenly plus the frame after each timeline cut, as an
+   * absolute path; null when it couldn't be made. `contactSheetLabelled` is false when the
+   * host's ffmpeg can't draw the frame number and time on each tile.
+   */
+  contactSheet: Schema.NullOr(Schema.String),
+  contactSheetLabelled: Schema.Boolean,
+  /** The sheet's tiles in reading order: the export frame each shows, and why it is there. */
+  contactSheetTiles: Schema.Array(
+    Schema.Struct({
+      frame: Schema.Number,
+      seconds: Schema.Number,
+      kind: Schema.Literals(["even", "cut", "flash"]),
+    }),
+  ),
+});
+export type VideoRenderReport = typeof VideoRenderReport.Type;
+
+export const VideoRenderCheckInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** A path from `timelines`; omitted, the project's main timeline. */
+  timeline: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+  /**
+   * The exported video, absolute or relative to the project's media root; omitted, the newest
+   * video in its Exports folder.
+   */
+  exportPath: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(4096))),
+});
+export type VideoRenderCheckInput = typeof VideoRenderCheckInput.Type;
+
+/** One step of a short's run, from script to posted. */
+export const VideoPreflightStep = Schema.Struct({
+  id: Schema.Literals([
+    "script",
+    "footage",
+    "proxies",
+    "transcripts",
+    "premiereLink",
+    "premiereSync",
+    "render",
+    "posted",
+  ]),
+  label: Schema.String,
+  /** `todo` is a step not reached yet; `warn` and `fail` need the person. */
+  state: Schema.Literals(["done", "working", "todo", "warn", "fail"]),
+  /** What is there or what is missing, in a few words. */
+  detail: Schema.String,
+  /** What moves the step on, where something does. */
+  action: Schema.NullOr(
+    Schema.Literals([
+      "openScript",
+      "importFootage",
+      "sync",
+      "merge",
+      "transcribe",
+      "linkPremiere",
+      "checkRender",
+      "markPosted",
+      "unmarkPosted",
+    ]),
+  ),
+});
+export type VideoPreflightStep = typeof VideoPreflightStep.Type;
+
+/** That a short is posted, kept as `posted` in the project folder's `project.json`. */
+export const VideoPosted = Schema.Struct({
+  /** Epoch milliseconds. */
+  at: Schema.Number,
+  /** Links to the posts, one per platform. */
+  urls: Schema.Array(Schema.String),
+});
+export type VideoPosted = typeof VideoPosted.Type;
+
+export const VideoPreflightInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+});
+export type VideoPreflightInput = typeof VideoPreflightInput.Type;
+
+/** Where a short's run stands, derived from what the project folder records. */
+export const VideoPreflight = Schema.Struct({
+  /** The steps in the order a short goes through them. */
+  steps: Schema.Array(VideoPreflightStep),
+  /** The last render check, whether or not it still holds; the `render` step says if it does. */
+  render: Schema.NullOr(VideoRenderReport),
+  posted: Schema.NullOr(VideoPosted),
+});
+export type VideoPreflight = typeof VideoPreflight.Type;
+
+export const VideoSetPostedInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** False takes the record back. */
+  posted: Schema.Boolean,
+  urls: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(2048))).check(
+      Schema.isMaxLength(20),
+    ),
+  ),
+  /** When it went up, in epoch milliseconds; omitted, now. */
+  at: Schema.optional(Schema.Number),
+});
+export type VideoSetPostedInput = typeof VideoSetPostedInput.Type;
 
 export const ProjectCreateFromThreadInput = Schema.Struct({
   threadId: ThreadId,
