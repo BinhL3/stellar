@@ -81,6 +81,63 @@ const withMetadata = (clip: Clip, start: number, end: number, id?: string): Clip
   };
 };
 
+type Keyframes = Readonly<Record<string, ReadonlyArray<readonly [number, ...Array<unknown>]>>>;
+
+/** `holder` (a clip's transform, or one effect's params) with its keyframes `seconds` earlier. */
+const earlier = <Holder extends { readonly keyframes?: unknown }>(
+  holder: Holder,
+  seconds: number,
+): Holder => {
+  if (holder.keyframes === undefined || holder.keyframes === null) return holder;
+  const keyframes = Object.fromEntries(
+    Object.entries(holder.keyframes as Keyframes).map(([param, points]) => [
+      param,
+      points.map(([at, ...rest]) => [Math.round((at - seconds) * 1e4) / 1e4, ...rest]),
+    ]),
+  );
+  return { ...holder, keyframes };
+};
+
+/**
+ * Keyframes are timed from a clip's first frame, so a clip that loses `seconds` off its head
+ * has them moved that much earlier, in `transform` and in each effect's `params`: the animation
+ * stays on its frames, as in Premiere. Ones now before the clip stay to be eased from.
+ */
+const keyframesEarlier = (clip: Clip, seconds: number): Clip => {
+  const stellar = clip.metadata[TIMELINE_NAMESPACE] as
+    | {
+        readonly transform?: { readonly keyframes?: unknown };
+        readonly effects?: ReadonlyArray<{ readonly params?: { readonly keyframes?: unknown } }>;
+      }
+    | undefined;
+  if (stellar === undefined || seconds === 0) return clip;
+  const animated =
+    stellar.transform?.keyframes !== undefined ||
+    stellar.effects?.some((effect) => effect.params?.keyframes !== undefined) === true;
+  if (!animated) return clip;
+  return {
+    ...clip,
+    metadata: {
+      ...clip.metadata,
+      [TIMELINE_NAMESPACE]: {
+        ...stellar,
+        ...(stellar.transform === undefined
+          ? {}
+          : { transform: earlier(stellar.transform, seconds) }),
+        ...(stellar.effects === undefined
+          ? {}
+          : {
+              effects: stellar.effects.map((effect) =>
+                effect.params === undefined
+                  ? effect
+                  : { ...effect, params: earlier(effect.params, seconds) },
+              ),
+            }),
+      },
+    },
+  };
+};
+
 /** Shifts a clip's source in point by `frames` timeline frames and sets its new length. */
 const reslice = (clip: Clip, rate: number, shiftFrames: number, lengthFrames: number): Clip => {
   const { start_time, duration } = clip.source_range;
@@ -93,7 +150,7 @@ const reslice = (clip: Clip, rate: number, shiftFrames: number, lengthFrames: nu
     : reslicedSourceStart(clip, rate, shiftFrames, lengthFrames);
   const length = lengthFrames * (duration.rate / rate);
   return {
-    ...clip,
+    ...keyframesEarlier(clip, shiftFrames / rate),
     source_range: timeRange(
       Math.round(start * 1000) / 1000,
       Math.round(length * 1000) / 1000,

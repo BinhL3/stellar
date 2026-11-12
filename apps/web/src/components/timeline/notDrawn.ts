@@ -1,10 +1,11 @@
 import type { LaidOutClip } from "@t3tools/timeline/layout";
 
-import { graphicOf } from "./clipTransform";
+import { graphicOf, TRANSFORM_EFFECTS } from "./clipTransform";
 
 /**
  * What the preview leaves out, so the Monitor can say so. The engine draws Motion, Opacity,
- * Crop and text; every other effect on a clip is listed by the name Premiere shows for it.
+ * Crop, text and the Transform effect; every other effect on a clip is listed by the name
+ * Premiere shows for it.
  */
 
 // Effects the engine draws, plus the group a graphic's layers sit in, which has no look itself.
@@ -42,6 +43,17 @@ export const clipNotDrawn = (item: LaidOutClip): ReadonlyArray<string> => {
   const missing: Array<string> = [];
   for (const effect of graphic.effects ?? []) {
     if (effect.matchName === undefined || DRAWN_EFFECTS.has(effect.matchName)) continue;
+    // Switched off in Premiere, so there is nothing of it to miss.
+    if (effect.bypassed === true) continue;
+    // A Transform is drawn from the values a pull describes; one pulled before that is not.
+    if (TRANSFORM_EFFECTS.has(effect.matchName) && effect.params !== undefined) {
+      const blurs = (effect.params.shutter_angle ?? 0) > 0;
+      // The shutter's blur is drawn for pictures only; text keeps its sharp edges.
+      if (blurs && item.clip.media_references.DEFAULT_MEDIA.target_url === "") {
+        missing.push(`${effect.kind} motion blur`);
+      }
+      continue;
+    }
     const named = effect.label !== effect.kind && effect.label.length <= 40;
     missing.push(named ? `${effect.kind} (${effect.label})` : effect.kind);
   }

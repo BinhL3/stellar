@@ -6,14 +6,20 @@ import { observeResize } from "~/lib/observeResize";
 import { ClipDecoder, loadProxy, prefetchProxies, webCodecsAvailable } from "./clipDecoder";
 
 import {
+  aboutMotionAnchor,
   type ClipPose,
   clipOffset,
   clipSourceAt,
+  type EffectPlan,
+  effectPlanOf,
+  effectsMatrixAt,
   emptyPose,
   gainDbAt,
   graphicOf,
   graphicText,
   graphicTextPosition,
+  identityMatrix,
+  type Matrix,
   poseAt,
   transformOf,
 } from "./clipTransform";
@@ -152,7 +158,29 @@ interface Layer {
   pixelWidth: number;
   pixelHeight: number;
   blend: GlobalCompositeOperation;
+  /** The clip's Transform effects, and what they come to this frame. */
+  plan: EffectPlan | null;
+  /** Applied after Motion has placed the origin; `shaped` is false when it is the identity. */
+  readonly matrix: Matrix;
+  shaped: boolean;
+  /** The Transform effects that come after Crop, when some come before it. */
+  readonly cropMatrix: Matrix;
+  effectOpacity: number;
+  /** Seconds into the clip, and how many shutter samples to blur over (0 draws it once). */
+  seconds: number;
+  samples: number;
 }
+
+// A Transform's shutter blur is drawn as this many copies across the shutter's opening. Both
+// divide 255, so the copies add back up to full strength. Playing gets the few it can afford.
+const BLUR_SAMPLES_PAUSED = 15;
+const BLUR_SAMPLES_PLAYING = 5;
+// Canvas pixels a layer's corner must travel while the shutter is open before blur is drawn.
+const BLUR_MIN_TRAVEL = 1.5;
+// A canvas drawn in software takes this long over a blurred layer; a few of those while
+// playing and blur is left to paused frames, which can afford it.
+const BLUR_SLOW_MS = 6;
+const BLUR_SLOW_LIMIT = 3;
 
 const NO_TRANSITIONS: ReadonlyMap<string, ClipTransitions> = new Map();
 const NOTHING_MISSING: ReadonlyArray<string> = [];
@@ -217,6 +245,8 @@ export class PreviewEngine {
   private readonly stopObserving: () => void;
   /** What the canvas last drew; an identical frame is not drawn again. */
   private drawn = "";
+  private blurCanvas: CanvasRenderingContext2D | null = null;
+  private slowBlurs = 0;
   // A hidden page gets no animation frames, so nothing would stop audio at its cut or loop.
   private readonly pauseWhenHidden = () => {
     if (document.hidden && this.speed !== 0) this.setSpeed(0);
@@ -749,12 +779,224 @@ export class PreviewEngine {
         pixelWidth: 0,
         pixelHeight: 0,
         blend: "source-over",
+        plan: null,
+        matrix: identityMatrix(),
+        shaped: false,
+        cropMatrix: identityMatrix(),
+        effectOpacity: 1,
+        seconds: 0,
+        samples: 0,
       };
       this.layers.push(slot);
     }
     slot.item = item;
     slot.drawable = null;
     return slot;
+  }
+
+  /**
+   * Works out what a layer's Transform effects and Motion's anchor do `seconds` into its clip,
+   * into `layer.matrix` (and `cropMatrix`). `layer.width` and `height` must be set: positions
+   * and anchors are fractions of them.
+   */
+  private shapeAt(layer: Layer, seconds: number, pixels: number) {
+    const { pose, plan, matrix } = layer;
+    const scale = pose.scale * pixels;
+    if (plan === null) {
+      layer.effectOpacity = 1;
+      layer.shaped = pose.anchorX !== 0.5 || pose.anchorY !== 0.5;
+      if (!layer.shaped) return;
+      matrix[0] = 1;
+      matrix[1] = 0;
+      matrix[2] = 0;
+      matrix[3] = 1;
+      matrix[4] = 0;
+      matrix[5] = 0;
+    } else {
+      layer.shaped = true;
+      layer.effectOpacity = effectsMatrixAt(plan, seconds, layer.width, layer.height, 0, matrix);
+      if (plan.beforeCrop > 0) {
+        const after = layer.cropMatrix;
+        effectsMatrixAt(plan, seconds, layer.width, layer.height, plan.beforeCrop, after);
+        aboutMotionAnchor(after, layer.width, layer.height, scale, pose.anchorX, pose.anchorY);
+      }
+    }
+    aboutMotionAnchor(matrix, layer.width, layer.height, scale, pose.anchorX, pose.anchorY);
+  }
+
+  /**
+   * Shapes a layer for this frame and returns what of that the drawn-frame signature needs.
+   * Decides the shutter blur too: only for pictures, paused or at normal speed, outside a dip,
+   * and only when the layer travels far enough while the shutter is open to show.
+   */
+  private shape(layer: Layer, seconds: number, pixels: number, rate: number): string {
+    layer.seconds = seconds;
+    layer.samples = 0;
+    const plan = layer.plan;
+    const shutter = plan?.shutter ?? 0;
+    if (
+      shutter > 0 &&
+      layer.kind === "picture" &&
+      (this.speed === 0 || (this.speed === 1 && this.slowBlurs < BLUR_SLOW_LIMIT)) &&
+      layer.mix.dip === 0
+    ) {
+      const open = shutter / 360 / rate;
+      const { matrix } = layer;
+      const halfWidth = (layer.width * layer.pose.scale * pixels) / 2;
+      const halfHeight = (layer.height * layer.pose.scale * pixels) / 2;
+      this.shapeAt(layer, seconds, pixels);
+      const a = matrix[0];
+      const b = matrix[1];
+      const c = matrix[2];
+      const d = matrix[3];
+      const e = matrix[4];
+      const f = matrix[5];
+      this.shapeAt(layer, seconds + open, pixels);
+      // The corner that moves most: both diagonals, by how far the two maps disagree there.
+      const dx = Math.abs(matrix[0] - a) * halfWidth;
+      const dy = Math.abs(matrix[1] - b) * halfWidth;
+      const ex = Math.abs(matrix[2] - c) * halfHeight;
+      const ey = Math.abs(matrix[3] - d) * halfHeight;
+      const travel =
+        Math.max(dx + ex, dy + ey) + Math.max(Math.abs(matrix[4] - e), Math.abs(matrix[5] - f));
+      if (travel >= BLUR_MIN_TRAVEL) {
+        layer.samples = this.speed === 0 ? BLUR_SAMPLES_PAUSED : BLUR_SAMPLES_PLAYING;
+      }
+    }
+    this.shapeAt(layer, seconds, pixels);
+    if (!layer.shaped) return "";
+    const m = layer.matrix;
+    return `m${m[0]},${m[1]},${m[2]},${m[3]},${m[4]},${m[5]},${layer.effectOpacity},${layer.samples}`;
+  }
+
+  /** Puts a context's origin at a layer's Motion position, turned by its Rotation. */
+  private place(
+    context: CanvasRenderingContext2D,
+    layer: Layer,
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ) {
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.translate(left + layer.pose.x * width, top + layer.pose.y * height);
+    context.rotate((layer.pose.rotation * Math.PI) / 180);
+  }
+
+  /**
+   * Draws a picture layer's image on a context `place` has set up, at the context's alpha:
+   * its Transform effects, Crop where Premiere's order puts it, and a dip's colour over it.
+   */
+  private paintPicture(
+    context: CanvasRenderingContext2D,
+    layer: Layer,
+    pixels: number,
+    alpha: number,
+  ) {
+    const { pose, mix } = layer;
+    if (layer.drawable === null) return;
+    const w = layer.width * pose.scale * pixels;
+    const h = layer.height * pose.scale * pixels;
+    const keepX = 1 - pose.cropLeft - pose.cropRight;
+    const keepY = 1 - pose.cropTop - pose.cropBottom;
+    if (keepX <= 0 || keepY <= 0) return;
+    const x = -w / 2 + w * pose.cropLeft;
+    const y = -h / 2 + h * pose.cropTop;
+    const cropped = keepX !== 1 || keepY !== 1;
+    // Crop after a Transform cuts the moved picture: a window that only later effects move.
+    const windowed = cropped && layer.plan !== null && layer.plan.beforeCrop > 0;
+    if (windowed) {
+      const after = layer.cropMatrix;
+      context.save();
+      context.transform(after[0], after[1], after[2], after[3], after[4], after[5]);
+      context.beginPath();
+      context.rect(x, y, w * keepX, h * keepY);
+      context.restore();
+      context.save();
+      context.clip();
+    }
+    if (layer.shaped) {
+      const m = layer.matrix;
+      context.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    }
+    if (!cropped || windowed) {
+      context.drawImage(layer.drawable, -w / 2, -h / 2, w, h);
+    } else {
+      context.drawImage(
+        layer.drawable,
+        layer.pixelWidth * pose.cropLeft,
+        layer.pixelHeight * pose.cropTop,
+        layer.pixelWidth * keepX,
+        layer.pixelHeight * keepY,
+        x,
+        y,
+        w * keepX,
+        h * keepY,
+      );
+    }
+    if (mix.dip > 0) {
+      context.globalCompositeOperation = "source-over";
+      context.globalAlpha = alpha * mix.dip;
+      context.fillStyle = mix.dipWhite ? "#fff" : "#000";
+      if (windowed) context.fillRect(-w / 2, -h / 2, w, h);
+      else context.fillRect(x, y, w * keepX, h * keepY);
+    }
+    if (windowed) context.restore();
+  }
+
+  /** A canvas the size of the preview's, where a blurred layer's copies add up. */
+  private blurContext(): CanvasRenderingContext2D | null {
+    if (this.blurCanvas === null) {
+      const canvas = document.createElement("canvas");
+      this.blurCanvas = canvas.getContext("2d");
+    }
+    const scratch = this.blurCanvas;
+    if (scratch === null) return null;
+    if (
+      scratch.canvas.width !== this.canvas.width ||
+      scratch.canvas.height !== this.canvas.height
+    ) {
+      scratch.canvas.width = this.canvas.width;
+      scratch.canvas.height = this.canvas.height;
+    }
+    return scratch;
+  }
+
+  /**
+   * Draws a layer as its Transform's shutter sees it: copies spread over the time the shutter
+   * is open, added up on a scratch canvas and laid down as one layer. The shutter opens at the
+   * frame and looks ahead, which is where a Premiere export puts the smear. Only the Transform
+   * effects move between copies, which is all Premiere blurs.
+   */
+  private paintBlurred(
+    context: CanvasRenderingContext2D,
+    layer: Layer,
+    rate: number,
+    pixels: number,
+    alpha: number,
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ) {
+    const scratch = this.blurContext();
+    const shutter = layer.plan?.shutter ?? 0;
+    if (scratch === null) return;
+    scratch.setTransform(1, 0, 0, 1, 0, 0);
+    scratch.clearRect(0, 0, scratch.canvas.width, scratch.canvas.height);
+    scratch.globalCompositeOperation = "lighter";
+    scratch.globalAlpha = 1 / layer.samples;
+    const open = shutter / 360 / rate;
+    const started = performance.now();
+    for (let sample = 0; sample < layer.samples; sample++) {
+      this.shapeAt(layer, layer.seconds + ((sample + 0.5) / layer.samples) * open, pixels);
+      this.place(scratch, layer, left, top, width, height);
+      this.paintPicture(scratch, layer, pixels, 0);
+    }
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.globalAlpha = alpha;
+    context.drawImage(scratch.canvas, 0, 0);
+    if (this.speed !== 0 && performance.now() - started > BLUR_SLOW_MS) this.slowBlurs += 1;
   }
 
   /** Tells the Monitor what at the playhead is left out, when that changes. */
@@ -816,7 +1058,9 @@ export class PreviewEngine {
       const { pose, mix } = layer;
       mixAt(this.transitions.get(item.key), this.frameNumber, mix);
       if (!mix.visible) continue;
-      poseAt(transformOf(item), clipOffset(item, scene.layout.rate, this.frameNumber), pose);
+      const seconds = clipOffset(item, scene.layout.rate, this.frameNumber);
+      poseAt(transformOf(item), seconds, pose);
+      layer.plan = effectPlanOf(item);
       const sourceTime = clipSourceAt(item, scene.layout.rate, this.frameNumber);
       const source = this.source(scene, item);
       const mode = graphicOf(item).blendMode;
@@ -827,8 +1071,11 @@ export class PreviewEngine {
         if (words === "") continue;
         layer.kind = "text";
         layer.words = words;
+        // A graphic's layer is the frame.
+        layer.width = scene.frame.width;
+        layer.height = scene.frame.height;
         count += 1;
-        signature += `${posed}t${words}`;
+        signature += `${posed}t${words}${this.shape(layer, seconds, pixels, scene.layout.rate)}`;
         continue;
       }
       let drawable: CanvasImageSource | null = null;
@@ -881,7 +1128,7 @@ export class PreviewEngine {
       layer.pixelWidth = pixelWidth;
       layer.pixelHeight = pixelHeight;
       count += 1;
-      signature += `${posed}${stamp}`;
+      signature += `${posed}${stamp}${this.shape(layer, seconds, pixels, scene.layout.rate)}`;
     }
     if (signature === this.drawn) return;
     this.drawn = signature;
@@ -898,13 +1145,17 @@ export class PreviewEngine {
     for (let index = 0; index < count; index++) {
       const layer = this.layers[index]!;
       const { pose, mix } = layer;
-      const alpha = Math.min(1, Math.max(0, pose.opacity * mix.opacity));
-      context.setTransform(1, 0, 0, 1, 0, 0);
+      const offline = layer.kind === "offline";
+      const alpha =
+        Math.min(1, Math.max(0, pose.opacity * mix.opacity)) * (offline ? 1 : layer.effectOpacity);
       context.globalAlpha = alpha;
       context.globalCompositeOperation = layer.blend;
-      context.translate(left + pose.x * width, top + pose.y * height);
-      context.rotate((pose.rotation * Math.PI) / 180);
+      this.place(context, layer, left, top, width, height);
       if (layer.kind === "text") {
+        if (layer.shaped) {
+          const m = layer.matrix;
+          context.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+        }
         const layout = this.textLayout(layer.item, layer.words, scene.frame.height);
         // A dip takes text to the colour by fading it, which over black or white reads the same.
         context.globalAlpha = alpha * (1 - mix.dip);
@@ -926,35 +1177,11 @@ export class PreviewEngine {
         }
       } else if (layer.kind === "offline") {
         this.drawOffline(context, layer.item.clip.name, height);
-      } else if (layer.drawable !== null) {
-        const w = layer.width * pose.scale * pixels;
-        const h = layer.height * pose.scale * pixels;
-        const keepX = 1 - pose.cropLeft - pose.cropRight;
-        const keepY = 1 - pose.cropTop - pose.cropBottom;
-        if (keepX <= 0 || keepY <= 0) continue;
-        const x = -w / 2 + w * pose.cropLeft;
-        const y = -h / 2 + h * pose.cropTop;
-        if (keepX === 1 && keepY === 1) {
-          context.drawImage(layer.drawable, x, y, w, h);
-        } else {
-          context.drawImage(
-            layer.drawable,
-            layer.pixelWidth * pose.cropLeft,
-            layer.pixelHeight * pose.cropTop,
-            layer.pixelWidth * keepX,
-            layer.pixelHeight * keepY,
-            x,
-            y,
-            w * keepX,
-            h * keepY,
-          );
-        }
-        if (mix.dip > 0) {
-          context.globalCompositeOperation = "source-over";
-          context.globalAlpha = alpha * mix.dip;
-          context.fillStyle = mix.dipWhite ? "#fff" : "#000";
-          context.fillRect(x, y, w * keepX, h * keepY);
-        }
+      } else if (layer.samples > 0) {
+        const rate = scene.layout.rate;
+        this.paintBlurred(context, layer, rate, pixels, alpha, left, top, width, height);
+      } else {
+        this.paintPicture(context, layer, pixels, alpha);
       }
       // Frames are only borrowed from their decoder for this draw.
       layer.drawable = null;

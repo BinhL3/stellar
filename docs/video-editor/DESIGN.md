@@ -717,6 +717,10 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
     keyframes. Reverse is read on a guess (a negative speed or a backwards flag): no project
     seen so far has a reversed clip to confirm it. Transitions stay as frames on their track's
     metadata, which an edit that moves the cut does not move, so they stop drawing there.
+    Keyframes are read as seconds from the clip's in point and kept to 0.1 ms, so after a
+    head trim a keyframe can sit 0.1 ms from where the next pull puts it, and a sped-up
+    clip's keyframes are not rescaled by its speed. Of the mappable effects only Transform
+    is read into values; Drop Shadow, Gaussian Blur and the flips are kept as blobs alone.
     Speed and captions don't travel back: the XML export writes a sped-up clip at normal
     speed and leaves captions out, and says so; the push plan leaves a reversed clip's trim
     and every caption change to a person.
@@ -728,12 +732,23 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
     waits behind them (seconds, seen once after a burst of jumps). Audio read the same way
     as picture (hole 20) or HTTP/2 to the server would end it. Sample tables stay in memory
     for every proxy opened, a few MB per hour of footage.
-19. The preview draws Motion, Opacity, Crop, speed and reverse, eased keyframes, cross
-    dissolves, dips to black and white, the blend modes a canvas has, and text and captions
-    in their own font, size, fill, stroke, shadow and box. What it leaves out at the playhead
-    is listed in the Monitor ("Not drawn: …"). Still approximate or missing:
-    - Every other effect, the Transform presets (Malice slides) among them, and app renders
-      for plugin effects (kind 3).
+19. The preview draws Motion (with its anchor), Opacity, Crop, speed and reverse, eased
+    keyframes, cross dissolves, dips to black and white, the blend modes a canvas has, text
+    and captions in their own font, size, fill, stroke, shadow and box, and Premiere's
+    Transform effect (the Malice slides and pops) in stack order around Crop. What it leaves
+    out at the playhead is listed in the Monitor ("Not drawn: …"). Still approximate or
+    missing:
+    - Every other effect (Drop Shadow, Lumetri, Basic 3D, the third-party rounded crop) and
+      app renders for plugin effects (kind 3). A Transform pulled before its values were
+      read has only its blob and stays listed until the sequence is pulled again.
+    - Transform: a slide-in was matched frame by frame against a Premiere export (position
+      as a fraction of the layer, the eased curve, a picture drawn past its own box, a 360°
+      shutter opening at the frame). Skew's direction, and Rotation turning clockwise as
+      Motion's does, are taken from After Effects, with no real clip to check. The blur is 15 copies paused and
+      5 playing where Premiere uses many more, is skipped at other speeds and inside a dip,
+      takes the widest shutter when a clip stacks several Transforms, and is not drawn for
+      text. A keyframed shutter angle and the Sampling choice are ignored.
+    - Motion's separate width scale.
     - Other transitions play as a cut. A dissolve between two overlays that don't cover each
       other keeps the outgoing one at full strength until the cut.
     - Crop's feather and zoom, a curved motion path, and the blend modes a canvas lacks

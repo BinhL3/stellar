@@ -232,4 +232,104 @@ describe("applyEdits", () => {
       sources(applyEdits(warped(-2), [{ kind: "trim", clipId: "a", edge: "end", frame: 500 }])),
     ).toEqual([[0, 80, 0, -2]]);
   });
+
+  it("keeps Motion and Transform keyframes on their frames when a clip's head is cut", () => {
+    // A slide-in over the clip's first second (frames 0-30) and a punch-in over the same span.
+    const animated: Clip = {
+      ...clip("a", 100, 60),
+      metadata: {
+        premiere: { nodeId: "a" },
+        stellar: {
+          transform: {
+            scale: 50,
+            keyframes: {
+              scale: [
+                [0, 100],
+                [1, 120],
+              ],
+            },
+          },
+          effects: [
+            { kind: "Drop Shadow", ref: "sha256:s" },
+            {
+              kind: "Transform",
+              ref: "sha256:t",
+              params: {
+                rotation: 5,
+                keyframes: {
+                  position: [
+                    [0, [0.5, -1.4], [0.0626, 1, 0, 1]],
+                    [1, [0.5, 0.5]],
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+    const one = (children: Track["children"]): Timeline => ({
+      ...timeline,
+      tracks: { ...timeline.tracks, children: [track("V1", "Video", children)] },
+    });
+    const keys = (edited: Timeline) =>
+      layoutTimeline(edited).tracks[0]?.clips.map((item) => {
+        const stellar = item.clip.metadata["stellar"] as {
+          transform: { keyframes: { scale: ReadonlyArray<ReadonlyArray<unknown>> } };
+          effects: ReadonlyArray<{
+            ref: string;
+            params?: { rotation: number; keyframes: { position: ReadonlyArray<unknown> } };
+          }>;
+        };
+        return {
+          at: item.startFrame,
+          scale: stellar.transform.keyframes.scale.map(([at]) => at),
+          position: stellar.effects[1]?.params?.keyframes.position,
+          refs: stellar.effects.map((effect) => effect.ref),
+          rotation: stellar.effects[1]?.params?.rotation,
+        };
+      });
+    const untouched = {
+      scale: [0, 1],
+      position: [
+        [0, [0.5, -1.4], [0.0626, 1, 0, 1]],
+        [1, [0.5, 0.5]],
+      ],
+      refs: ["sha256:s", "sha256:t"],
+      rotation: 5,
+    };
+    // Cut at frame 15: the tail starts half a second into both animations, so its keys sit
+    // half a second earlier, values, easing and blob refs as they were.
+    const later = {
+      ...untouched,
+      scale: [-0.5, 0.5],
+      position: [
+        [-0.5, [0.5, -1.4], [0.0626, 1, 0, 1]],
+        [0.5, [0.5, 0.5]],
+      ],
+    };
+    expect(keys(applyEdits(one([animated]), [{ kind: "split", frame: 15 }]))).toEqual([
+      { at: 0, ...untouched },
+      { at: 15, ...later },
+    ]);
+    expect(
+      keys(applyEdits(one([animated]), [{ kind: "trim", clipId: "a", edge: "start", frame: 15 }])),
+    ).toEqual([{ at: 15, ...later }]);
+    // A word cut is a range removed with ripple: the piece after it closes up, still in step.
+    expect(
+      keys(applyEdits(one([animated]), [{ kind: "removeRange", start: 6, end: 15, ripple: true }])),
+    ).toEqual([
+      { at: 0, ...untouched },
+      { at: 6, ...later },
+    ]);
+    // Trimming the tail or moving the clip leaves the animation where it starts.
+    expect(
+      keys(
+        applyEdits(one([animated]), [
+          { kind: "trim", clipId: "a", edge: "end", frame: 20 },
+          { kind: "move", clipId: "a", toTrack: "V1", startFrame: 90 },
+        ]),
+      ),
+    ).toEqual([{ at: 90, ...untouched }]);
+  });
 });

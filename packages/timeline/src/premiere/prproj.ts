@@ -222,6 +222,8 @@ export const parsePrproj = (bytes: Uint8Array): PremiereProject => {
 };
 
 const CROP = "AE.ADBE AECrop";
+// Premiere's Transform effect. Presets carry it as Geometry2; one added by script is Geometry.
+const TRANSFORM_EFFECTS = new Set(["AE.ADBE Geometry", "AE.ADBE Geometry2"]);
 const PORTABLE_EFFECTS = new Set([
   "AE.ADBE Motion",
   "AE.ADBE Opacity",
@@ -387,6 +389,12 @@ const readSequence = (
         // Animated intrinsics also keep their native blob, which carries the easing.
         if (!animated) continue;
       }
+      const bypassed = text(inner, "Bypass") === "true";
+      // The portable description the preview draws from; the blob stays the truth for Premiere.
+      const effectParams =
+        TRANSFORM_EFFECTS.has(matchName) && !bypassed
+          ? transformEffectParams(matchName, params, inPoint)
+          : undefined;
       const blob = graph.canonicalSubgraph(component);
       const ref = `sha256:${NodeCrypto.createHash("sha256")
         .update(JSON.stringify(sortKeys(blob)))
@@ -426,6 +434,8 @@ const readSequence = (
         tier: effectTier(matchName),
         matchName,
         animated,
+        ...(bypassed ? { bypassed } : {}),
+        ...(effectParams === undefined ? {} : { params: effectParams }),
       });
     }
     if (Object.keys(keyframes).length > 0) transform["keyframes"] = keyframes;
@@ -754,13 +764,56 @@ const MOTION_DEFAULTS: Record<string, string> = {
 
 type IntrinsicValue = number | ReadonlyArray<number>;
 
+// The Transform effect's params by ParameterID. Names are no guide: the checkboxes have none,
+// and 3 and 4 are "Scale" and blank or "Scale Height" and "Scale Width" by how it was saved.
+const TRANSFORM_PARAMS: Readonly<Record<string, readonly [key: string, initial: string]>> = {
+  "1": ["anchor_point", "0.5:0.5"],
+  "2": ["position", "0.5:0.5"],
+  "3": ["scale", "100"],
+  "4": ["scale_width", "100"],
+  "5": ["skew", "0"],
+  "6": ["skew_axis", "0"],
+  "7": ["rotation", "0"],
+  "8": ["opacity", "100"],
+  "9": ["composition_shutter", "true"],
+  "10": ["shutter_angle", "0"],
+  "11": ["uniform_scale", "true"],
+};
+const TRANSFORM_PARAM_IDS: Readonly<Record<string, string>> = {
+  "Anchor Point": "1",
+  Position: "2",
+  Scale: "3",
+  "Scale Height": "3",
+  "Scale Width": "4",
+  Skew: "5",
+  "Skew Axis": "6",
+  Rotation: "7",
+  Opacity: "8",
+  "Shutter Angle": "10",
+};
+
 /** The Motion, Opacity and Volume param an intrinsic param maps to, with Premiere's raw value parsed. */
 const intrinsicParam = (
   matchName: string,
   name: string,
   raw: string,
+  parameterId?: string,
 ): { readonly key: string; readonly value: IntrinsicValue; readonly isDefault: boolean } | null => {
   const value = raw.endsWith(".") ? raw.slice(0, -1) : raw;
+  if (TRANSFORM_EFFECTS.has(matchName)) {
+    const known = TRANSFORM_PARAMS[parameterId ?? TRANSFORM_PARAM_IDS[name] ?? ""];
+    if (known === undefined) return null;
+    const [key, initial] = known;
+    return {
+      key,
+      value: value.includes(":")
+        ? value.split(":").map(Number)
+        : value === "true" || value === "false"
+          ? Number(value === "true")
+          : Number(value),
+      isDefault: value === initial,
+    };
+  }
   if (matchName === "AE.ADBE Motion" && name in MOTION_DEFAULTS) {
     return {
       key: name.toLowerCase().replaceAll(" ", "_"),
@@ -851,8 +904,8 @@ const intrinsicValues = (
   const out: Record<string, IntrinsicValue> = {};
   const keyframes: Record<string, Array<KeyframePoint>> = {};
   for (const param of params) {
-    const name = text(param, "Name");
-    if (name === undefined) continue;
+    const name = text(param, "Name") ?? "";
+    const parameterId = text(param, "ParameterID");
     if (isAnimated(param)) {
       const points = (text(param, "Keyframes") ?? "")
         .split(";")
@@ -860,7 +913,7 @@ const intrinsicValues = (
         .filter((fields) => fields.length >= 2 && fields[0] !== "");
       const parsed = points.flatMap((fields) => {
         const [time = "0", raw = ""] = fields;
-        const point = intrinsicParam(matchName, name, raw);
+        const point = intrinsicParam(matchName, name, raw, parameterId);
         if (point === null) return [];
         const seconds = Number(BigInt(time) - inPoint) / Number(TICKS_PER_SECOND);
         // Speeds are in Premiere's own units: for Level that is amplitude, not the dB kept here.
@@ -885,8 +938,34 @@ const intrinsicValues = (
       continue;
     }
     const raw = text(param, "StartKeyframe")?.split(",")[1];
-    const value = raw === undefined ? null : intrinsicParam(matchName, name, raw);
+    const value = raw === undefined ? null : intrinsicParam(matchName, name, raw, parameterId);
     if (value !== null && !value.isDefault) out[value.key] = value.value;
   }
   return { values: out, keyframes };
+};
+
+/**
+ * One Transform effect's non-default values, keyframes shaped as Motion's. Points are fractions
+ * of the layer; `scale` is both axes unless `uniform_scale` is false, when it is the height.
+ * `shutter_angle` stays whatever "Use Composition's Shutter Angle" says: a real export of a
+ * preset saved with the box ticked and 360° is blurred at 360°.
+ */
+const transformEffectParams = (
+  matchName: string,
+  params: ReadonlyArray<XmlNode>,
+  inPoint: bigint,
+): Record<string, unknown> => {
+  const { values, keyframes } = intrinsicValues(matchName, params, inPoint);
+  const { composition_shutter: _, uniform_scale, ...out }: Record<string, unknown> = values;
+  const animated: Record<string, unknown> = { ...keyframes };
+  if (uniform_scale === 0) out["uniform_scale"] = false;
+  else {
+    delete out["scale_width"];
+    delete animated["scale_width"];
+  }
+  delete animated["composition_shutter"];
+  delete animated["uniform_scale"];
+  delete animated["shutter_angle"];
+  if (Object.keys(animated).length > 0) out["keyframes"] = animated;
+  return out;
 };
