@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { footageStringout } from "../footage.ts";
+import { frameSeconds, frameTableFrom } from "../frameTimes.ts";
+import { timeRange } from "../otio.ts";
 import { toFcpXml } from "./fcpxml.ts";
 
 describe("toFcpXml", () => {
@@ -34,6 +36,37 @@ describe("toFcpXml", () => {
     expect(xml.match(/<pathurl>/g)).toHaveLength(2);
     expect(xml.match(/<track premiereTrackType="Stereo"/g)).toHaveLength(2);
     expect(xml.match(/<sourcetrack><mediatype>audio<\/mediatype><trackindex>2</g)).toHaveLength(2);
+  });
+
+  it("takes a variable-rate clip's source frame from its frame table", () => {
+    const timeline = footageStringout(
+      [{ target: "Footage/a.MOV", duration: 5, width: 1080, height: 1920 }],
+      "/media",
+    );
+    // The clip starts 3 s into its source and runs one second.
+    const from3 = {
+      ...timeline,
+      tracks: {
+        ...timeline.tracks,
+        children: timeline.tracks.children.map((track) => ({
+          ...track,
+          children: track.children.map((child) => ({
+            ...child,
+            source_range: timeRange(180, 60, 60),
+          })),
+        })),
+      },
+    };
+    // Two seconds at 60 fps, then 30: second 3 is source frame 150, not 180.
+    const ticks = [
+      ...Array.from({ length: 120 }, (_, i) => i * 10),
+      ...Array.from({ length: 90 }, (_, i) => 1200 + i * 20),
+    ];
+    const frameTimes = { "Footage/a.MOV": frameSeconds(frameTableFrom(ticks, 600)) };
+    expect(toFcpXml(from3, { sequenceName: "x" }).xml).toContain("<in>180</in><out>240</out>");
+    expect(toFcpXml(from3, { sequenceName: "x", frameTimes }).xml).toContain(
+      "<in>150</in><out>210</out>",
+    );
   });
 
   it("reports clips it can't carry instead of dropping them silently", () => {

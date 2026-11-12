@@ -10,6 +10,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
+import { readConformState } from "./conformBuilder.ts";
 import { listFootage } from "./footage.ts";
 import { serializeJson, TIMELINE_NAMESPACE, type Timeline } from "./otio.ts";
 import {
@@ -389,8 +390,12 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
   // Footage gets proxies as soon as it lands, before any timeline uses it. Its keys are the
   // same media-root-relative paths a pulled timeline stores, so both share one proxy.
   const mediaRoot = path.dirname(projectDir);
+  // An original with a conformed copy is cut from the copy, so only the copy gets a proxy.
+  const { copyOf } = (yield* readConformState(projectDir)).state;
   for (const target of yield* listFootage(mediaRoot)) {
-    if (!targets.has(target)) targets.set(target, path.join(mediaRoot, target));
+    if (!targets.has(target) && !copyOf.has(target)) {
+      targets.set(target, path.join(mediaRoot, target));
+    }
   }
   yield* fs.makeDirectory(path.join(projectDir, PROXY_DIRECTORY), { recursive: true });
   const indexPath = path.join(projectDir, PROXY_INDEX_PATH);

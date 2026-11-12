@@ -619,11 +619,23 @@ export type VideoProjectImportFootageInput = typeof VideoProjectImportFootageInp
  * copy runs so every client can follow it.
  */
 export const VideoProjectIntakeStatus = Schema.Struct({
-  state: Schema.Literals(["copying", "done", "failed"]),
+  state: Schema.Literals(["copying", "conforming", "done", "failed"]),
   folder: Schema.String,
   done: Schema.Number,
   total: Schema.Number,
   error: Schema.optional(Schema.String),
+  /**
+   * While `conforming`: the clip being copied to a constant frame rate, how many of the clips
+   * that need it are finished, and how far this one has got (0 to 100).
+   */
+  conform: Schema.optional(
+    Schema.Struct({
+      file: Schema.String,
+      done: Schema.Number,
+      total: Schema.Number,
+      percent: Schema.Number,
+    }),
+  ),
 });
 export type VideoProjectIntakeStatus = typeof VideoProjectIntakeStatus.Type;
 
