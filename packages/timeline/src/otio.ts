@@ -35,6 +35,14 @@ export interface EffectRef {
   readonly tier: "portable" | "mappable" | "native";
   readonly matchName: string;
   readonly animated: boolean;
+  /** Switched off in the app: kept and moved with its clip, drawn nowhere. */
+  readonly bypassed?: boolean;
+  /**
+   * The effect's portable description, for the effects a preview draws from values: what
+   * differs from the effect's defaults, with `keyframes` shaped as a clip's `transform` has
+   * them. The blob at `ref` stays what the app is given back.
+   */
+  readonly params?: Readonly<Record<string, unknown>>;
 }
 
 /**

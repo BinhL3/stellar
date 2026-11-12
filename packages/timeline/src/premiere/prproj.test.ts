@@ -247,7 +247,73 @@ const fixture = () => {
     (id) =>
       `<VideoTransitionTrackItem ObjectID="${id}"><TransitionTrackItem><TrackItem><Start>${50n * SEQ}</Start><End>${70n * SEQ}</End></TrackItem><DisplayName>Cross Dissolve</DisplayName><MatchName>AE.ADBE Cross Dissolve New</MatchName><Alignment>${10n * SEQ}</Alignment><HasOutgoingClip>true</HasOutgoingClip><HasIncomingClip>true</HasIncomingClip></TransitionTrackItem></VideoTransitionTrackItem>`,
   );
-  track("VideoClipTrack", "track-fx-v1", [fast, backwards], [dissolve]);
+  // The Transform effect as real projects store it: params told apart by ParameterID (the two
+  // checkboxes have no name), points as fractions of the layer, and keys in media ticks.
+  const transformParam = (id: number, name: string, start: string, keyframes = "") =>
+    add(
+      (objectId) =>
+        `<VideoComponentParam ObjectID="${objectId}"><ParameterID>${id}</ParameterID>${name === "" ? "" : `<Name>${name}</Name>`}<StartKeyframe>-91445760000000000,${start},0,0,0,0,0,0</StartKeyframe>${keyframes === "" ? "" : `<IsTimeVarying>true</IsTimeVarying><Keyframes>${keyframes}</Keyframes>`}</VideoComponentParam>`,
+    );
+  const transformEffect = (
+    matchName: string,
+    instance: string,
+    params: ReadonlyArray<number>,
+    bypass = false,
+  ) =>
+    add(
+      (id) =>
+        `<VideoFilterComponent ObjectID="${id}"><Component><Params>${params.map((p, i) => `<Param Index="${i}" ObjectRef="${p}"/>`).join("")}</Params><DisplayName>Transform</DisplayName>${instance === "" ? "" : `<InstanceName>${instance}</InstanceName>`}${bypass ? "<Bypass>true</Bypass>" : ""}</Component><MatchName>${matchName}</MatchName></VideoFilterComponent>`,
+    );
+  const at = (frames: bigint) => ONE_HOUR_DF_STILL + frames * STILL;
+  // "Malice Squishy Slide In Down", cut down: not uniform, height keyed, and a 360° shutter
+  // with "Use Composition's Shutter Angle" ticked, which Premiere blurs all the same.
+  const squishy = transformEffect("AE.ADBE Geometry2", "Malice Squishy Slide In Down", [
+    transformParam(1, "Anchor Point", "0.5:0.5"),
+    transformParam(
+      2,
+      "Position",
+      "0.5:0.5",
+      `${at(0n)},0.5:-1.2222222089767456,5,0,0,0.33333333333333331,5.1,0.66816693544387817,5,4,0,0,0,0;${at(30n)},0.5:0.5,5,0,0,0.78150000000000008,0,0.33333333333333331,5,4,0,0,0,0;`,
+    ),
+    transformParam(11, "", "false"),
+    transformParam(
+      3,
+      "Scale Height",
+      "100.",
+      `${at(15n)},100.,0,0,0,0,0,0;${at(30n)},90.,0,0,0,0,0,0;`,
+    ),
+    transformParam(4, "Scale Width", "100."),
+    transformParam(5, "Skew", "0."),
+    transformParam(6, "Skew Axis", "0."),
+    transformParam(7, "Rotation", "0."),
+    transformParam(8, "Opacity", "100."),
+    transformParam(9, "", "true"),
+    transformParam(10, "Shutter Angle", "360."),
+    transformParam(12, "Sampling", "0"),
+  ]);
+  // One a script added: uniform, so its stale Scale Width means nothing, with its own shutter.
+  const tilt = transformEffect("AE.ADBE Geometry", "", [
+    transformParam(1, "Anchor Point", "0.:1."),
+    transformParam(11, "", "true"),
+    transformParam(3, "Scale", "80."),
+    transformParam(4, " ", "40."),
+    transformParam(5, "Skew", "12."),
+    transformParam(6, "Skew Axis", "90."),
+    transformParam(7, "Rotation", "-8."),
+    transformParam(8, "Opacity", "75."),
+    transformParam(9, "", "false"),
+    transformParam(10, "Shutter Angle", "180."),
+  ]);
+  const off = transformEffect("AE.ADBE Geometry2", "", [transformParam(3, "Scale", "10.")], true);
+  const shaped = item(
+    "VideoClipTrackItem",
+    1000012,
+    card,
+    "card.png",
+    { start: 120n * SEQ, end: 180n * SEQ, in: ONE_HOUR_DF_STILL, out: at(30n) },
+    chain("VideoComponentChain", [squishy, crop, tilt, off]),
+  );
+  track("VideoClipTrack", "track-fx-v1", [fast, backwards, shaped], [dissolve]);
   // A caption's lines are blocks of styled text; this is the JSON form of one.
   const captionLine = (words: string) => {
     const body = NodeBuffer.Buffer.from(
@@ -428,6 +494,60 @@ describe("parsePrproj", () => {
         { kind: "Crop", tier: "portable", animated: false },
       ],
     });
+    // Every Transform on the clip, in stack order around Crop, each with what the preview
+    // draws from beside the blob Premiere gets back.
+    const shaped = (video?.children ?? [])[2] as Clip;
+    expect((shaped.metadata[TIMELINE_NAMESPACE] as { effects: unknown }).effects).toMatchObject([
+      {
+        kind: "Transform",
+        label: "Malice Squishy Slide In Down",
+        matchName: "AE.ADBE Geometry2",
+        tier: "mappable",
+        animated: true,
+        params: {
+          uniform_scale: false,
+          shutter_angle: 360,
+          keyframes: {
+            position: [
+              [0, [0.5, -1.2222222089767456], [0.6682, 1, 0.2185, 1]],
+              [1.001, [0.5, 0.5]],
+            ],
+            scale: [
+              [0.5005, 100],
+              [1.001, 90],
+            ],
+          },
+        },
+      },
+      { kind: "Crop", matchName: "AE.ADBE AECrop" },
+      {
+        kind: "Transform",
+        label: "Transform",
+        matchName: "AE.ADBE Geometry",
+        animated: false,
+        params: {
+          anchor_point: [0, 1],
+          scale: 80,
+          skew: 12,
+          skew_axis: 90,
+          rotation: -8,
+          opacity: 75,
+          shutter_angle: 180,
+        },
+      },
+      { kind: "Transform", bypassed: true },
+    ]);
+    const [squishy, , tilt, off] = (
+      shaped.metadata[TIMELINE_NAMESPACE] as { effects: ReadonlyArray<EffectRef> }
+    ).effects;
+    // Only what differs from the effect's defaults.
+    expect(Object.keys(squishy?.params ?? {}).toSorted()).toEqual([
+      "keyframes",
+      "shutter_angle",
+      "uniform_scale",
+    ]);
+    expect(tilt?.params).not.toHaveProperty("scale_width");
+    expect(off?.params).toBeUndefined();
     expect(video?.metadata).toEqual({
       premiere: {
         transitions: [
