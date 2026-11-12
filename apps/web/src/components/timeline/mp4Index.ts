@@ -31,7 +31,7 @@ interface Box {
   readonly body: number;
 }
 
-function readBoxes(view: DataView, start: number, end: number): Array<Box> {
+export function readBoxes(view: DataView, start: number, end: number): Array<Box> {
   const boxes: Array<Box> = [];
   let at = start;
   while (at + 8 <= end) {
@@ -56,7 +56,7 @@ function readBoxes(view: DataView, start: number, end: number): Array<Box> {
   return boxes;
 }
 
-const child = (view: DataView, box: Box | undefined, type: string): Box | undefined =>
+export const child = (view: DataView, box: Box | undefined, type: string): Box | undefined =>
   box === undefined
     ? undefined
     : readBoxes(view, box.body, box.end).find((candidate) => candidate.type === type);

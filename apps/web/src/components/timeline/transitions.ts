@@ -131,6 +131,17 @@ export const emptyMix = (): TransitionMix => ({
   visible: true,
 });
 
+/**
+ * A clip's level through an audio fade when it is `presence` of the way in, 0 to 1. Any other
+ * kind leaves the level alone.
+ */
+export const audioFade = (kind: TransitionKind | null, presence: number): number => {
+  if (kind === "constant-power") return Math.sin((presence * Math.PI) / 2);
+  if (kind === "constant-gain") return presence;
+  if (kind === "exponential") return presence * presence;
+  return 1;
+};
+
 const apply = (span: TransitionSpan, incoming: boolean, frame: number, mix: TransitionMix) => {
   if (span.kind === null || frame < span.start || frame >= span.end) return;
   const progress = (frame - span.start) / (span.end - span.start);
@@ -153,13 +164,9 @@ const apply = (span: TransitionSpan, incoming: boolean, frame: number, mix: Tran
       else mix.dip = 2 * (1 - presence);
       return;
     case "constant-power":
-      mix.gain *= Math.sin((presence * Math.PI) / 2);
-      return;
     case "constant-gain":
-      mix.gain *= presence;
-      return;
     case "exponential":
-      mix.gain *= presence * presence;
+      mix.gain *= audioFade(span.kind, presence);
       return;
   }
 };

@@ -449,7 +449,10 @@ thousands of clips.
   a pooled browser decoder, and one canvas draws the active layers with their Motion and Opacity.
   The picture holds until every layer has its frame, so cuts don't flash. Normal speeds play the
   decoders and correct drift; paused, reverse and fast speeds seek. Moving to WebCodecs and WebGL
-  is the upgrade path if shaders or long reverse play need it. The timeline renders only the clips
+  is the upgrade path if shaders or long reverse play need it. Sound is scheduled ahead of time
+  on the audio device's clock and the picture reads that same clock, shifted by the output
+  latency, so the picture follows what is heard and neither is steered toward the other; with
+  no sound (blocked by the browser, no device) the page's clock takes over. The timeline renders only the clips
   near the visible range and shows thumbnail strips and waveforms made with the proxies.
 - **Proxies today** come from `packages/timeline` (`proxies <project>`), keyed by each file's path
   under the media root, size and modification time, so they survive the drive moving, with
@@ -723,11 +726,14 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 
 **Playback**
 
-18. Ranged reads share the browser's six connections with the audio. Each clip's audio element
-    can hold one open while it buffers a long file, and a range asked for at that moment
-    waits behind them (seconds, seen once after a burst of jumps). Audio read the same way
-    as picture (hole 20) or HTTP/2 to the server would end it. Sample tables stay in memory
-    for every proxy opened, a few MB per hour of footage.
+18. Picture and sound are read by byte range through one budget of five connections, at most
+    four for picture and two for sound, under the six a browser opens to one server over
+    HTTP/1.1. Neither can starve the other: with nine long audio clips under a long proxy, a
+    burst of jumps used to leave ranges waiting seconds behind the audio elements, and no
+    longer does. Opening a proxy, background prefetch and stills are outside the budget and
+    can still fill the last connection for a moment; HTTP/2 to the server would end the limit
+    itself. Sample tables stay in memory for every proxy and audio file opened, a few MB per
+    hour of footage.
 19. The preview draws Motion, Opacity, Crop, speed and reverse, eased keyframes, cross
     dissolves, dips to black and white, the blend modes a canvas has, and text and captions
     in their own font, size, fill, stroke, shadow and box. What it leaves out at the playhead
@@ -741,10 +747,26 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
       and lighter color).
     - Text is laid out by the browser: a font the machine lacks falls back to the system
       sans, tracking and leading are not read, and a caption sits at a fixed bottom margin.
-20. Audio is one media element per clip, steered by small rate changes. Crossfades play
-    (constant power, constant gain, exponential) and a sped-up clip plays at its speed, but
-    anything above 2× is muted and reverse is silent, whether it is the transport or the clip
-    that runs backwards. Other audio transitions play as a cut.
+20. Sound plays through the Web Audio API from the AAC renditions the proxy build makes:
+    decoded about 2.7 s at a time into at most 128 MB, and started at exact times against the
+    transport the picture reads, on the audio device's clock. Clips cut on their frame, the
+    shuttle plays at any speed and in reverse (resampled, not pitch-corrected), stepping and
+    dragging play a moment of sound, and the mix has clip gain, volume keyframes, crossfades
+    (constant power, constant gain, exponential) and a soft clipper. What it leaves out:
+    - A clip with no rendition is silent, and the Monitor says so: before its proxy is built,
+      on a machine without ffmpeg (hole 9), and for a source the build can't read.
+    - Track mute and solo, pan and audio effects are not in the timeline model, so they do
+      not play. Other audio transitions play as a cut.
+    - A mono source plays 3 dB down in each channel, as ffmpeg's upmix leaves the rendition.
+    - Renditions made before the build wrote them at 48 kHz with the index first still play,
+      resampled by the browser and opened with two requests instead of one. Nothing rebuilds
+      them.
+    - A change of speed, loop or timeline during play restarts the sound with a dip of about
+      10 ms. A hidden tab pauses.
+    - Sample accuracy was measured in Chromium only. Safari and Firefox take the same path,
+      with `decodeAudioData` where WebCodecs has no audio decoder, untested: a decoder that
+      treats AAC priming differently would shift sound by up to one AAC frame (21 ms).
+    - Every check so far is a measurement of rendered samples. Nobody has listened to it.
 21. Renditions of PSD, TIFF, HEIC and camera raw stills lean on what the machine has. macOS
     reads all four with `sips`. Elsewhere ffmpeg reads TIFF and a PSD's flattened composite,
     HEIC needs libheif's `heif-dec`, and camera raw has no converter; the badge names the

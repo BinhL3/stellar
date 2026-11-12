@@ -50,6 +50,7 @@ import { graphicText } from "~/components/timeline/clipTransform";
 import type { PreviewEngine } from "~/components/timeline/previewEngine";
 import { useTimelineLayoutStore } from "~/components/timeline/timelineLayoutStore";
 import { TimelinePlayerContext } from "~/components/timeline/timelinePlayer";
+import { MonitorAudio } from "~/components/timeline/MonitorAudio";
 import { type PreviewMedia, TimelinePreview } from "~/components/timeline/TimelinePreview";
 import { TimelineWorkspace } from "~/components/timeline/TimelineWorkspace";
 import { Button } from "~/components/ui/button";
@@ -1202,6 +1203,7 @@ export default function TimelineViewer(props: {
                 </Tooltip>
               ) : null}
               {props.premiere}
+              <MonitorAudio engine={engine} />
               <Toggle
                 size="xs"
                 aria-label="Loop playback"

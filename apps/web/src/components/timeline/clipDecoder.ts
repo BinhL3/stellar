@@ -10,6 +10,7 @@ import {
   planSegments,
   segmentOf,
 } from "./mp4Index";
+import { assetIdentity, rangeBudget } from "./rangeBudget";
 
 /**
  * Decodes one clip's proxy with WebCodecs. Playing, it keeps a few frames decoded just ahead of
@@ -33,9 +34,6 @@ const SEGMENT_BYTES = 1024 * 1024;
 const WHOLE_BYTES = 24 * 1024 * 1024;
 // Neighbouring segments are read in one request up to this size.
 const RANGE_BYTES = 8 * 1024 * 1024;
-// Ranges fetched at once for all proxies. The browser allows six connections to the server,
-// and each clip's audio element can hold one open for as long as it buffers.
-const RANGE_PARALLEL = 3;
 // The most recently used pieces stay in memory up to this many bytes (about 40 minutes of
 // footage), so an hour-long project doesn't hold every proxy at once.
 const PROXY_CACHE_BYTES = 768 * 1024 * 1024;
@@ -47,9 +45,6 @@ const RETRY_AFTER_MS = 1000;
 // In least-recently-used order. Indexes are not counted: a sample table is a few MB an hour.
 const held = new Map<Held, { readonly owner: LoadedProxy; readonly segment: number }>();
 let cachedBytes = 0;
-let ranging = 0;
-// Proxies whose request found every slot taken; they are told when one frees up.
-const starved = new Set<LoadedProxy>();
 
 const hold = (owner: LoadedProxy, segment: number, piece: Held) => {
   held.set(piece, { owner, segment });
@@ -147,20 +142,20 @@ class LoadedProxy {
     if (performance.now() < this.retryAt) return;
     const missing = (segment: number) => !this.pieces.has(segment) && !this.fetching.has(segment);
     for (const range of planRanges(this.segments, from, to, missing, RANGE_BYTES)) {
-      if (ranging >= RANGE_PARALLEL) {
-        starved.add(this);
+      // Picture and sound share one budget of connections; see `rangeBudget`.
+      if (!rangeBudget.take("video")) {
+        rangeBudget.whenFree(this.tell);
         return;
       }
       this.read(range, false);
     }
-    if (!this.filling || this.fillBusy || ranging >= RANGE_PARALLEL) return;
+    if (!this.filling || this.fillBusy) return;
     const [next] = planRanges(this.segments, 0, this.segments.length - 1, missing, RANGE_BYTES);
     if (next === undefined) this.filling = false;
-    else this.read(next, true);
+    else if (rangeBudget.take("video")) this.read(next, true);
   }
 
   private read(range: Mp4Range, fill: boolean) {
-    ranging += 1;
     if (fill) this.fillBusy = true;
     for (let i = range.first; i <= range.last; i++) this.fetching.add(i);
     void fetch(this.url, {
@@ -190,20 +185,17 @@ class LoadedProxy {
         setTimeout(() => this.tell(), RETRY_AFTER_MS);
       })
       .finally(() => {
-        ranging -= 1;
+        rangeBudget.release("video");
         if (fill) this.fillBusy = false;
         for (let i = range.first; i <= range.last; i++) this.fetching.delete(i);
         if (this.filling) this.want(0, -1);
         this.tell();
-        const waiting = [...starved];
-        starved.clear();
-        for (const proxy of waiting) if (proxy !== this) proxy.tell();
       });
   }
 
-  private tell() {
+  private readonly tell = () => {
     for (const listener of this.listeners) listener();
-  }
+  };
 
   listen(listener: () => void) {
     this.listeners.add(listener);
@@ -222,7 +214,7 @@ const proxies = new Map<string, CachedProxy>();
 let prefetchQueue: Array<string> = [];
 let prefetching = 0;
 
-const identityOf = (url: string) => url.replace(/\/api\/assets\/[^/]+\//, "/api/assets/-/");
+const identityOf = assetIdentity;
 
 const fetchRange = async (url: string, start: number, end: number) => {
   const response = await fetch(url, {
