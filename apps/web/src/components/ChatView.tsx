@@ -38,6 +38,7 @@ import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnvironments";
 import { useVideoProject } from "../hooks/useVideoProject";
+import { useIsCarouselProject } from "./carousel/useIsCarouselProject";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
@@ -1715,6 +1716,10 @@ export default function ChatView(props: ChatViewProps) {
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   const { isVideoProject } = useVideoProject(
+    activeProject?.environmentId ?? null,
+    activeWorkspaceRoot,
+  );
+  const isCarouselProject = useIsCarouselProject(
     activeProject?.environmentId ?? null,
     activeWorkspaceRoot,
   );
@@ -4063,6 +4068,7 @@ export default function ChatView(props: ChatViewProps) {
               ? () => useRightPanelStore.getState().open(activeThreadRef, "timeline")
               : undefined
           }
+          projectSurfaceLabel={isCarouselProject ? "Carousel" : undefined}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}

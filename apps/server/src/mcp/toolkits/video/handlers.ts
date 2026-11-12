@@ -9,6 +9,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import * as CarouselProjects from "../../../carousel/CarouselProjects.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as VideoProjects from "../../../videoProject/VideoProjects.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -31,7 +32,16 @@ const callerWorkspaceRoot = Effect.gen(function* () {
       message: "The project was not found.",
     });
   }
-  return project.value.workspaceRoot;
+  const { workspaceRoot } = project.value;
+  // A carousel has no timeline, footage or Premiere project for these tools to work on.
+  if (yield* (yield* CarouselProjects.CarouselProjects).isCarousel(workspaceRoot)) {
+    return yield* new OrchestratorMcpFailure({
+      code: "invalid_request",
+      message:
+        "This project is an Instagram photo carousel, not a video, so the video tools don't apply to it. Start with carousel_read.",
+    });
+  }
+  return workspaceRoot;
 });
 
 /** The takes as an agent reads them: a line per beat, then what belongs to no line. */

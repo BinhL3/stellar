@@ -67,7 +67,7 @@ const parentOf = (folder: string) => {
   return index <= 0 ? "/" : `${trimmed.slice(0, index)}/`;
 };
 
-type Mode = "idea" | "premiere";
+type Mode = "idea" | "premiere" | "carousel";
 
 /**
  * Starts a video project on the machine running Stellar, either way round:
@@ -101,6 +101,11 @@ export function NewVideoProjectDialog(props: {
   const createFromIdea = useAtomCommand(projectEnvironment.createVideoProjectFromIdea, {
     reportFailure: false,
   });
+  const createCarousel = useAtomCommand(projectEnvironment.createCarousel, {
+    reportFailure: false,
+  });
+  // A carousel is named and placed like a video from an idea; only what is created differs.
+  const named = mode !== "premiere";
   const handleNewThread = useNewThreadHandler();
   const listing = useEnvironmentQuery(
     props.open && chosen === null
@@ -186,14 +191,19 @@ export function NewVideoProjectDialog(props: {
     const name = title.trim();
     if (name === "" || parentFolder === null) return;
     setBusy("creating");
-    const result = await createFromIdea({
+    const result = await (mode === "carousel" ? createCarousel : createFromIdea)({
       environmentId: props.environmentId,
       input: { title: name, parentFolder },
     });
     if (result._tag === "Failure") {
       setBusy(null);
       if (!isAtomCommandInterrupted(result)) {
-        fail("Couldn't create the video project", squashAtomCommandFailure(result));
+        fail(
+          mode === "carousel"
+            ? "Couldn't create the carousel"
+            : "Couldn't create the video project",
+          squashAtomCommandFailure(result),
+        );
       }
       return;
     }
@@ -226,19 +236,21 @@ export function NewVideoProjectDialog(props: {
     }
   };
 
-  const entries = (listing.data?.entries ?? []).filter(
-    (entry) => mode === "premiere" || entry.kind !== "file",
-  );
+  const entries = (listing.data?.entries ?? []).filter((entry) => !named || entry.kind !== "file");
   const ideaName = title.trim();
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogPopup className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>New video project</DialogTitle>
+          <DialogTitle>
+            {props.premiereFolder === undefined ? "New project" : "New video project"}
+          </DialogTitle>
           <DialogDescription>
-            {mode === "idea"
-              ? "Start from an idea. Stellar makes the project's folders, so the script and footage have a home before Premiere does."
-              : "Start from a Premiere project. Stellar keeps its files in a Stellar folder beside it, so they stay with your footage."}
+            {mode === "carousel"
+              ? "A photo carousel for Instagram: slides you lay out here and export as images, ready to post."
+              : mode === "idea"
+                ? "Start from an idea. Stellar makes the project's folders, so the script and footage have a home before Premiere does."
+                : "Start from a Premiere project. Stellar keeps its files in a Stellar folder beside it, so they stay with your footage."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -250,14 +262,17 @@ export function NewVideoProjectDialog(props: {
                 value={[mode]}
                 onValueChange={(next) => {
                   const value = next[0];
-                  if (value === "idea" || value === "premiere") setMode(value);
+                  if (value === "idea" || value === "premiere" || value === "carousel") {
+                    setMode(value);
+                  }
                 }}
               >
-                <Toggle value="idea">An idea</Toggle>
-                <Toggle value="premiere">A Premiere project</Toggle>
+                <Toggle value="idea">Video from an idea</Toggle>
+                <Toggle value="premiere">Video from Premiere</Toggle>
+                <Toggle value="carousel">Photo carousel</Toggle>
               </ToggleGroup>
             ) : null}
-            {chosen === null && mode === "idea" ? (
+            {chosen === null && named ? (
               <Input
                 aria-label="Project name"
                 value={title}
@@ -278,14 +293,14 @@ export function NewVideoProjectDialog(props: {
                   </Button>
                   <Input
                     aria-label={
-                      mode === "idea" ? "Folder to create it in" : "Folder or Premiere project path"
+                      named ? "Folder to create it in" : "Folder or Premiere project path"
                     }
                     value={typed ?? folder}
                     onChange={(event) => setTyped(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") go(event.currentTarget.value);
                     }}
-                    placeholder={mode === "idea" ? "~/Movies" : "~/Movies or a path to a .prproj"}
+                    placeholder={named ? "~/Movies" : "~/Movies or a path to a .prproj"}
                   />
                 </div>
                 <div className="overflow-hidden rounded-lg border border-border/60">
@@ -297,7 +312,7 @@ export function NewVideoProjectDialog(props: {
                     ) : entries.length === 0 ? (
                       <p className="p-4 text-sm text-muted-foreground">
                         {listing.error ??
-                          (mode === "idea"
+                          (named
                             ? "No folders in here. The project can still be created here."
                             : "No folders or Premiere projects here.")}
                       </p>
@@ -330,13 +345,15 @@ export function NewVideoProjectDialog(props: {
                     )}
                   </ScrollArea>
                 </div>
-                {mode === "idea" && parentFolder !== null ? (
+                {named && parentFolder !== null ? (
                   <p className="text-xs text-muted-foreground">
                     Creates{" "}
                     <span className="text-foreground">
                       {parentFolder.replace(/\/+$/, "")}/{ideaName === "" ? "…" : ideaName}
                     </span>{" "}
-                    with Footage, Audio, B-roll, Graphics, Premiere, Exports and Stellar folders.
+                    {mode === "carousel"
+                      ? "with Photos, Exports and Stellar folders."
+                      : "with Footage, Audio, B-roll, Graphics, Premiere, Exports and Stellar folders."}
                   </p>
                 ) : null}
               </>
@@ -385,7 +402,7 @@ export function NewVideoProjectDialog(props: {
               Back
             </Button>
           ) : null}
-          {mode === "idea" ? (
+          {named ? (
             <Button
               disabled={ideaName === "" || parentFolder === null || busy !== null}
               onClick={() => void createIdeaProject()}

@@ -16,6 +16,7 @@ import { Tool, Toolkit } from "effect/ai";
 
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as CarouselProjects from "../../../carousel/CarouselProjects.ts";
 import * as VideoProjects from "../../../videoProject/VideoProjects.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
@@ -24,6 +25,7 @@ const dependencies = [
   ThreadManagementService.ThreadManagementService,
   ProjectService.ProjectService,
   VideoProjects.VideoProjects,
+  CarouselProjects.CarouselProjects,
 ];
 
 const TimelineReadTool = Tool.make("video_timeline_read", {

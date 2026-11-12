@@ -67,6 +67,8 @@ import {
 } from "./toolkits/preview/tools.ts";
 import * as VideoHandlers from "./toolkits/video/handlers.ts";
 import { VideoToolkit } from "./toolkits/video/tools.ts";
+import * as CarouselHandlers from "./toolkits/carousel/handlers.ts";
+import { CarouselToolkit } from "./toolkits/carousel/tools.ts";
 import * as WorktreeHandlers from "./toolkits/worktree/handlers.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
@@ -1174,6 +1176,11 @@ const layerWorktreeToolkitRegistration = toolkitRegistration(
 
 const layerVideoToolkitRegistration = toolkitRegistration(VideoToolkit, VideoHandlers.layer);
 
+const layerCarouselToolkitRegistration = toolkitRegistration(
+  CarouselToolkit,
+  CarouselHandlers.layer,
+);
+
 const layerPreviewControlsRegistration = toolkitRegistration(
   PreviewControlsToolkit,
   PreviewControlsHandlers.layer,
@@ -1251,6 +1258,7 @@ export const layerTools = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerVideoToolkitRegistration,
+  layerCarouselToolkitRegistration,
   layerPullRequestsToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,

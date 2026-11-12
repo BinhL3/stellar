@@ -369,6 +369,24 @@ export function summarizeT3ToolCalls(
     case "video-posted":
       label = phrase("Recorded", "record", `the short as posted ${times}`);
       break;
+    case "carousel-read":
+      label = phrase("Read", "read", `the carousel ${times}`);
+      break;
+    case "carousel-edit":
+      label = phrase("Edited", "edit", `the carousel ${times}`);
+      break;
+    case "carousel-look":
+      label = phrase("Looked at", "look at", `the slides ${times}`);
+      break;
+    case "carousel-photos":
+      label = phrase("Imported", "import", `photos ${times}`);
+      break;
+    case "carousel-export":
+      label = phrase("Exported", "export", `the carousel ${times}`);
+      break;
+    case "carousel-start":
+      label = phrase("Started", "start", `a carousel project ${times}`);
+      break;
     case "project-list":
       label = phrase("Listed", "list", `projects ${times}`);
       break;

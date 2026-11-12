@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./carousel": {
+      "types": "./src/carousel.ts",
+      "import": "./src/carousel.ts"
+    },
     "./compactView": {
       "types": "./src/compactView.ts",
       "import": "./src/compactView.ts"
@@ -120,6 +124,7 @@
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
+    "@t3tools/contracts": "workspace:*",
     "effect": "catalog:",
     "fast-xml-parser": "5.7.3"
   },

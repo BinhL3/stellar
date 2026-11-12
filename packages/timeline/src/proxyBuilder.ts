@@ -207,6 +207,8 @@ const buildStill = Effect.fn("timeline.proxies.buildStill")(function* (input: {
   readonly projectDir: string;
   readonly key: string;
   readonly tools: BuildTools;
+  readonly edge?: number;
+  readonly quality?: number;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -221,7 +223,7 @@ const buildStill = Effect.fn("timeline.proxies.buildStill")(function* (input: {
     `${PROXY_DIRECTORY}/${input.key}.still.part.${input.tools.webp ? "webp" : "png"}`,
   );
   const decoded = path.join(input.projectDir, `${PROXY_DIRECTORY}/${input.key}.decoded.part.png`);
-  const edge = STILL_RENDITION_EDGE;
+  const edge = input.edge ?? STILL_RENDITION_EDGE;
 
   const convert = Effect.fn("timeline.proxies.convertStill")(function* (tool: StillConverter) {
     let picture = input.source;
@@ -269,7 +271,7 @@ const buildStill = Effect.fn("timeline.proxies.buildStill")(function* (input: {
       "1",
       "-update",
       "1",
-      ...(input.tools.webp ? ["-c:v", "libwebp", "-q:v", "88"] : []),
+      ...(input.tools.webp ? ["-c:v", "libwebp", "-q:v", String(input.quality ?? 88)] : []),
       partial,
     ]);
     yield* fs.rename(partial, final);
@@ -769,4 +771,51 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
     Effect.orElseSucceed(() => 0),
   );
   return { indexPath, count: Object.keys(media).length, failed, removed };
+});
+
+/** Long edge of a carousel photo's drawable copy: a three-slide panorama at full height. */
+const PHOTO_RENDITION_EDGE = 4320;
+
+/**
+ * A carousel photo's upright size and the file a browser draws for it. A still no browser
+ * decodes (HEIC, TIFF, PSD, raw) gets a near-lossless copy in the proxies folder, large enough
+ * to export from; the video proxies' 1600 px renditions are not. Others are drawn as they are.
+ */
+export const preparePhoto = Effect.fn("timeline.proxies.preparePhoto")(function* (input: {
+  readonly source: string;
+  readonly projectDir: string;
+  /** The photo's path under the media root, which names its copy. */
+  readonly identity: string;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  if (stillFormat(input.source) === null) {
+    const info = yield* probe(input.source);
+    return { width: info.width, height: info.height, still: null };
+  }
+  const stat = yield* fs.stat(input.source);
+  const modified = Option.match(stat.mtime, {
+    onNone: () => 0,
+    onSome: (date) => date.getTime(),
+  });
+  yield* fs.makeDirectory(path.join(input.projectDir, PROXY_DIRECTORY), { recursive: true });
+  const encoders = yield* run("ffmpeg", ["-hide_banner", "-encoders"]);
+  const heif = (yield* installed("heif-dec", ["--version"]))
+    ? ("heif-dec" as const)
+    : (yield* installed("heif-convert", ["--version"]))
+      ? ("heif-convert" as const)
+      : null;
+  const entry = yield* buildStill({
+    source: input.source,
+    projectDir: input.projectDir,
+    key: `photo-${hashKey(input.identity, stat.size, Math.floor(modified / 1000))}`,
+    tools: {
+      webp: /\blibwebp\b/.test(encoders),
+      sips: yield* installed("sips", ["--version"]),
+      heif,
+    },
+    edge: PHOTO_RENDITION_EDGE,
+    quality: 96,
+  });
+  return { width: entry.width, height: entry.height, still: entry.still };
 });

@@ -54,6 +54,7 @@ import { TriageDraftHero } from "./TriageDraftHero";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
 import { VideoStageSelect } from "../videoProject/VideoStageSelect";
 import { useVideoProject } from "~/hooks/useVideoProject";
+import { useIsCarouselProject } from "../carousel/useIsCarouselProject";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveProjectDefaultProviderModelSelection } from "../../providerInstances";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
@@ -159,6 +160,11 @@ export function DraftHeroHeadline({
             project.id === activeProjectRef.projectId,
         ) ?? null);
   const { isVideoProject, timelinePaths } = useVideoProject(
+    activeProject?.environmentId ?? null,
+    activeProject?.workspaceRoot,
+  );
+  // A carousel has no script-to-timeline stages to pick between.
+  const isCarousel = useIsCarouselProject(
     activeProject?.environmentId ?? null,
     activeProject?.workspaceRoot,
   );
@@ -363,8 +369,8 @@ export function DraftHeroHeadline({
         onClick={() => setVideoProjectOpen(true)}
       >
         {hasResolvedProject || canChooseProject
-          ? "or start a new video project"
-          : "Start a video project"}
+          ? "or start a new video or carousel"
+          : "Start a video or carousel"}
       </InlineButton>
     ) : null;
 
@@ -403,7 +409,7 @@ export function DraftHeroHeadline({
       )}
       {isScratchDraft || orNewVideoProject !== null ? (
         <div className="mt-2 flex h-6 w-full items-center justify-center gap-3 text-sm">
-          {isVideoProject && activeProject !== null && !isScratchDraft ? (
+          {isVideoProject && activeProject !== null && !isScratchDraft && isCarousel === false ? (
             <span className="pointer-events-auto">
               <VideoStageSelect
                 environmentId={activeProject.environmentId}
