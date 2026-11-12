@@ -634,7 +634,9 @@ would buy nothing.
 
 - **What a project is follows from what its Stellar folder holds.** `carousel.json` makes it a
   carousel; `timelines/` makes it a video. There is no kind field to keep in step, and one folder
-  can hold both later (a short and the carousel cut from its stills) without a migration.
+  can hold both later (a short and the carousel cut from its stills) without a migration. Until
+  the window can show both, a folder is kept to one: a carousel is not started in a video's
+  folder, and the video tools refuse in a carousel's and point at `carousel_read`.
 - **Same shape as the video model (Decisions 1 and 3).** The document is the product: versioned
   JSON whose schema is in `packages/contracts/src/carousel.ts`, changed only through a list of
   edits that the UI and the `carousel_*` MCP tools both apply
