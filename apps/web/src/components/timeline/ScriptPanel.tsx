@@ -178,6 +178,8 @@ export function ScriptPanel(props: {
   readonly pendingEdits: boolean;
   /** A take was placed, so the timeline's file changed on the server. */
   readonly onTimelineChanged: () => void;
+  /** Told the beats each time they are read, so the ruler can mark where lines start. */
+  readonly onBeats?: (beats: ReadonlyArray<VideoScriptBeat>) => void;
   readonly onClose: () => void;
 }) {
   const readScript = useAtomCommand(projectEnvironment.readVideoScript, { reportFailure: false });
@@ -209,6 +211,9 @@ export function ScriptPanel(props: {
       input: { workspaceRoot: props.workspaceRoot, timeline: props.timeline },
     }),
   );
+  const publishBeats = useEffectEvent((beats: ReadonlyArray<VideoScriptBeat>) =>
+    props.onBeats?.(beats),
+  );
   const readTakes = useEffectEvent(() =>
     readVoice({
       environmentId: props.environmentId,
@@ -226,8 +231,10 @@ export function ScriptPanel(props: {
         reloads,
         voice: takes._tag === "Success" ? takes.value : null,
       };
-      if (result._tag === "Success") setLoaded({ ...request, view: result.value, error: null });
-      else {
+      if (result._tag === "Success") {
+        setLoaded({ ...request, view: result.value, error: null });
+        publishBeats(result.value.beats);
+      } else {
         const error = isAtomCommandInterrupted(result)
           ? "Reading was interrupted."
           : failureMessage(squashAtomCommandFailure(result));

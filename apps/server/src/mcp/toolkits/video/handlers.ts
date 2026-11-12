@@ -74,6 +74,7 @@ const handlers = {
         .readTimeline({
           workspaceRoot,
           ...(input.timeline === undefined ? {} : { timeline: input.timeline }),
+          ...(input.version === undefined ? {} : { version: input.version }),
         })
         .pipe(Effect.mapError(refused));
     }),
@@ -83,7 +84,7 @@ const handlers = {
       const workspaceRoot = yield* callerWorkspaceRoot;
       const videoProjects = yield* VideoProjects.VideoProjects;
       return yield* videoProjects
-        .editTimeline({ workspaceRoot, timeline: input.timeline, edits: input.edits })
+        .editTimeline({ workspaceRoot, timeline: input.timeline, edits: input.edits, by: "agent" })
         .pipe(Effect.mapError(refused));
     }),
   ),
@@ -169,6 +170,7 @@ const handlers = {
             return yield* videoProjects.applyVoiceOver({
               workspaceRoot,
               timeline,
+              by: "agent",
               ...(input.beatIds === undefined ? {} : { beatIds: input.beatIds }),
             });
         }

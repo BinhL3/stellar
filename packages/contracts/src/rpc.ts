@@ -264,6 +264,13 @@ import {
   VideoRenderCheckInput,
   VideoRenderReport,
   VideoSetPostedInput,
+  VideoTimelineCommitInput,
+  VideoTimelineRestoreInput,
+  VideoTimelineRestoreResult,
+  VideoTimelineVersionReadInput,
+  VideoTimelineVersions,
+  VideoTimelineVersionsInput,
+  VideoTimelineVersionView,
   ProjectCreateFromThreadInput,
   ProjectCreateFromThreadResult,
   ProjectEnsureScratchResult,
@@ -464,6 +471,10 @@ export const WS_METHODS = {
   videoProjectsCheckRender: "videoProjects.checkRender",
   videoProjectsPreflight: "videoProjects.preflight",
   videoProjectsSetPosted: "videoProjects.setPosted",
+  videoProjectsCommitTimeline: "videoProjects.commitTimeline",
+  videoProjectsListVersions: "videoProjects.listVersions",
+  videoProjectsReadVersion: "videoProjects.readVersion",
+  videoProjectsRestoreVersion: "videoProjects.restoreVersion",
 
   shellOpenInEditor: "shell.openInEditor",
 
@@ -1516,6 +1527,35 @@ const WsVideoProjectsSetPostedRpc = Rpc.make(WS_METHODS.videoProjectsSetPosted, 
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const VideoHistoryRpcError = Schema.Union([
+  OrchestrationDispatchCommandError,
+  EnvironmentAuthorizationError,
+]);
+
+const WsVideoProjectsCommitTimelineRpc = Rpc.make(WS_METHODS.videoProjectsCommitTimeline, {
+  payload: VideoTimelineCommitInput,
+  success: VideoTimelineVersions,
+  error: VideoHistoryRpcError,
+});
+
+const WsVideoProjectsListVersionsRpc = Rpc.make(WS_METHODS.videoProjectsListVersions, {
+  payload: VideoTimelineVersionsInput,
+  success: VideoTimelineVersions,
+  error: VideoHistoryRpcError,
+});
+
+const WsVideoProjectsReadVersionRpc = Rpc.make(WS_METHODS.videoProjectsReadVersion, {
+  payload: VideoTimelineVersionReadInput,
+  success: VideoTimelineVersionView,
+  error: VideoHistoryRpcError,
+});
+
+const WsVideoProjectsRestoreVersionRpc = Rpc.make(WS_METHODS.videoProjectsRestoreVersion, {
+  payload: VideoTimelineRestoreInput,
+  success: VideoTimelineRestoreResult,
+  error: VideoHistoryRpcError,
+});
+
 const WsProjectsCreateFromThreadRpc = Rpc.make(WS_METHODS.projectsCreateFromThread, {
   payload: ProjectCreateFromThreadInput,
   success: ProjectCreateFromThreadResult,
@@ -2304,6 +2344,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsCheckRenderRpc,
   WsVideoProjectsPreflightRpc,
   WsVideoProjectsSetPostedRpc,
+  WsVideoProjectsCommitTimelineRpc,
+  WsVideoProjectsListVersionsRpc,
+  WsVideoProjectsReadVersionRpc,
+  WsVideoProjectsRestoreVersionRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

@@ -8,6 +8,7 @@ import { frameAt } from "../frameTimes.ts";
 import { layoutTimeline, type LaidOutClip, type LaidOutTrack } from "../layout.ts";
 import { type Timeline, TIMELINE_NAMESPACE } from "../otio.ts";
 import { mediaSpanSeconds, timeScalarOf } from "../speed.ts";
+import { premiereMarkerComment, timelineMarkers } from "../markers.ts";
 
 export interface FcpXmlExport {
   readonly xml: string;
@@ -186,10 +187,18 @@ export const toFcpXml = (
 
   const video = tracksOf("Video");
   const audio = tracksOf("Audio");
+  // Sequence markers travel; a clip's are Premiere's source-clip markers, which xmeml can't place.
+  const sequenceMarkers = timelineMarkers(timeline)
+    .filter((marker) => marker.clipId === null)
+    .map(
+      (marker) =>
+        `<marker><name>${escape(marker.name)}</name><comment>${escape(premiereMarkerComment(marker))}</comment><in>${marker.frame}</in><out>${marker.durationFrames > 0 ? marker.frame + marker.durationFrames : -1}</out></marker>`,
+    )
+    .join("");
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <xmeml version="4"><sequence id="stellar-sequence"><name>${escape(options.sequenceName)}</name><duration>${Math.round(
     layout.durationFrames,
-  )}</duration>${rate}<media><video><format><samplecharacteristics>${rate}<width>${frame.width}</width><height>${frame.height}</height><anamorphic>FALSE</anamorphic><pixelaspectratio>square</pixelaspectratio><fielddominance>none</fielddominance></samplecharacteristics></format>${video}</video><audio><numOutputChannels>2</numOutputChannels><format><samplecharacteristics><depth>16</depth><samplerate>48000</samplerate></samplecharacteristics></format><outputs><group><index>1</index><numchannels>1</numchannels><downmix>0</downmix><channel><index>1</index></channel></group><group><index>2</index><numchannels>1</numchannels><downmix>0</downmix><channel><index>2</index></channel></group></outputs>${audio}</audio></media></sequence></xmeml>
+  )}</duration>${rate}<media><video><format><samplecharacteristics>${rate}<width>${frame.width}</width><height>${frame.height}</height><anamorphic>FALSE</anamorphic><pixelaspectratio>square</pixelaspectratio><fielddominance>none</fielddominance></samplecharacteristics></format>${video}</video><audio><numOutputChannels>2</numOutputChannels><format><samplecharacteristics><depth>16</depth><samplerate>48000</samplerate></samplecharacteristics></format><outputs><group><index>1</index><numchannels>1</numchannels><downmix>0</downmix><channel><index>1</index></channel></group><group><index>2</index><numchannels>1</numchannels><downmix>0</downmix><channel><index>2</index></channel></group></outputs>${audio}</audio></media>${sequenceMarkers}</sequence></xmeml>
 `;
   return { xml, skipped, approximated };
 };

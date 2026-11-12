@@ -50,10 +50,40 @@ export interface LinearTimeWarp {
   readonly metadata: Readonly<Record<string, unknown>>;
 }
 
+/** OTIO's marker colours. Premiere has eight of them; see `markers.ts`. */
+export type MarkerColor =
+  | "PINK"
+  | "RED"
+  | "ORANGE"
+  | "YELLOW"
+  | "GREEN"
+  | "CYAN"
+  | "BLUE"
+  | "PURPLE"
+  | "MAGENTA"
+  | "BLACK"
+  | "WHITE";
+
+/**
+ * OTIO's marker. On the stack, `marked_range` is in timeline frames; on a clip it is in the
+ * clip's media time, like `source_range`, so it stays on the same picture when the clip is
+ * moved or trimmed. Who made it and whether it is resolved are `metadata.stellar`.
+ */
+export interface Marker {
+  readonly OTIO_SCHEMA: "Marker.2";
+  readonly name: string;
+  readonly color: MarkerColor;
+  readonly comment: string;
+  readonly marked_range: TimeRange;
+  readonly metadata: Readonly<Record<string, unknown>>;
+}
+
 export interface Clip {
   readonly OTIO_SCHEMA: "Clip.2";
   readonly name: string;
   readonly source_range: TimeRange;
+  /** Absent when the clip has none, so a timeline without markers reads as it always did. */
+  readonly markers?: ReadonlyArray<Marker>;
   /** OTIO's own effects list; only speed lives here, everything else is `metadata.stellar`. */
   readonly effects?: ReadonlyArray<LinearTimeWarp>;
   readonly media_references: { readonly DEFAULT_MEDIA: ExternalReference };
@@ -85,6 +115,8 @@ export interface Stack {
   readonly OTIO_SCHEMA: "Stack.1";
   readonly name: string;
   readonly children: ReadonlyArray<Track>;
+  /** Sequence markers. Absent when there are none. */
+  readonly markers?: ReadonlyArray<Marker>;
   readonly enabled: boolean;
   readonly metadata: Readonly<Record<string, unknown>>;
 }

@@ -105,5 +105,17 @@ describe("timelineLayoutStore", () => {
     expect(timelinePanelPlacement("script", ["monitor", "timeline"])).toEqual({
       direction: "right",
     });
+    // Markers and History share the side column, as tabs of whichever side panel is open.
+    expect(timelinePanelPlacement("markers", ["monitor", "timeline"])).toEqual({
+      direction: "right",
+    });
+    expect(timelinePanelPlacement("history", ["monitor", "timeline", "script"])).toEqual({
+      referencePanel: "script",
+      direction: "within",
+    });
+    expect(timelinePanelPlacement("markers", ["monitor", "history"])).toEqual({
+      referencePanel: "history",
+      direction: "within",
+    });
   });
 });

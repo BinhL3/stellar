@@ -5,6 +5,13 @@
  */
 import { applyEdits, STILL_PATH, type TimelineEdit } from "./edits.ts";
 import { clipIdOf, layoutTimeline } from "./layout.ts";
+import {
+  type MarkerChange,
+  markerChangeLine,
+  markerChanges,
+  markerChangeSentence,
+  mergeMarkers,
+} from "./markerDiff.ts";
 import { type Clip, sortKeys, type Timeline, TIMELINE_NAMESPACE, type Track } from "./otio.ts";
 import { mediaSpanSeconds, playSpan, timeScalarOf } from "./speed.ts";
 
@@ -67,7 +74,9 @@ export type TimelineChange =
       readonly kind: "trackChanged";
       readonly track: string;
       readonly properties: ReadonlyArray<string>;
-    };
+    }
+  /** Markers added, removed or changed; listed after the clip changes. */
+  | MarkerChange;
 
 export interface TimelineDiff {
   /** Frames per second of the later version, for turning frames into times. */
@@ -679,7 +688,7 @@ const changesOf = (analysis: Analysis): Array<TimelineChange> => {
  */
 export const diffTimelines = (base: Timeline, next: Timeline): TimelineDiff => {
   const analysis = analyze(base, next);
-  return { rate: analysis.rate, changes: changesOf(analysis) };
+  return { rate: analysis.rate, changes: [...changesOf(analysis), ...markerChanges(base, next)] };
 };
 
 const span = (state: ClipState) => `${state.track} ${state.startFrame}-${state.endFrame}`;
@@ -713,6 +722,10 @@ export const changeLine = (change: TimelineChange): string => {
       return `track renamed ${change.before} → ${change.after}`;
     case "trackChanged":
       return `track changed ${change.track}: ${change.properties.join(", ")}`;
+    case "markerAdded":
+    case "markerRemoved":
+    case "markerChanged":
+      return markerChangeLine(change);
   }
 };
 
@@ -763,6 +776,10 @@ export const changeSentence = (change: TimelineChange, rate: number): string => 
       return `Renamed track ${change.before} to ${change.after}`;
     case "trackChanged":
       return `Changed ${list(change.properties)} of track ${change.track}`;
+    case "markerAdded":
+    case "markerRemoved":
+    case "markerChanged":
+      return markerChangeSentence(change, rate);
   }
 };
 
@@ -877,7 +894,7 @@ const shiftAt = (ripples: ReadonlyArray<Ripple>, frame: number, track: string | 
  */
 export const mergeTimelines = (base: Timeline, ours: Timeline, theirs: Timeline): TimelineMerge => {
   const mine = analyze(base, ours);
-  const wanted = changesOf(mine);
+  const wanted: Array<TimelineChange> = [...changesOf(mine), ...markerChanges(base, ours)];
   if (wanted.length === 0) return { timeline: theirs, conflicts: [] };
   const their = analyze(base, theirs);
   const rate = their.rate;
@@ -1267,5 +1284,22 @@ export const mergeTimelines = (base: Timeline, ours: Timeline, theirs: Timeline)
     };
   }
 
-  return { timeline: working, conflicts };
+  // Markers last: a clip of ours that was added or cut above is there to carry its own.
+  const addedIds = new Set(mine.added.map((item) => item.id));
+  const withMarkers = mergeMarkers({
+    base,
+    ours,
+    theirs,
+    working,
+    mapFrame: (frame) => merged(frame, ""),
+    clipFor: (ourClipId) => {
+      const pair = mine.pairs.find((candidate) => candidate.next.id === ourClipId);
+      const id = pair === undefined ? undefined : their.byBaseId.get(pair.base.id)?.next.id;
+      if (id !== undefined) return clipsNow().has(id) ? id : undefined;
+      return addedIds.has(ourClipId) && clipsNow().has(ourClipId) ? ourClipId : undefined;
+    },
+    clipIdOf,
+  });
+  conflicts.push(...withMarkers.conflicts);
+  return { timeline: withMarkers.timeline, conflicts };
 };

@@ -654,6 +654,10 @@ export const VideoTimelineEdit = Schema.Struct({
     "removeWords",
     "setEnabled",
     "setText",
+    "addMarker",
+    "setMarker",
+    "removeMarker",
+    "restoreVersion",
   ]),
   clipId: Schema.optional(Schema.String),
   toTrack: Schema.optional(Schema.String),
@@ -670,6 +674,17 @@ export const VideoTimelineEdit = Schema.Struct({
   toWord: Schema.optional(Schema.Number),
   enabled: Schema.optional(Schema.Boolean),
   text: Schema.optional(Schema.String),
+  /** Markers: `markerId` from the timeline's marker lines; `duration` in frames. */
+  markerId: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  note: Schema.optional(Schema.String),
+  color: Schema.optional(
+    Schema.Literals(["GREEN", "RED", "PURPLE", "ORANGE", "YELLOW", "WHITE", "BLUE", "CYAN"]),
+  ),
+  duration: Schema.optional(Schema.Number),
+  resolved: Schema.optional(Schema.Boolean),
+  /** A version id from the timeline's history, such as `v12`. */
+  version: Schema.optional(Schema.String),
 });
 export type VideoTimelineEdit = typeof VideoTimelineEdit.Type;
 
@@ -677,8 +692,84 @@ export const VideoTimelineReadInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   /** A path from `timelines`; omitted, the project's main timeline. */
   timeline: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+  /** `list` for the timeline's versions, or a version id to read that version instead. */
+  version: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(32))),
 });
 export type VideoTimelineReadInput = typeof VideoTimelineReadInput.Type;
+
+/** One recorded state of a timeline's file. */
+export const VideoTimelineVersion = Schema.Struct({
+  /** `v<n>`, counted up per timeline. */
+  id: TrimmedNonEmptyString,
+  /** Epoch milliseconds. */
+  at: Schema.Number,
+  /** `outside` is a change no Stellar tool made, such as the file edited by hand. */
+  by: Schema.Literals(["user", "agent", "premiere", "outside"]),
+  label: Schema.String,
+  /** What changed from the version before, one plain sentence per change. */
+  changes: Schema.Array(Schema.String),
+});
+export type VideoTimelineVersion = typeof VideoTimelineVersion.Type;
+
+export const VideoTimelineVersionsInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  timeline: TrimmedNonEmptyString.check(Schema.isMaxLength(512)),
+});
+export type VideoTimelineVersionsInput = typeof VideoTimelineVersionsInput.Type;
+
+export const VideoTimelineVersions = Schema.Struct({
+  timeline: Schema.String,
+  /** Newest first; the first is what the file holds now. */
+  versions: Schema.Array(VideoTimelineVersion),
+  /** The versions undo and redo would go to from here; null when there is none. */
+  undo: Schema.NullOr(Schema.String),
+  redo: Schema.NullOr(Schema.String),
+});
+export type VideoTimelineVersions = typeof VideoTimelineVersions.Type;
+
+export const VideoTimelineVersionReadInput = Schema.Struct({
+  ...VideoTimelineVersionsInput.fields,
+  version: TrimmedNonEmptyString.check(Schema.isMaxLength(32)),
+});
+export type VideoTimelineVersionReadInput = typeof VideoTimelineVersionReadInput.Type;
+
+export const VideoTimelineVersionView = Schema.Struct({
+  version: VideoTimelineVersion,
+  /** The timeline's text as that version held it. */
+  contents: Schema.String,
+  /** What changed from that version to the timeline now, one plain sentence per change. */
+  changesSince: Schema.Array(Schema.String),
+});
+export type VideoTimelineVersionView = typeof VideoTimelineVersionView.Type;
+
+export const VideoTimelineCommitInput = Schema.Struct({
+  ...VideoTimelineVersionsInput.fields,
+  /** The whole timeline as OTIO JSON. */
+  contents: Schema.String.check(Schema.isMaxLength(64_000_000)),
+});
+export type VideoTimelineCommitInput = typeof VideoTimelineCommitInput.Type;
+
+export const VideoTimelineRestoreInput = Schema.Struct({
+  ...VideoTimelineVersionsInput.fields,
+  /** The version to bring back; or `step` to go one undo or redo from the newest. */
+  version: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(32))),
+  step: Schema.optional(Schema.Literals(["undo", "redo"])),
+});
+export type VideoTimelineRestoreInput = typeof VideoTimelineRestoreInput.Type;
+
+export const VideoTimelineRestoreResult = Schema.Struct({
+  ...VideoTimelineVersions.fields,
+  /** The version that was brought back. */
+  restored: VideoTimelineVersion,
+  /**
+   * Changes made in Premiere since that version, which the restore kept: it brings back the
+   * edits made here, on top of Premiere's latest save.
+   */
+  keptFromPremiere: Schema.Array(Schema.String),
+  /** Parts of the version that could not be brought back because Premiere changed the same thing. */
+  conflicts: Schema.Array(Schema.String),
+});
+export type VideoTimelineRestoreResult = typeof VideoTimelineRestoreResult.Type;
 
 export const VideoTimelineExportResult = Schema.Struct({
   /** The XML file Premiere imports as a new sequence. */

@@ -339,6 +339,36 @@ export function createProjectEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
       },
     }),
+    commitVideoTimeline: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:commit-timeline",
+      tag: WS_METHODS.videoProjectsCommitTimeline,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
+    listVideoTimelineVersions: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:list-versions",
+      tag: WS_METHODS.videoProjectsListVersions,
+      scheduler: projectScheduler,
+      concurrency: { mode: "parallel" },
+    }),
+    readVideoTimelineVersion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:read-version",
+      tag: WS_METHODS.videoProjectsReadVersion,
+      scheduler: projectScheduler,
+      concurrency: { mode: "parallel" },
+    }),
+    restoreVideoTimelineVersion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:restore-version",
+      tag: WS_METHODS.videoProjectsRestoreVersion,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
     createFromThread: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:create-from-thread",
       tag: WS_METHODS.projectsCreateFromThread,

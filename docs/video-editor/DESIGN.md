@@ -385,8 +385,8 @@ Built from the past threads: it targets where time and failures actually went, a
   - The Timeline tab syncs when it opens, when the window comes back into focus (the moment
     after a save in Premiere) and after a commit. The Premiere badge shows the result.
   - A timeline edited here is never overwritten. It shows as **Edited here**, or **Conflict**
-    once Premiere saves something different. "Use Premiere's version" replaces it and keeps the
-    replaced file in `timelines/replaced/`.
+    once Premiere saves something different. "Use Premiere's version" replaces it, and the
+    replaced timeline stays as a version in its history.
   - Projects pulled before the link existed are linked on first sync when their media root
     holds exactly one `.prproj`.
 - **Pull, from the `.prproj`: done** (`packages/timeline`).
@@ -427,10 +427,10 @@ asked for:
 - Hiding jump cuts with a punch-in or an angle change.
 - Choosing angles in multicam.
 
-Each suggestion shows up in the thread as a card the user accepts or dismisses.
+A suggestion is a marker the agent leaves at the frame it is about, which the user answers,
+resolves or deletes. There are no suggestion cards.
 
-The user-facing surface is the Timeline tab and nothing more. Suggestions show as markers on it
-and as cards in the chat.
+The user-facing surface is the Timeline tab and nothing more.
 
 Backlog: multicam coverage. Each source would record its angle (front, side profile, wide), with
 angle-switch rules such as "switch to hide a jump cut". A top-down coverage map, or later a 3D
@@ -601,9 +601,10 @@ Built so far: the last bullet's sync. The rest is proposed.
   were actually said and stores the span on the beat. Placeholder reactions ("[real reaction from
   footage]") get filled with real quotes and their timecodes, written back into the doc. Nothing is
   invented, as in the run.
-- **Beat ↔ timeline.** Each beat becomes an OTIO marker carrying its id
-  (`metadata.stellar.beat`). Markers show on the ruler. Clicking one moves the playhead, and its
-  menu opens the doc at that heading in a Browser tab (Docs heading anchors in the URL).
+- **Beat ↔ timeline.** Each beat's start shows on the ruler as a tick, derived from the
+  alignment each time rather than stored as a marker, so it can never drift from the words.
+  Clicking one moves the playhead and shows the line in the Script panel. Opening the doc at
+  that heading from the tick is not built.
 - **Binh's doc edits flow back as proposals, never as silent changes.** The server watches the doc
   revision (when its Browser tab loses focus, and every minute while the thread is active). When it changes, it
   diffs beats by id and posts a card: "You rewrote the hook line in beat 1. Recut the hook to
@@ -671,8 +672,8 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 2. Of Decision 7's surfaces only the preflight strip is built, and not as drawn: it sits in the
    Timeline tab and lists the run's steps (script, footage, previews, transcripts, Premiere link
    and sync, render check, posted) from project data. It checks no drive, free space, connector
-   sign-in or MCP health, and has no Continue anyway. The intake card, job rows, hook card,
-   catalog pill and beat markers are unbuilt. Posted is recorded in the project; the catalog row
+   sign-in or MCP health, and has no Continue anyway. The intake card, job rows, hook card
+   and catalog pill are unbuilt. Posted is recorded in the project; the catalog row
    is moved by an agent through the Google connector, and nothing confirms that it was.
 3. Agents can't reach any of it. Creating, linking and syncing a video project are UI-only, and
    the `timeline` toolkit doesn't exist. Agents edit Premiere through its own MCP, so the
@@ -708,9 +709,12 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 13. Sync runs when a web or desktop client opens the tab, regains focus or commits. An agent
     turn, a phone, or a server with no client open never triggers it, so an agent can read a
     stale `.otio`.
-14. A pull replaces the whole file. What changed isn't shown (step 7's dashed diff), the user's
-    hand pass isn't recorded as their turn, and "Sync now" drops uncommitted edits without
-    asking. Focus sync holds off while there are any.
+14. A pull or merge rewrites the whole file, and each is a version in the timeline's history
+    (`timelines/.history/`) with what it changed, as is the text it replaced. What changed is
+    listed, not drawn on the tracks (step 7's dashed diff), and the user's hand pass is not a
+    turn in the thread. In the tab a conflict waits for the user to choose Merge or Premiere's
+    version, while an agent's read merges by itself. Sync and merge hold off while there are
+    uncommitted edits.
 15. A sequence deleted or renamed in Premiere silently stops updating its timeline.
 16. A read that lands while Premiere is writing shows as Offline until the next sync.
 17. The pull doesn't read linked audio and video, nested sequences, or time remapping with
@@ -768,7 +772,24 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 27. "Timeline saved" is true of the `.otio` and nothing else, and the badge says so. The only
     thing downstream that reads a commit is the render check, which goes stale when the
     timeline's text changes.
-28. No markers, beat markers, suggestion cards or version history. Undo stops at a commit.
+28. Markers, script-line ticks and version history exist on web and desktop; what they lack:
+    - Markers are OTIO's own, on the stack (sequence) or on a clip (in its media time). Only a
+      marker's id, start and type were seen in a real `.prproj`; its name, comment, length and
+      colour are read by the field names Premiere's marker object uses, unconfirmed until a
+      project has them. Who made a marker and whether it is resolved are ours, and reach
+      Premiere as a last line of its comment (`[stellar: agent, resolved]`).
+    - A clip's markers are read only where they fall on the media that piece plays, are pushed
+      as steps for an agent to put on the source clip, and are left out of the XML export.
+    - Sequence markers ripple with `removeRange` and `rippleDelete`. A voice-over placement
+      re-times clips with moves and trims, so markers after it stay where they were.
+    - In the tab a marker is a point on the ruler: no dragging out a length, no pinning one to
+      a clip (agents can do both), and no marker lines across the tracks.
+    - History keeps the newest 50 versions and then the last of each earlier day for 30 days.
+      A version is previewed in the Monitor and compared as a list, not drawn against the
+      current tracks. Undo and redo across commits each write a new version. Restoring a
+      version made on an earlier Premiere save re-applies its edits on the latest save; one
+      made before the project was linked is restored as text.
+    - Agent suggestions are markers; there are no suggestion cards.
 29. `TimelineViewer.tsx` is one 2,100-line component under `components/files/`.
 
 **The model**

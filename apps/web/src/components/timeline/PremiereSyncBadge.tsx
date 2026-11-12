@@ -165,13 +165,13 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
           {state === "edited" ? (
             <p className="text-muted-foreground">
               An agent can apply these to the open Premiere sequence. Ask it to push the timeline to
-              Premiere. Taking Premiere's version keeps yours in timelines/replaced.
+              Premiere. Taking Premiere's version keeps yours as a version in History.
             </p>
           ) : null}
           {state === "conflict" ? (
             <p className="text-muted-foreground">
-              Merge takes Premiere's save and puts your edits back on top. The file from before the
-              merge is kept in timelines/replaced, as it is when you take Premiere's version.
+              Merge takes Premiere's save and puts your edits back on top. The timeline from before
+              the merge stays in History, as it does when you take Premiere's version.
             </p>
           ) : null}
           {diverged && props.uncommittedEdits && props.onUsePremiere ? (
