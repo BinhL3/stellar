@@ -27,6 +27,12 @@ import {
   type VideoTimelineWords,
   type VideoTranscribeInput,
   type VideoTranscriptStatus,
+  type VideoVoiceOverApplyInput,
+  type VideoVoiceOverReadInput,
+  type VideoVoiceOverSaveTakeInput,
+  type VideoVoiceOverSplitInput,
+  type VideoVoiceOverTakeInput,
+  type VideoVoiceOverView,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveCommandPath } from "@t3tools/shared/shell";
@@ -57,6 +63,16 @@ import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import { buildProjectProxies, markProxiesBuilding } from "@t3tools/timeline/proxyBuilder";
 import { BASE_DIRECTORY, pullToProject } from "@t3tools/timeline/pullToProject";
 import { alignBeats, assignBeatIds, parseScript } from "@t3tools/timeline/script";
+import {
+  addTake,
+  chooseTake as chooseIndexedTake,
+  nextTakeId,
+  placedVoiceOver,
+  placeTake,
+  removeTake,
+  sliceByBeats,
+  takesOnTimeline,
+} from "@t3tools/timeline/voiceOver";
 import { timelineWords, type TranscriptWord, wordRange, wordsText } from "@t3tools/timeline/words";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -80,9 +96,11 @@ import {
   findTranscript,
   projectLanguage,
   runTranscription,
+  TRANSCRIPT_FOLDER,
   transcriptCoverage,
   writeTranscriptStatus,
 } from "./Transcriber.ts";
+import { encodeTake, readTakeIndex, TAKE_FOLDER, writeTakeIndex } from "./VoiceOverTakes.ts";
 
 export class VideoProjectError extends Schema.TaggedError<VideoProjectError>()(
   "VideoProjectError",
@@ -365,6 +383,41 @@ export class VideoProjects extends Context.Service<
     readonly saveScript: (
       input: VideoScriptSaveInput,
     ) => Effect.Effect<VideoScriptView, VideoProjectError>;
+    /**
+     * Each script line with its voice-over takes, the one it uses, and the one on a timeline.
+     * Takes are WAVs under `Audio/VO`, indexed by `voiceover.json` in the project folder.
+     */
+    readonly readVoiceOver: (
+      input: VideoVoiceOverReadInput,
+    ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
+    /**
+     * Saves a recording, or a copy of an audio file on the host, as a take of one script line
+     * and makes it the line's chosen take. Nothing on a timeline changes until it is applied.
+     */
+    readonly saveTake: (
+      input: VideoVoiceOverSaveTakeInput,
+    ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
+    readonly chooseTake: (
+      input: VideoVoiceOverTakeInput,
+    ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
+    /** Deletes a take's file and transcript. Refused while a timeline still plays it. */
+    readonly deleteTake: (
+      input: VideoVoiceOverTakeInput,
+    ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
+    /**
+     * Puts each line's chosen take on a timeline and re-times only the lines that changed
+     * (`placeTake`), after merging Premiere's latest save as `editTimeline` does.
+     */
+    readonly applyVoiceOver: (
+      input: VideoVoiceOverApplyInput,
+    ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
+    /**
+     * Cuts a transcribed recording of several lines into one take per line it says, each
+     * chosen for its line. The recording itself is kept.
+     */
+    readonly splitTake: (
+      input: VideoVoiceOverSplitInput,
+    ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
   }
 >()("t3/videoProject/VideoProjects") {}
 
@@ -1113,15 +1166,26 @@ const make = Effect.gen(function* () {
       timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
       timelines[0] ??
       null;
+    const timeline = chosen === null ? null : yield* loadTimeline(workspaceRoot, chosen);
     const words =
-      chosen === null
+      timeline === null
         ? { name: "", rate: 0, count: 0, clips: [] }
-        : yield* loadWords(workspaceRoot, yield* loadTimeline(workspaceRoot, chosen));
+        : yield* loadWords(workspaceRoot, timeline);
+    // A line whose words aren't found (its take has no transcript yet) is still where its take is.
+    const voice =
+      timeline === null
+        ? null
+        : placedVoiceOver(timeline, (yield* onHost(readTakeIndex(workspaceRoot))).takes);
     return {
       docUrl: script.docUrl,
       savedAt: script.savedAt,
       timeline: chosen,
-      beats: alignBeats(script.beats, words),
+      beats: alignBeats(script.beats, words).map((beat) => {
+        const take = beat.startFrame === null ? voice?.get(beat.id) : undefined;
+        return take === undefined
+          ? beat
+          : { ...beat, startFrame: take.startFrame, endFrame: take.endFrame };
+      }),
     };
   });
 
@@ -1502,7 +1566,398 @@ const make = Effect.gen(function* () {
     },
   );
 
+  // One writer of the take index at a time, so two saves can't be given the same take id.
+  const savingTakes = yield* Semaphore.make(1);
+
+  const voiceOverView = Effect.fn("VideoProjects.voiceOverView")(function* (
+    workspaceRoot: string,
+    requested: string | undefined,
+    changes: ReadonlyArray<string> = [],
+  ) {
+    const mediaRoot = path.dirname(workspaceRoot);
+    const script = yield* loadScript(workspaceRoot);
+    const index = yield* onHost(readTakeIndex(workspaceRoot));
+    const timelines = yield* listTimelines(workspaceRoot);
+    const chosen =
+      requested ??
+      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
+      timelines[0] ??
+      null;
+    const placed =
+      chosen === null
+        ? null
+        : placedVoiceOver(yield* loadTimeline(workspaceRoot, chosen), index.takes);
+    const indexed = new Set(index.takes.map((take) => take.file));
+    const recordings = yield* fileSystem
+      .readDirectory(path.join(mediaRoot, TAKE_FOLDER))
+      .pipe(Effect.orElseSucceed((): Array<string> => []));
+    const lines = new Set(script.beats.map((beat) => beat.id));
+    const orphaned = new Map<string, number>();
+    for (const take of index.takes) {
+      if (!lines.has(take.beatId)) orphaned.set(take.beatId, (orphaned.get(take.beatId) ?? 0) + 1);
+    }
+    const view: VideoVoiceOverView = {
+      timeline: chosen,
+      mediaRoot,
+      beats: script.beats.map((beat) => {
+        const on = placed?.get(beat.id);
+        return {
+          id: beat.id,
+          text: beat.text,
+          section: beat.section,
+          takes: index.takes
+            .filter((take) => take.beatId === beat.id)
+            .map((take) => ({
+              id: take.id,
+              path: take.file,
+              seconds: take.seconds,
+              source: take.source,
+              createdAt: take.createdAt,
+            })),
+          chosen: index.chosen[beat.id] ?? null,
+          placed:
+            on === undefined
+              ? null
+              : {
+                  takeId: on.takeId,
+                  track: on.track,
+                  startFrame: on.startFrame,
+                  endFrame: on.endFrame,
+                },
+        };
+      }),
+      loose: recordings
+        .filter((name) => /\.wav$/i.test(name) && !name.startsWith("."))
+        .map((name) => `${TAKE_FOLDER}/${name}`)
+        .filter((file) => !indexed.has(file))
+        .toSorted(),
+      orphaned: [...orphaned].map(([beatId, takes]) => ({ beatId, takes })),
+      changes: [...changes],
+    };
+    return view;
+  });
+
+  const readVoiceOver: VideoProjects["Service"]["readVoiceOver"] = Effect.fn(
+    "VideoProjects.readVoiceOver",
+  )(function* (input) {
+    yield* requireProject(input.workspaceRoot);
+    return yield* voiceOverView(input.workspaceRoot, input.timeline);
+  });
+
+  const takeIndexError = (cause: unknown) =>
+    new VideoProjectError({ reason: "Could not save the list of takes.", cause });
+
+  const saveTake: VideoProjects["Service"]["saveTake"] = Effect.fn("VideoProjects.saveTake")(
+    function* (input) {
+      yield* requireProject(input.workspaceRoot);
+      const { recording, path: importPath } = input;
+      if ((recording === undefined) === (importPath === undefined)) {
+        return yield* new VideoProjectError({
+          reason: "A take is either a recording or the path of an audio file.",
+        });
+      }
+      if (recording?.byteLength === 0) {
+        return yield* new VideoProjectError({ reason: "The recording was empty." });
+      }
+      const script = yield* loadScript(input.workspaceRoot);
+      if (!script.beats.some((beat) => beat.id === input.beatId)) {
+        return yield* new VideoProjectError({
+          reason: `The script has no line ${input.beatId}. Its lines are ${script.beats.map((beat) => beat.id).join(", ") || "not saved yet"}.`,
+        });
+      }
+      const mediaRoot = path.dirname(input.workspaceRoot);
+      yield* savingTakes.withPermits(1)(
+        Effect.gen(function* () {
+          const index = yield* onHost(readTakeIndex(input.workspaceRoot));
+          const id = nextTakeId(index);
+          const file = `${TAKE_FOLDER}/VO ${input.beatId.replace(/[^\w-]+/g, "_")} ${id}.wav`;
+          const raw = path.join(mediaRoot, TAKE_FOLDER, `.${id}.recording`);
+          const seconds = yield* Effect.gen(function* () {
+            if (recording !== undefined) {
+              yield* fileSystem.makeDirectory(path.dirname(raw), { recursive: true });
+              yield* fileSystem.writeFile(raw, recording);
+            }
+            return yield* onHost(
+              encodeTake({
+                source: importPath === undefined ? raw : path.resolve(mediaRoot, importPath),
+                target: path.join(mediaRoot, file),
+              }),
+            );
+          }).pipe(
+            Effect.ensuring(fileSystem.remove(raw, { force: true }).pipe(Effect.ignore)),
+            Effect.mapError(
+              (cause) =>
+                new VideoProjectError({
+                  reason:
+                    importPath === undefined
+                      ? "Could not save the take. Is ffmpeg installed on this machine?"
+                      : `Could not read ${importPath} as audio.`,
+                  cause,
+                }),
+            ),
+          );
+          if (seconds === null) {
+            return yield* new VideoProjectError({ reason: "There is no audio in that file." });
+          }
+          yield* onHost(
+            writeTakeIndex(
+              input.workspaceRoot,
+              addTake(index, {
+                id,
+                beatId: input.beatId,
+                file,
+                seconds,
+                source: importPath === undefined && input.picked !== true ? "recorded" : "imported",
+                createdAt: yield* Clock.currentTimeMillis,
+              }),
+            ),
+          ).pipe(Effect.mapError(takeIndexError));
+        }),
+      );
+      yield* transcribeMissing(input.workspaceRoot);
+      return yield* voiceOverView(input.workspaceRoot, input.timeline);
+    },
+  );
+
+  const chooseTake: VideoProjects["Service"]["chooseTake"] = Effect.fn("VideoProjects.chooseTake")(
+    function* (input) {
+      yield* requireProject(input.workspaceRoot);
+      yield* savingTakes.withPermits(1)(
+        Effect.gen(function* () {
+          const index = yield* onHost(readTakeIndex(input.workspaceRoot));
+          const next = chooseIndexedTake(index, input.beatId, input.takeId);
+          if (typeof next === "string") {
+            return yield* new VideoProjectError({ reason: `Can't choose that take: ${next}.` });
+          }
+          yield* onHost(writeTakeIndex(input.workspaceRoot, next)).pipe(
+            Effect.mapError(takeIndexError),
+          );
+        }),
+      );
+      return yield* voiceOverView(input.workspaceRoot, input.timeline);
+    },
+  );
+
+  const deleteTake: VideoProjects["Service"]["deleteTake"] = Effect.fn("VideoProjects.deleteTake")(
+    function* (input) {
+      yield* requireProject(input.workspaceRoot);
+      const mediaRoot = path.dirname(input.workspaceRoot);
+      yield* savingTakes.withPermits(1)(
+        Effect.gen(function* () {
+          const index = yield* onHost(readTakeIndex(input.workspaceRoot));
+          const take = index.takes.find((other) => other.id === input.takeId);
+          const next = removeTake(index, input.takeId);
+          if (take === undefined || take.beatId !== input.beatId || typeof next === "string") {
+            return yield* new VideoProjectError({
+              reason: `${input.beatId} has no take ${input.takeId}.`,
+            });
+          }
+          // Deleting the file under a clip would leave the timeline playing nothing.
+          for (const timelinePath of yield* listTimelines(input.workspaceRoot)) {
+            const timeline = yield* loadTimeline(input.workspaceRoot, timelinePath);
+            if (takesOnTimeline(timeline, index.takes).has(take.id)) {
+              return yield* new VideoProjectError({
+                reason: `Take ${take.id} is on ${timelinePath}. Choose another take for ${take.beatId} and place it, then delete this one.`,
+              });
+            }
+          }
+          yield* onHost(writeTakeIndex(input.workspaceRoot, next)).pipe(
+            Effect.mapError(takeIndexError),
+          );
+          const transcript = yield* onHost(findTranscript(mediaRoot, take.file));
+          for (const file of [path.join(mediaRoot, take.file), transcript]) {
+            if (file !== null) yield* fileSystem.remove(file, { force: true }).pipe(Effect.ignore);
+          }
+        }),
+      );
+      return yield* voiceOverView(input.workspaceRoot, input.timeline);
+    },
+  );
+
+  const applyVoiceOver: VideoProjects["Service"]["applyVoiceOver"] = Effect.fn(
+    "VideoProjects.applyVoiceOver",
+  )(function* (input) {
+    if (input.timeline === FOOTAGE_TIMELINE_PATH) {
+      return yield* new VideoProjectError({
+        reason:
+          "The footage timeline is rebuilt whenever footage changes, so voice-over placed on it would be lost. Place it on a cut.",
+      });
+    }
+    const { result: before } = yield* syncForAgent(input.workspaceRoot);
+    if (before.unmerged.includes(input.timeline)) {
+      return yield* new VideoProjectError({
+        reason: `${input.timeline} was edited here and in Premiere, and they can't be merged: ${NO_BASE} Nothing was changed. Choose a version in Stellar first.`,
+      });
+    }
+    let timeline = yield* loadTimeline(input.workspaceRoot, input.timeline);
+    const script = yield* loadScript(input.workspaceRoot);
+    const index = yield* onHost(readTakeIndex(input.workspaceRoot));
+    const order = script.beats.map((beat) => beat.id);
+    const unknown = (input.beatIds ?? []).filter((beatId) => !order.includes(beatId));
+    if (unknown.length > 0) {
+      return yield* new VideoProjectError({
+        reason: `The script has no line ${unknown.join(", ")}.`,
+      });
+    }
+    const proxies = yield* fileSystem
+      .readFileString(path.join(input.workspaceRoot, PROXY_INDEX_PATH))
+      .pipe(
+        Effect.flatMap(decodeJson),
+        Effect.map((value) => value as ProxyIndex),
+        Effect.orElseSucceed(() => null),
+      );
+    const takeSeconds = new Map(index.takes.map((take) => [take.file, take.seconds]));
+    const mediaSeconds = (target: string) =>
+      proxies?.media[target]?.duration ?? takeSeconds.get(target);
+    const changes: Array<string> = [];
+    const refused: Array<string> = [];
+    for (const beatId of order) {
+      if (input.beatIds !== undefined && !input.beatIds.includes(beatId)) continue;
+      const take = index.takes.find((other) => other.id === index.chosen[beatId]);
+      if (take === undefined) {
+        if (input.beatIds !== undefined) refused.push(`${beatId} has no take to place.`);
+        continue;
+      }
+      if (placedVoiceOver(timeline, index.takes).get(beatId)?.takeId === take.id) continue;
+      const placement = placeTake(timeline, { take, takes: index.takes, order, mediaSeconds });
+      if (typeof placement === "string") {
+        refused.push(`${beatId} was not placed: ${placement}.`);
+        continue;
+      }
+      timeline = placement.timeline;
+      const frames = placement.endFrame - placement.startFrame;
+      changes.push(
+        [
+          `${beatId}: take ${take.id} is on ${placement.track} at frames ${placement.startFrame}-${placement.endFrame}.`,
+          ...(placement.movedBy === 0
+            ? []
+            : [
+                `The line went from ${placement.previousFrames} to ${frames} frames, so everything after it moved ${placement.movedBy > 0 ? "+" : ""}${placement.movedBy} frames${placement.retimed === 0 ? "" : ` and ${placement.retimed} ${placement.retimed === 1 ? "clip" : "clips"} under it ${placement.retimed === 1 ? "was" : "were"} re-timed`}.`,
+              ]),
+          ...placement.short.map(
+            (short) =>
+              `${short.track} #${short.clipId} ${short.name} has no more source to stretch into: ${short.frames} frames are empty from frame ${short.atFrame}.`,
+          ),
+        ].join(" "),
+      );
+    }
+    if (changes.length === 0) {
+      if (refused.length > 0) {
+        return yield* new VideoProjectError({
+          reason: `${refused.join(" ")} Nothing was changed.`,
+        });
+      }
+      return yield* voiceOverView(input.workspaceRoot, input.timeline);
+    }
+    yield* syncing.withPermits(1)(
+      fileSystem
+        .writeFileString(
+          path.join(input.workspaceRoot, input.timeline),
+          serializeTimeline(timeline),
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new VideoProjectError({ reason: `Could not write ${input.timeline}.`, cause }),
+          ),
+        ),
+    );
+    yield* syncWithPremiere({ workspaceRoot: input.workspaceRoot });
+    return yield* voiceOverView(input.workspaceRoot, input.timeline, [...changes, ...refused]);
+  });
+
+  const splitTake: VideoProjects["Service"]["splitTake"] = Effect.fn("VideoProjects.splitTake")(
+    function* (input) {
+      yield* requireProject(input.workspaceRoot);
+      const mediaRoot = path.dirname(input.workspaceRoot);
+      const source = path
+        .relative(mediaRoot, path.resolve(mediaRoot, input.path))
+        .split(path.sep)
+        .join("/");
+      if (source === "" || source.startsWith("..") || path.isAbsolute(source)) {
+        return yield* new VideoProjectError({
+          reason: `The recording to split is named relative to ${mediaRoot}.`,
+        });
+      }
+      const transcript = yield* onHost(findTranscript(mediaRoot, source));
+      if (transcript === null) {
+        return yield* new VideoProjectError({
+          reason: `${source} has no word-timed transcript yet, which is what finds each line in it. Transcribe it, then split it.`,
+        });
+      }
+      const words = yield* fileSystem.readFileString(transcript).pipe(
+        Effect.flatMap(decodeTranscript),
+        Effect.mapError(
+          (cause) =>
+            new VideoProjectError({
+              reason: `Could not read the transcript ${transcript}.`,
+              cause,
+            }),
+        ),
+      );
+      const script = yield* loadScript(input.workspaceRoot);
+      const slices = sliceByBeats(script.beats, words);
+      if (slices.length === 0) {
+        return yield* new VideoProjectError({
+          reason: `None of the script's ${script.beats.length} lines are said in ${source}.`,
+        });
+      }
+      const changes: Array<string> = [];
+      yield* savingTakes.withPermits(1)(
+        Effect.gen(function* () {
+          let index = yield* onHost(readTakeIndex(input.workspaceRoot));
+          for (const slice of slices) {
+            const id = nextTakeId(index);
+            const name = `VO ${slice.beatId.replace(/[^\w-]+/g, "_")} ${id}`;
+            const file = `${TAKE_FOLDER}/${name}.wav`;
+            const seconds = yield* onHost(
+              encodeTake({
+                source: path.join(mediaRoot, source),
+                target: path.join(mediaRoot, file),
+                from: slice.start,
+                to: slice.end,
+              }),
+            );
+            if (seconds === null) continue;
+            // The slice's words are already known, so it needs no transcribing of its own.
+            yield* fileSystem.writeFileString(
+              path.join(mediaRoot, TRANSCRIPT_FOLDER, `${name}.words.json`),
+              serializeJson(slice.words),
+            );
+            index = addTake(index, {
+              id,
+              beatId: slice.beatId,
+              file,
+              seconds,
+              source: "split",
+              createdAt: yield* Clock.currentTimeMillis,
+            });
+            changes.push(
+              `${slice.beatId}: take ${id} (${seconds.toFixed(1)}s) cut from ${slice.start.toFixed(2)}-${slice.end.toFixed(2)}s.`,
+            );
+          }
+          yield* onHost(writeTakeIndex(input.workspaceRoot, index));
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new VideoProjectError({
+                reason: `Could not split ${source}. Is ffmpeg installed on this machine?`,
+                cause,
+              }),
+          ),
+        ),
+      );
+      return yield* voiceOverView(input.workspaceRoot, input.timeline, changes);
+    },
+  );
+
   return VideoProjects.of({
+    readVoiceOver,
+    saveTake,
+    chooseTake,
+    deleteTake,
+    applyVoiceOver,
+    splitTake,
     exportForPremiere,
     pushPlan,
     saveVoiceOver,

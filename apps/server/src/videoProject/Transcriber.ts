@@ -15,7 +15,7 @@ import * as Schema from "effect/Schema";
 /** Progress of a transcription run, in the project folder; clients re-read it while it runs. */
 const TRANSCRIPT_STATUS_FILE = "transcripts.json";
 /** New transcripts go here; a project's own pipeline may also write under its `transcripts/`. */
-const TRANSCRIPT_FOLDER = "Audio";
+export const TRANSCRIPT_FOLDER = "Audio";
 const VOICE_OVER_FOLDER = "Audio/VO";
 const PROJECT_FILE = "project.json";
 

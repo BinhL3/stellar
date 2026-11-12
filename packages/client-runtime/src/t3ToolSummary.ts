@@ -342,6 +342,9 @@ export function summarizeT3ToolCalls(
     case "video-script":
       label = phrase("Read", "read", `the script ${times}`);
       break;
+    case "video-voice-over":
+      label = phrase("Worked on", "work on", `the voice-over ${times}`);
+      break;
     case "video-project-start":
       label = phrase("Started", "start", `a video project ${times}`);
       break;

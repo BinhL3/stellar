@@ -839,6 +839,102 @@ export const VideoTranscribeInput = Schema.Struct({
 });
 export type VideoTranscribeInput = typeof VideoTranscribeInput.Type;
 
+/** One recording of a script line. */
+export const VideoVoiceOverTake = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  /** The WAV, relative to the project's media root, such as "Audio/VO/VO b3 t7.wav". */
+  path: TrimmedNonEmptyString,
+  seconds: Schema.Number,
+  source: Schema.Literals(["recorded", "imported", "split"]),
+  /** Epoch milliseconds. */
+  createdAt: Schema.Number,
+});
+export type VideoVoiceOverTake = typeof VideoVoiceOverTake.Type;
+
+/** A script line with its voice-over takes. */
+export const VideoVoiceOverBeat = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  text: Schema.String,
+  section: Schema.NullOr(Schema.String),
+  takes: Schema.Array(VideoVoiceOverTake),
+  /** The take the line uses; null only when it has none. */
+  chosen: Schema.NullOr(Schema.String),
+  /** The take on the timeline for this line, with its frames; null when none is. */
+  placed: Schema.NullOr(
+    Schema.Struct({
+      takeId: Schema.String,
+      track: Schema.String,
+      startFrame: Schema.Number,
+      endFrame: Schema.Number,
+    }),
+  ),
+});
+export type VideoVoiceOverBeat = typeof VideoVoiceOverBeat.Type;
+
+export const VideoVoiceOverView = Schema.Struct({
+  /** The timeline `placed` was read from; null when the project has none. */
+  timeline: Schema.NullOr(Schema.String),
+  /** The folder take paths are relative to. */
+  mediaRoot: Schema.String,
+  /** Script lines in script order. */
+  beats: Schema.Array(VideoVoiceOverBeat),
+  /** Recordings under Audio/VO that belong to no line, such as a read of the whole script. */
+  loose: Schema.Array(Schema.String),
+  /** Takes whose line the script no longer has, by the old beat id. */
+  orphaned: Schema.Array(Schema.Struct({ beatId: Schema.String, takes: Schema.Number })),
+  /** What this call did to the timeline, a sentence each; empty for a read. */
+  changes: Schema.Array(Schema.String),
+});
+export type VideoVoiceOverView = typeof VideoVoiceOverView.Type;
+
+export const VideoVoiceOverReadInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** The timeline to look for placed takes on; omitted, the project's main timeline. */
+  timeline: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+});
+export type VideoVoiceOverReadInput = typeof VideoVoiceOverReadInput.Type;
+
+export const VideoVoiceOverSaveTakeInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  beatId: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  /** Audio a client recorded or picked, in any format ffmpeg reads. */
+  recording: Schema.optional(Schema.Uint8ArrayFromBase64),
+  /** True when `recording` is a file the person picked, not the microphone. */
+  picked: Schema.optional(Schema.Boolean),
+  /** An audio file on the host to copy in, absolute or relative to the media root. */
+  path: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(4096))),
+  timeline: VideoVoiceOverReadInput.fields.timeline,
+});
+export type VideoVoiceOverSaveTakeInput = typeof VideoVoiceOverSaveTakeInput.Type;
+
+export const VideoVoiceOverTakeInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  beatId: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  takeId: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  timeline: VideoVoiceOverReadInput.fields.timeline,
+});
+export type VideoVoiceOverTakeInput = typeof VideoVoiceOverTakeInput.Type;
+
+export const VideoVoiceOverApplyInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  timeline: TrimmedNonEmptyString.check(Schema.isMaxLength(512)),
+  /** The lines to place; omitted, every line whose chosen take isn't the one on the timeline. */
+  beatIds: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(64))).check(
+      Schema.isMaxLength(500),
+    ),
+  ),
+});
+export type VideoVoiceOverApplyInput = typeof VideoVoiceOverApplyInput.Type;
+
+export const VideoVoiceOverSplitInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** A transcribed recording of several lines, relative to the media root. */
+  path: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  timeline: VideoVoiceOverReadInput.fields.timeline,
+});
+export type VideoVoiceOverSplitInput = typeof VideoVoiceOverSplitInput.Type;
+
 export const ProjectCreateFromThreadInput = Schema.Struct({
   threadId: ThreadId,
 });

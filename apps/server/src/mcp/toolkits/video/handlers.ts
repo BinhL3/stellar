@@ -1,4 +1,4 @@
-import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import { OrchestratorMcpFailure, type VideoVoiceOverView } from "@t3tools/contracts";
 import { beatsText } from "@t3tools/timeline/script";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -27,6 +27,28 @@ const callerWorkspaceRoot = Effect.gen(function* () {
   }
   return project.value.workspaceRoot;
 });
+
+/** The takes as an agent reads them: a line per beat, then what belongs to no line. */
+const voiceOverText = (view: VideoVoiceOverView) =>
+  [
+    ...view.beats.map((beat) => {
+      const take = beat.takes.find((other) => other.id === beat.chosen);
+      if (take === undefined) return `${beat.id} no voice-over: ${beat.text}`;
+      const where =
+        beat.placed === null
+          ? "chosen, not on the timeline"
+          : beat.placed.takeId === take.id
+            ? `on ${beat.placed.track} frames ${beat.placed.startFrame}-${beat.placed.endFrame}`
+            : `chosen, but ${beat.placed.takeId} is on ${beat.placed.track} frames ${beat.placed.startFrame}-${beat.placed.endFrame}`;
+      return `${beat.id} take ${take.id} ${take.seconds.toFixed(1)}s ${where} (takes ${beat.takes.map((other) => other.id).join(" ")}): ${beat.text}`;
+    }),
+    ...(view.loose.length === 0
+      ? []
+      : [`Recordings that belong to no line (split can cut one up): ${view.loose.join(", ")}`]),
+    ...view.orphaned.map(
+      (orphan) => `${orphan.takes} takes are for ${orphan.beatId}, which the script no longer has.`,
+    ),
+  ].join("\n");
 
 const handlers = {
   video_timeline_read: McpToolAccess.readsAsCaller((input) =>
@@ -98,6 +120,45 @@ const handlers = {
         beats: view.beats.length,
         text: beatsText(view.beats),
       };
+    }),
+  ),
+  video_voice_over: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const { beatId, takeId, path, timeline } = input;
+      const action = input.action ?? "read";
+      const on = timeline === undefined ? {} : { timeline };
+      const needs = (...missing: ReadonlyArray<string>) =>
+        new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: `\`${action}\` needs ${missing.join(" and ")}.`,
+        });
+      const view = yield* Effect.gen(function* () {
+        switch (action) {
+          case "read":
+            return yield* videoProjects.readVoiceOver({ workspaceRoot, ...on });
+          case "choose":
+            if (beatId === undefined || takeId === undefined) {
+              return yield* needs("beatId", "takeId");
+            }
+            return yield* videoProjects.chooseTake({ workspaceRoot, beatId, takeId, ...on });
+          case "import":
+            if (beatId === undefined || path === undefined) return yield* needs("beatId", "path");
+            return yield* videoProjects.saveTake({ workspaceRoot, beatId, path, ...on });
+          case "split":
+            if (path === undefined) return yield* needs("path");
+            return yield* videoProjects.splitTake({ workspaceRoot, path, ...on });
+          case "apply":
+            if (timeline === undefined) return yield* needs("timeline");
+            return yield* videoProjects.applyVoiceOver({
+              workspaceRoot,
+              timeline,
+              ...(input.beatIds === undefined ? {} : { beatIds: input.beatIds }),
+            });
+        }
+      }).pipe(Effect.catchTags({ VideoProjectError: (error) => Effect.fail(refused(error)) }));
+      return { timeline: view.timeline, text: voiceOverText(view), changes: view.changes };
     }),
   ),
   video_premiere_export: McpToolAccess.actsAsCaller((input) =>

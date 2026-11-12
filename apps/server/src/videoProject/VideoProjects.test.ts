@@ -7,12 +7,17 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as Sink from "effect/Sink";
+import * as Stream from "effect/Stream";
 import * as NodeOS from "node:os";
 import * as NodeZlib from "node:zlib";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { copyFootage, footageStringout, listFootage } from "@t3tools/timeline/footage";
-import { serializeTimeline } from "@t3tools/timeline/otio";
+import { layoutTimeline } from "@t3tools/timeline/layout";
+import { serializeTimeline, type Timeline, timeRange } from "@t3tools/timeline/otio";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -924,6 +929,277 @@ it.live("plans a push from Premiere's last save, and says why when it can't", ()
   }).pipe(
     Effect.provide(
       VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
+
+// Stands in for ffmpeg and ffprobe, which CI doesn't have: a "recording" is its length in
+// seconds as text, encoding copies that (or the length of the stretch asked for), and probing
+// reads it back. Every other command runs for real.
+const fakeEncoder = Layer.effect(
+  ChildProcessSpawner.ChildProcessSpawner,
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const real = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const answer = (stdout: string) =>
+      ChildProcessSpawner.makeHandle({
+        pid: ChildProcessSpawner.ProcessId(1),
+        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+        isRunning: Effect.succeed(false),
+        kill: () => Effect.void,
+        unref: Effect.succeed(Effect.void),
+        stdin: Sink.drain,
+        stdout: Stream.make(new TextEncoder().encode(stdout)),
+        stderr: Stream.empty,
+        all: Stream.empty,
+        getInputFd: () => Sink.drain,
+        getOutputFd: () => Stream.empty,
+      });
+    return ChildProcessSpawner.make((command) =>
+      Effect.gen(function* () {
+        if (!ChildProcess.isStandardCommand(command)) return yield* real.spawn(command);
+        const args = command.args.map(String);
+        const target = args.at(-1) ?? "";
+        if (command.command === "ffprobe") {
+          return answer(yield* fs.readFileString(target).pipe(Effect.orDie));
+        }
+        if (command.command !== "ffmpeg" || !args.includes("-i")) return yield* real.spawn(command);
+        const after = (flag: string) => args[args.indexOf(flag) + 1] ?? "";
+        const whole = yield* fs.readFileString(after("-i")).pipe(Effect.orDie);
+        const seconds = args.includes("-to")
+          ? String(Math.round((Number(after("-to")) - Number(after("-ss"))) * 100) / 100)
+          : whole;
+        yield* fs.writeFileString(target, seconds).pipe(Effect.orDie);
+        return answer("");
+      }),
+    );
+  }),
+).pipe(Layer.provide(NodeServices.layer));
+
+it.live("places a line's take on a cut, and re-recording the line re-times only that beat", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-voice-" });
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot } = yield* videoProjects.createFromIdea({
+      title: "Jollibee",
+      parentFolder: root,
+    });
+    const mediaRoot = path.dirname(workspaceRoot);
+    const timeline = "timelines/Cut.otio";
+    const shot = (name: string) => ({
+      OTIO_SCHEMA: "Clip.2" as const,
+      name,
+      source_range: timeRange(0, 60, 30),
+      media_references: {
+        DEFAULT_MEDIA: {
+          OTIO_SCHEMA: "ExternalReference.1" as const,
+          target_url: `Footage/${name}`,
+          metadata: {},
+        },
+      },
+      active_media_reference_key: "DEFAULT_MEDIA" as const,
+      enabled: true,
+      metadata: { stellar: { id: name } },
+    });
+    const cut: Timeline = {
+      OTIO_SCHEMA: "Timeline.1",
+      name: "Cut",
+      global_start_time: { OTIO_SCHEMA: "RationalTime.1", value: 0, rate: 30 },
+      tracks: {
+        OTIO_SCHEMA: "Stack.1",
+        name: "tracks",
+        enabled: true,
+        metadata: {},
+        children: [
+          {
+            OTIO_SCHEMA: "Track.1",
+            name: "V1",
+            kind: "Video",
+            children: [shot("one.mov"), shot("two.mov"), shot("three.mov")],
+            enabled: true,
+            metadata: {},
+          },
+        ],
+      },
+      metadata: {},
+    };
+    yield* fs.writeFileString(path.join(workspaceRoot, timeline), serializeTimeline(cut));
+    // The proxy index is where a clip's full length comes from; two.mov runs for ten seconds.
+    yield* fs.makeDirectory(path.join(workspaceRoot, "proxies"), { recursive: true });
+    yield* fs.writeFileString(
+      path.join(workspaceRoot, "proxies", "index.json"),
+      JSON.stringify({
+        version: 1,
+        media: { "Footage/two.mov": { key: "", width: 1080, height: 1920, duration: 10 } },
+      }),
+    );
+    yield* videoProjects.saveScript({
+      workspaceRoot,
+      text: "Line one is here.\nLine two comes next.\nLine three ends it.",
+    });
+    const spans = Effect.gen(function* () {
+      const saved = JSON.parse(
+        yield* fs.readFileString(path.join(workspaceRoot, timeline)),
+      ) as Timeline;
+      return layoutTimeline(saved).tracks.flatMap((track) =>
+        track.clips.map((item) => `${track.name} ${item.startFrame}-${item.endFrame} ${item.key}`),
+      );
+    });
+    const record = (beatId: string, seconds: string) =>
+      videoProjects.saveTake({
+        workspaceRoot,
+        beatId,
+        recording: new TextEncoder().encode(seconds),
+        timeline,
+      });
+
+    yield* record("b1", "2");
+    yield* record("b2", "2");
+    const recorded = yield* record("b3", "2");
+    assert.deepStrictEqual(
+      recorded.beats.map((beat) => [beat.id, beat.chosen, beat.placed, beat.takes[0]?.path]),
+      [
+        ["b1", "t1", null, "Audio/VO/VO b1 t1.wav"],
+        ["b2", "t2", null, "Audio/VO/VO b2 t2.wav"],
+        ["b3", "t3", null, "Audio/VO/VO b3 t3.wav"],
+      ],
+    );
+    yield* videoProjects.applyVoiceOver({ workspaceRoot, timeline });
+    const placed = [
+      "V1 0-60 one.mov",
+      "V1 60-120 two.mov",
+      "V1 120-180 three.mov",
+      "A1 0-60 vo-b1-t1",
+      "A1 60-120 vo-b2-t2",
+      "A1 120-180 vo-b3-t3",
+    ];
+    assert.deepStrictEqual(yield* spans, placed);
+
+    // An imported file is a take like a recorded one; the newest take is the line's chosen one.
+    yield* fs.writeFileString(path.join(mediaRoot, "Audio", "retake.m4a"), "3");
+    const retaken = yield* videoProjects.saveTake({
+      workspaceRoot,
+      beatId: "b2",
+      path: "Audio/retake.m4a",
+      timeline,
+    });
+    assert.deepStrictEqual(
+      retaken.beats.map((beat) => [beat.chosen, beat.placed?.takeId]),
+      [
+        ["t1", "t1"],
+        ["t4", "t2"],
+        ["t3", "t3"],
+      ],
+    );
+    assert.strictEqual(retaken.beats[1]?.takes[1]?.source, "imported");
+    assert.deepStrictEqual(yield* spans, placed);
+
+    const applied = yield* videoProjects.applyVoiceOver({ workspaceRoot, timeline });
+    assert.deepStrictEqual(applied.changes, [
+      "b2: take t4 is on A1 at frames 60-150. The line went from 60 to 90 frames, so everything after it moved +30 frames and 1 clip under it was re-timed.",
+    ]);
+    assert.deepStrictEqual(yield* spans, [
+      "V1 0-60 one.mov",
+      "V1 60-150 two.mov",
+      "V1 150-210 three.mov",
+      "A1 0-60 vo-b1-t1",
+      "A1 60-150 vo-b2-t4",
+      "A1 150-210 vo-b3-t3",
+    ]);
+    // With no transcript of the takes, a line is still found where its take sits.
+    const script = yield* videoProjects.readScript({ workspaceRoot, timeline });
+    assert.deepStrictEqual(
+      script.beats.map((beat) => [beat.startFrame, beat.endFrame]),
+      [
+        [0, 60],
+        [60, 150],
+        [150, 210],
+      ],
+    );
+
+    const inUse = yield* videoProjects
+      .deleteTake({ workspaceRoot, beatId: "b2", takeId: "t4", timeline })
+      .pipe(Effect.flip);
+    assert.strictEqual(
+      inUse.message,
+      "Take t4 is on timelines/Cut.otio. Choose another take for b2 and place it, then delete this one.",
+    );
+    const deleted = yield* videoProjects.deleteTake({
+      workspaceRoot,
+      beatId: "b2",
+      takeId: "t2",
+      timeline,
+    });
+    assert.deepStrictEqual(
+      deleted.beats[1]?.takes.map((take) => take.id),
+      ["t4"],
+    );
+    assert.isFalse(yield* fs.exists(path.join(mediaRoot, "Audio/VO/VO b2 t2.wav")));
+
+    const wrongLine = yield* videoProjects
+      .chooseTake({ workspaceRoot, beatId: "b1", takeId: "t4" })
+      .pipe(Effect.flip);
+    assert.strictEqual(
+      wrongLine.message,
+      "Can't choose that take: take t4 was recorded for b2, not b1.",
+    );
+    const noLine = yield* record("b9", "2").pipe(Effect.flip);
+    assert.strictEqual(noLine.message, "The script has no line b9. Its lines are b1, b2, b3.");
+    const footage = yield* videoProjects
+      .applyVoiceOver({ workspaceRoot, timeline: "timelines/Footage.otio" })
+      .pipe(Effect.flip);
+    assert.include(footage.message, "The footage timeline is rebuilt whenever footage changes");
+
+    // A read of the whole script is cut into a take per line it says, with the words it had.
+    yield* fs.writeFileString(path.join(mediaRoot, "Audio/VO/whole.wav"), "9");
+    yield* fs.writeFileString(
+      path.join(mediaRoot, "Audio", "whole.words.json"),
+      JSON.stringify([
+        { w: "Line", start: 1, end: 1.2 },
+        { w: "one", start: 1.2, end: 1.4 },
+        { w: "is", start: 1.4, end: 1.5 },
+        { w: "here.", start: 1.5, end: 2 },
+        { w: "Line", start: 4, end: 4.2 },
+        { w: "three", start: 4.2, end: 4.5 },
+        { w: "ends", start: 4.5, end: 4.8 },
+        { w: "it.", start: 4.8, end: 5 },
+      ]),
+    );
+    assert.deepStrictEqual(deleted.loose, []);
+    const split = yield* videoProjects.splitTake({
+      workspaceRoot,
+      path: "Audio/VO/whole.wav",
+      timeline,
+    });
+    assert.deepStrictEqual(split.loose, ["Audio/VO/whole.wav"]);
+    assert.deepStrictEqual(split.changes, [
+      "b1: take t5 (1.4s) cut from 0.85-2.30s.",
+      "b3: take t6 (1.4s) cut from 3.85-5.30s.",
+    ]);
+    assert.deepStrictEqual(
+      split.beats.map((beat) => beat.chosen),
+      ["t5", "t4", "t6"],
+    );
+    assert.deepStrictEqual(
+      JSON.parse(yield* fs.readFileString(path.join(mediaRoot, "Audio", "VO b3 t6.words.json"))),
+      [
+        { w: "Line", start: 0.15, end: 0.35 },
+        { w: "three", start: 0.35, end: 0.65 },
+        { w: "ends", start: 0.65, end: 0.95 },
+        { w: "it.", start: 0.95, end: 1.15 },
+      ],
+    );
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provide(fakeEncoder),
         Layer.provideMerge(withProjects(created)),
         Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
       ),

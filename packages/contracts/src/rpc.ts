@@ -254,6 +254,11 @@ import {
   VideoScriptReadInput,
   VideoScriptSaveInput,
   VideoScriptView,
+  VideoVoiceOverApplyInput,
+  VideoVoiceOverReadInput,
+  VideoVoiceOverSaveTakeInput,
+  VideoVoiceOverTakeInput,
+  VideoVoiceOverView,
   ProjectCreateFromThreadInput,
   ProjectCreateFromThreadResult,
   ProjectEnsureScratchResult,
@@ -446,6 +451,11 @@ export const WS_METHODS = {
   videoProjectsTranscribe: "videoProjects.transcribe",
   videoProjectsReadScript: "videoProjects.readScript",
   videoProjectsSaveScript: "videoProjects.saveScript",
+  videoProjectsReadVoiceOver: "videoProjects.readVoiceOver",
+  videoProjectsSaveTake: "videoProjects.saveTake",
+  videoProjectsChooseTake: "videoProjects.chooseTake",
+  videoProjectsDeleteTake: "videoProjects.deleteTake",
+  videoProjectsApplyVoiceOver: "videoProjects.applyVoiceOver",
 
   shellOpenInEditor: "shell.openInEditor",
 
@@ -1450,6 +1460,36 @@ const WsVideoProjectsSaveScriptRpc = Rpc.make(WS_METHODS.videoProjectsSaveScript
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVideoProjectsReadVoiceOverRpc = Rpc.make(WS_METHODS.videoProjectsReadVoiceOver, {
+  payload: VideoVoiceOverReadInput,
+  success: VideoVoiceOverView,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsSaveTakeRpc = Rpc.make(WS_METHODS.videoProjectsSaveTake, {
+  payload: VideoVoiceOverSaveTakeInput,
+  success: VideoVoiceOverView,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsChooseTakeRpc = Rpc.make(WS_METHODS.videoProjectsChooseTake, {
+  payload: VideoVoiceOverTakeInput,
+  success: VideoVoiceOverView,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsDeleteTakeRpc = Rpc.make(WS_METHODS.videoProjectsDeleteTake, {
+  payload: VideoVoiceOverTakeInput,
+  success: VideoVoiceOverView,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsApplyVoiceOverRpc = Rpc.make(WS_METHODS.videoProjectsApplyVoiceOver, {
+  payload: VideoVoiceOverApplyInput,
+  success: VideoVoiceOverView,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsCreateFromThreadRpc = Rpc.make(WS_METHODS.projectsCreateFromThread, {
   payload: ProjectCreateFromThreadInput,
   success: ProjectCreateFromThreadResult,
@@ -2230,6 +2270,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsTranscribeRpc,
   WsVideoProjectsReadScriptRpc,
   WsVideoProjectsSaveScriptRpc,
+  WsVideoProjectsReadVoiceOverRpc,
+  WsVideoProjectsSaveTakeRpc,
+  WsVideoProjectsChooseTakeRpc,
+  WsVideoProjectsDeleteTakeRpc,
+  WsVideoProjectsApplyVoiceOverRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

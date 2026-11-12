@@ -7,7 +7,9 @@ import type {
   ScopedThreadRef,
   VideoScriptBeat,
   VideoScriptView,
+  VideoVoiceOverView,
 } from "@t3tools/contracts";
+import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
 import {
   ClipboardPasteIcon,
   ExternalLinkIcon,
@@ -15,7 +17,14 @@ import {
   ScrollTextIcon,
   XIcon,
 } from "lucide-react";
-import { type MouseEvent, useEffect, useEffectEvent, useState, useSyncExternalStore } from "react";
+import {
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { canOpenLinksInApp, isWebUrl } from "~/browser/browserLinkTarget";
 import { openUrlInPreview } from "~/browser/openFileInPreview";
@@ -39,6 +48,8 @@ import { readLocalApi } from "~/localApi";
 import { previewEnvironment } from "~/state/preview";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { useVoiceRecorder } from "../videoProject/useVoiceRecorder";
+import { MAX_IMPORT_BYTES, ScriptLineVoiceOver } from "./ScriptLineVoiceOver";
 import { beatAtFrame, beatTime, groupBeatsBySection } from "./scriptBeats";
 import { useTimelinePlayer } from "./timelinePlayer";
 
@@ -59,7 +70,11 @@ const savedLabel = (time: number) =>
  * The script's lines in script order. Only this list follows the playhead, and its snapshot is
  * the current beat's id, so playback re-renders it when the beat changes, not on every frame.
  */
-function BeatList(props: { readonly beats: ReadonlyArray<VideoScriptBeat> }) {
+function BeatList(props: {
+  readonly beats: ReadonlyArray<VideoScriptBeat>;
+  /** What sits at the end of a line's row: its voice-over. */
+  readonly trailing: (beat: VideoScriptBeat) => ReactNode;
+}) {
   const { beats } = props;
   const player = useTimelinePlayer();
   const currentId = useSyncExternalStore(player.playhead.subscribe, () =>
@@ -82,44 +97,46 @@ function BeatList(props: { readonly beats: ReadonlyArray<VideoScriptBeat> }) {
               const { startFrame } = beat;
               if (startFrame === null) {
                 return (
-                  <p
-                    key={beat.id}
-                    className="flex gap-2 rounded-md px-2 py-1.5 text-sm leading-5 text-muted-foreground"
-                  >
-                    <span
-                      aria-hidden
-                      className="w-9 shrink-0 font-mono text-2xs leading-5 text-muted-foreground/60"
-                    >
-                      –:––
-                    </span>
-                    <span className="min-w-0 wrap-anywhere">{beat.text}</span>
-                    <span className="sr-only">Not on the timeline</span>
-                  </p>
+                  <div key={beat.id} className="flex items-start gap-0.5">
+                    <p className="flex min-w-0 flex-1 gap-2 rounded-md px-2 py-1.5 text-sm leading-5 text-muted-foreground">
+                      <span
+                        aria-hidden
+                        className="w-9 shrink-0 font-mono text-2xs leading-5 text-muted-foreground/60"
+                      >
+                        –:––
+                      </span>
+                      <span className="min-w-0 wrap-anywhere">{beat.text}</span>
+                      <span className="sr-only">Not on the timeline</span>
+                    </p>
+                    {props.trailing(beat)}
+                  </div>
                 );
               }
               const current = beat.id === currentId;
               return (
-                <button
-                  key={beat.id}
-                  type="button"
-                  aria-current={current ? "true" : undefined}
-                  onClick={() => player.seek(startFrame)}
-                  className={cn(
-                    "relative flex w-full cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-sm leading-5 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                    "before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full",
-                    current ? "bg-primary/10 before:bg-primary" : "hover:bg-accent",
-                  )}
-                >
-                  <span
+                <div key={beat.id} className="flex items-start gap-0.5">
+                  <button
+                    type="button"
+                    aria-current={current ? "true" : undefined}
+                    onClick={() => player.seek(startFrame)}
                     className={cn(
-                      "w-9 shrink-0 font-mono text-2xs leading-5 tabular-nums",
-                      current ? "font-medium text-primary" : "text-muted-foreground",
+                      "relative flex min-w-0 flex-1 cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-sm leading-5 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                      "before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full",
+                      current ? "bg-primary/10 before:bg-primary" : "hover:bg-accent",
                     )}
                   >
-                    {beatTime(startFrame, player.rate)}
-                  </span>
-                  <span className="min-w-0 wrap-anywhere">{beat.text}</span>
-                </button>
+                    <span
+                      className={cn(
+                        "w-9 shrink-0 font-mono text-2xs leading-5 tabular-nums",
+                        current ? "font-medium text-primary" : "text-muted-foreground",
+                      )}
+                    >
+                      {beatTime(startFrame, player.rate)}
+                    </span>
+                    <span className="min-w-0 wrap-anywhere">{beat.text}</span>
+                  </button>
+                  {props.trailing(beat)}
+                </div>
               );
             })}
           </div>
@@ -136,6 +153,8 @@ interface Loaded {
   readonly reloads: number;
   readonly view: VideoScriptView | null;
   readonly error: string | null;
+  /** Each line's takes; null when they couldn't be read, and the lines then show none. */
+  readonly voice: VideoVoiceOverView | null;
 }
 
 /**
@@ -155,6 +174,10 @@ export function ScriptPanel(props: {
   /** Where the Google Doc opens: this thread's Browser tab, when the app has one. */
   readonly threadRef: ScopedThreadRef;
   readonly canWrite: boolean;
+  /** The timeline has edits that aren't saved; placing a take would rewrite the file under them. */
+  readonly pendingEdits: boolean;
+  /** A take was placed, so the timeline's file changed on the server. */
+  readonly onTimelineChanged: () => void;
   readonly onClose: () => void;
 }) {
   const readScript = useAtomCommand(projectEnvironment.readVideoScript, { reportFailure: false });
@@ -165,6 +188,19 @@ export function ScriptPanel(props: {
   const [saving, setSaving] = useState(false);
   const [pasted, setPasted] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const readVoice = useAtomCommand(projectEnvironment.readVideoVoiceOver, { reportFailure: false });
+  const saveTake = useAtomCommand(projectEnvironment.saveVideoTake, { reportFailure: false });
+  const chooseTake = useAtomCommand(projectEnvironment.chooseVideoTake, { reportFailure: false });
+  const deleteTake = useAtomCommand(projectEnvironment.deleteVideoTake, { reportFailure: false });
+  const applyVoice = useAtomCommand(projectEnvironment.applyVideoVoiceOver, {
+    reportFailure: false,
+  });
+  const recorder = useVoiceRecorder();
+  // The one line being recorded or saved; the others wait.
+  const [activeLine, setActiveLine] = useState<{
+    readonly beatId: string;
+    readonly state: "recording" | "busy";
+  } | null>(null);
 
   const { revision, transcribed } = props;
   const read = useEffectEvent(() =>
@@ -173,12 +209,23 @@ export function ScriptPanel(props: {
       input: { workspaceRoot: props.workspaceRoot, timeline: props.timeline },
     }),
   );
+  const readTakes = useEffectEvent(() =>
+    readVoice({
+      environmentId: props.environmentId,
+      input: { workspaceRoot: props.workspaceRoot, timeline: props.timeline },
+    }),
+  );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- The script and where its lines fall are worked out on the server; they are read again when the timeline's text, the transcripts or the snapshot change.
   useEffect(() => {
     let current = true;
-    void read().then((result) => {
+    void Promise.all([read(), readTakes()]).then(([result, takes]) => {
       if (!current) return;
-      const request = { revision, transcribed, reloads };
+      const request = {
+        revision,
+        transcribed,
+        reloads,
+        voice: takes._tag === "Success" ? takes.value : null,
+      };
       if (result._tag === "Success") setLoaded({ ...request, view: result.value, error: null });
       else {
         const error = isAtomCommandInterrupted(result)
@@ -219,6 +266,147 @@ export function ScriptPanel(props: {
       });
     }
     return false;
+  };
+
+  const showVoice = (voice: VideoVoiceOverView) =>
+    setLoaded((current) => (current === null ? current : { ...current, voice }));
+  type VoiceResult = Awaited<ReturnType<typeof readVoice>>;
+  const voiceFailed = (title: string, result: VoiceResult) => {
+    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+    toastManager.add({
+      type: "error",
+      title,
+      description: failureMessage(squashAtomCommandFailure(result)),
+    });
+  };
+  const placeTake = async (beatId: string) => {
+    const blocked =
+      props.timeline === FOOTAGE_TIMELINE_PATH
+        ? "Voice-over is placed on a cut, not on the footage timeline."
+        : props.pendingEdits
+          ? "Save or discard your timeline edits, then place it from this line's takes."
+          : null;
+    if (blocked !== null) {
+      toastManager.add({
+        type: "info",
+        title: "The take is saved, not placed",
+        description: blocked,
+      });
+      return;
+    }
+    const result = await applyVoice({
+      environmentId: props.environmentId,
+      input: { workspaceRoot: props.workspaceRoot, timeline: props.timeline, beatIds: [beatId] },
+    });
+    voiceFailed("Could not place the voice-over", result);
+    if (result._tag !== "Success") return;
+    showVoice(result.value);
+    if (result.value.changes.length === 0) return;
+    toastManager.add({
+      type: "success",
+      title: "Voice-over placed",
+      description: result.value.changes.join(" "),
+    });
+    props.onTimelineChanged();
+  };
+  /** Runs one change to a line's takes, then puts the line's chosen take on the timeline. */
+  const changeLine = async (
+    beatId: string,
+    title: string,
+    run: () => Promise<VoiceResult>,
+    place: boolean,
+  ) => {
+    setActiveLine({ beatId, state: "busy" });
+    const result = await run();
+    voiceFailed(title, result);
+    if (result._tag === "Success") {
+      showVoice(result.value);
+      if (place) await placeTake(beatId);
+    }
+    setActiveLine(null);
+  };
+  const placeLine = async (beatId: string) => {
+    setActiveLine({ beatId, state: "busy" });
+    await placeTake(beatId);
+    setActiveLine(null);
+  };
+  const lineInput = (beatId: string) => ({
+    workspaceRoot: props.workspaceRoot,
+    beatId,
+    timeline: props.timeline,
+  });
+  const saveLine = (beatId: string, recording: Uint8Array, picked = false) =>
+    changeLine(
+      beatId,
+      "Could not save the take",
+      () =>
+        saveTake({
+          environmentId: props.environmentId,
+          input: { ...lineInput(beatId), recording, ...(picked ? { picked } : {}) },
+        }),
+      true,
+    );
+  const recordLine = async (beatId: string) => {
+    setActiveLine({ beatId, state: "recording" });
+    const started = await recorder.start((recording) => void saveLine(beatId, recording));
+    if (!started) setActiveLine(null);
+  };
+  const importLine = async (beatId: string, file: File) => {
+    if (file.size > MAX_IMPORT_BYTES) {
+      toastManager.add({
+        type: "error",
+        title: "That file is too large to import here",
+        description:
+          "Put it in the project's Audio folder and ask the agent to import it, or to split it if it reads several lines.",
+      });
+      return;
+    }
+    await saveLine(beatId, new Uint8Array(await file.arrayBuffer()), true);
+  };
+  const voiceLines = new Map((loaded?.voice?.beats ?? []).map((line) => [line.id, line]));
+  const mediaRoot = loaded?.voice?.mediaRoot ?? null;
+  const lineVoiceOver = (beat: VideoScriptBeat) => {
+    const line = voiceLines.get(beat.id);
+    if (line === undefined || mediaRoot === null) return null;
+    return (
+      <ScriptLineVoiceOver
+        environmentId={props.environmentId}
+        workspaceRoot={props.workspaceRoot}
+        mediaRoot={mediaRoot}
+        line={line}
+        state={activeLine?.beatId === beat.id ? activeLine.state : "idle"}
+        disabled={activeLine !== null}
+        canWrite={props.canWrite}
+        onRecord={() => void recordLine(beat.id)}
+        onStop={recorder.stop}
+        onChoose={(takeId) =>
+          void changeLine(
+            beat.id,
+            "Could not choose the take",
+            () =>
+              chooseTake({
+                environmentId: props.environmentId,
+                input: { ...lineInput(beat.id), takeId },
+              }),
+            true,
+          )
+        }
+        onDelete={(takeId) =>
+          void changeLine(
+            beat.id,
+            "Could not delete the take",
+            () =>
+              deleteTake({
+                environmentId: props.environmentId,
+                input: { ...lineInput(beat.id), takeId },
+              }),
+            false,
+          )
+        }
+        onImport={(file) => void importLine(beat.id, file)}
+        onPlace={() => void placeLine(beat.id)}
+      />
+    );
   };
 
   const view = loaded?.view ?? null;
@@ -405,7 +593,7 @@ export function ScriptPanel(props: {
             ) : null}
           </Empty>
         ) : (
-          <BeatList beats={view.beats} />
+          <BeatList beats={view.beats} trailing={lineVoiceOver} />
         )}
       </div>
       {view !== null && !empty && pasted === null ? (

@@ -331,9 +331,29 @@ Built from the past threads: it targets where time and failures actually went, a
   and, for clips whose average is off it, reads every frame time and records where the rate
   changes (`rateChanges` in the proxy index). The Premiere badge and `video_timeline_read`
   warn about those clips. Conforming them is still done outside Stellar.
-- **Voice-over: recording only (milestone 5, first step).** "Record voice-over" in the Timeline
-  tab records this device's microphone and saves a 48 kHz WAV under `Audio/VO`, then drops its
-  path into the chat. Takes aren't tied to script beats or placed on the timeline.
+- **Voice-over per script line: built (milestone 5).** A take is a WAV under `Audio/VO`
+  recorded for one beat; `voiceover.json` in the project folder lists the takes and which one
+  each beat uses.
+  - The Script panel records, imports, auditions, switches and deletes a line's takes.
+    Agents use `video_voice_over`, which can also cut a transcribed read of the whole script
+    into a take per line.
+  - Placing a line's chosen take re-times that beat alone
+    (`packages/timeline/src/voiceOver.ts`): cut points under the line scale to the new length
+    and everything after moves by the difference. A clip keeps its in point and is never cut,
+    so one that runs past the beat shows later or earlier material after it. A clip with no
+    more source leaves a gap, which is reported.
+  - A line with no voice-over yet goes right after the nearest earlier line that has one (else
+    before the nearest later one, else at frame 0), on that line's track or a new audio track.
+    Nothing moves unless the next clip on that track is in the way; then the stretch up to it
+    is re-timed to fit. A beat with no picture has nothing to trim: only voice-over moves.
+  - Placing is refused, with nothing changed, when a clip under the line would be left with no
+    frames, or another clip sits inside the line's voice-over on its track.
+  - A beat's clips are found by their media, the take's file, so they are still known after a
+    round trip through Premiere, which drops Stellar's metadata.
+  - Not built: a timeline for a project that has only voice-over (placing needs a cut; the
+    footage timeline is regenerated, so it is refused), re-timing by matching the old and new
+    takes' words instead of by proportion, and takes on mobile. "Record voice-over" under the
+    timeline still records one loose take against the picture.
 - **Stage: started.** A video project has a stage (Scripting, Footage in, Rough cut, Polish,
   Posted), kept as `stage` in `project.json` in the project folder, so the person, an agent
   editing the file and every client read the same thing. Unset, it reads Rough cut once a

@@ -49,6 +49,7 @@ export type T3McpToolSummaryAction =
   | "video-timeline-words"
   | "video-transcribe"
   | "video-script"
+  | "video-voice-over"
   | "video-project-start"
   | "video-premiere-pull"
   | "video-footage"
@@ -206,6 +207,10 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "video-transcribe",
   ),
   video_script: tool(["Read", "Reading", "Read", "the script"], "video-script"),
+  video_voice_over: tool(
+    ["Work on", "Working on", "Worked on", "the voice-over"],
+    "video-voice-over",
+  ),
   video_project_start: tool(
     ["Start", "Starting", "Started", "a video project"],
     "video-project-start",

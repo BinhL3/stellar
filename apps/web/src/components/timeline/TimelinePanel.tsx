@@ -578,6 +578,12 @@ export default function TimelinePanel(props: {
                   transcribed={transcripts?.ready ?? 0}
                   threadRef={props.threadRef}
                   canWrite={canWriteFiles}
+                  pendingEdits={hasPendingEdits}
+                  onTimelineChanged={() => {
+                    file.refresh();
+                    // The timeline now differs from Premiere's save; the badge should say so.
+                    void sync({ quiet: true });
+                  }}
                   onClose={() => workspace?.controls.close("script")}
                 />
               ),

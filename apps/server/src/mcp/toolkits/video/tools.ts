@@ -116,6 +116,32 @@ const ScriptTool = Tool.make("video_script", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const VoiceOverTool = Tool.make("video_voice_over", {
+  description:
+    "Voice-over per script line. Each line (a beat; ids from `video_script`) has takes, recordings of that line, and uses one of them. With no `action` it reads: `text` has a line per beat, `b2 take t5 2.4s on A3 frames 90-162 (takes t2 t5): <line>`, `b3 take t6 3.0s chosen, not on the timeline (takes t6): <line>` or `b4 no voice-over: <line>`, then recordings in Audio/VO that belong to no line. `choose` (beatId, takeId) picks a line's take. `import` (beatId, path) copies an audio file on the host in as a new take and chooses it. `split` (path) cuts a transcribed recording of several lines into a take per line it says, each chosen. These three change no timeline. `apply` (timeline, and `beatIds` to do only some lines) puts each chosen take on the timeline and re-times only the lines whose take changed: cut points under the line scale to the new length and everything after it moves by the difference; other lines keep their content and length. Clips keep their in point and are never cut; one with no more source to stretch into leaves a gap. A line with no voice-over yet goes after the previous line's, moving nothing unless the next line's is in the way. `changes` says what moved and what was left short or refused: tell the user. The user records takes in Stellar's Script panel; you can't record.",
+  parameters: Schema.Struct({
+    action: Schema.optional(Schema.Literals(["read", "choose", "import", "split", "apply"])),
+    beatId: Schema.optional(Schema.String),
+    takeId: Schema.optional(Schema.String),
+    path: Schema.optional(Schema.String),
+    timeline: Schema.optional(Schema.String),
+    beatIds: Schema.optional(Schema.Array(Schema.String)),
+  }),
+  success: Schema.Struct({
+    timeline: Schema.NullOr(Schema.String),
+    text: Schema.String,
+    changes: Schema.Array(Schema.String),
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Read or place voice-over")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
 const PremiereExportTool = Tool.make("video_premiere_export", {
   description:
     "Send a first cut to Premiere as a new sequence; when the sequence already exists in Premiere, use `video_premiere_push`, which keeps its effects and polish. Writes the timeline as an XML file in the project's Premiere folder and returns the `path`. Import that file with a Premiere tool; it arrives as a new sequence named `sequenceName`, never replacing one. Only the cut travels (tracks, positions, source ranges, enabled state). Effects, text graphics and clips without a media file are left out and listed in `skipped`: tell the user what didn't come across.",
@@ -210,6 +236,7 @@ export const VideoToolkit = Toolkit.make(
   TimelineWordsTool,
   TranscribeTool,
   ScriptTool,
+  VoiceOverTool,
   PremiereExportTool,
   PremierePushTool,
   ProjectStartTool,

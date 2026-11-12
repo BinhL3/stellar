@@ -63,6 +63,10 @@
       "types": "./src/script.ts",
       "import": "./src/script.ts"
     },
+    "./voiceOver": {
+      "types": "./src/voiceOver.ts",
+      "import": "./src/voiceOver.ts"
+    },
     "./words": {
       "types": "./src/words.ts",
       "import": "./src/words.ts"
