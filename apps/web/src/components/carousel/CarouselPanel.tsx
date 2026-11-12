@@ -76,6 +76,7 @@ export default function CarouselPanel(props: {
     document,
     renders: carousel.renders,
     photoOf: photos.photoOf,
+    originalPhoto: photos.original,
     photosReady: photos.ready,
   });
 

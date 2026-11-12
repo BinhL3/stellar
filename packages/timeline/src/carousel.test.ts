@@ -16,9 +16,11 @@ import {
   layersOnSlide,
   layoutText,
   MAX_SLIDES,
+  photoResample,
   placeBackgroundPhoto,
   scaleLayer,
   slideGuides,
+  slidePhotos,
   slideSize,
   wrapText,
 } from "./carousel.ts";
@@ -369,6 +371,102 @@ describe("carousel layout", () => {
     ]);
     expect(drawn(2)).toEqual([["l5", -2160]]);
     expect(drawn(3)).toEqual([]);
+    // An export loads the originals a slide draws, and only those.
+    const backed = edit(panorama, {
+      kind: "setBackground",
+      slide: "s2",
+      photo: { src: "Photos/pho.heic" },
+    });
+    expect(slidePhotos(backed, 1)).toEqual(["Photos/pho.heic", "Photos/wide.jpg"]);
+    expect(slidePhotos(backed, 3)).toEqual([]);
+  });
+
+  it("averages a reduced photo straight onto the canvas pixels it covers", () => {
+    const canvas = { width: 1080, height: 1350 };
+    const whole = { x: 0, y: 0, width: 6000, height: 4000 };
+    // A 6000 px photo filling a 4:5 slide is 2025 px wide there: only the 1080 on the canvas
+    // are made, each from the 2.96 px of the original under it.
+    expect(
+      photoResample({
+        crop: whole,
+        drawn: { x: -472.5, y: 0, width: 2025, height: 1350 },
+        turned: false,
+        canvas,
+      }),
+    ).toEqual({
+      kind: "average",
+      window: { x: 1400, y: 0, width: 3200, height: 4000 },
+      target: { x: 0, y: 0, width: 1080, height: 1350 },
+      aligned: true,
+    });
+    // An edge between pixels takes the pixels whose centre it passes, as a canvas does, so
+    // the window can reach a little past the crop on one side and stop short on the other.
+    expect(
+      photoResample({
+        crop: { x: 1000, y: 0, width: 4000, height: 4000 },
+        drawn: { x: 100.25, y: 200.75, width: 400, height: 400 },
+        turned: false,
+        canvas,
+      }),
+    ).toEqual({
+      kind: "average",
+      window: { x: 997.5, y: 2.5, width: 4000, height: 4000 },
+      target: { x: 100, y: 201, width: 400, height: 400 },
+      aligned: true,
+    });
+    // Layout arithmetic a hair off a whole pixel adds no column.
+    expect(
+      photoResample({
+        crop: whole,
+        drawn: { x: -1e-9, y: 1e-9, width: 1080 + 2e-9, height: 720 },
+        turned: false,
+        canvas,
+      }),
+    ).toMatchObject({ target: { x: 0, y: 0, width: 1080, height: 720 } });
+    // A turned photo is averaged to the size it is drawn at, for the canvas to turn.
+    expect(
+      photoResample({
+        crop: whole,
+        drawn: { x: 0, y: 0, width: 810.4, height: 540.3 },
+        turned: true,
+        canvas,
+      }),
+    ).toEqual({
+      kind: "average",
+      window: whole,
+      target: { x: 0, y: 0, width: 810, height: 540 },
+      aligned: false,
+    });
+  });
+
+  it("leaves an enlarged photo to the canvas, and skips one that is off the slide", () => {
+    const canvas = { width: 1080, height: 1350 };
+    const small = { x: 0, y: 0, width: 800, height: 1000 };
+    expect(
+      photoResample({
+        crop: small,
+        drawn: { x: 0, y: 0, width: 1080, height: 1350 },
+        turned: false,
+        canvas,
+      }),
+    ).toEqual({ kind: "direct" });
+    expect(
+      photoResample({
+        crop: small,
+        drawn: { x: 140, y: 175, width: 800, height: 1000 },
+        turned: true,
+        canvas,
+      }),
+    ).toEqual({ kind: "direct" });
+    // The part of a panorama that belongs to the next slide.
+    expect(
+      photoResample({
+        crop: { x: 0, y: 0, width: 6000, height: 2500 },
+        drawn: { x: 1080, y: 0, width: 3240, height: 1350 },
+        turned: false,
+        canvas,
+      }),
+    ).toEqual({ kind: "hidden" });
   });
 });
 

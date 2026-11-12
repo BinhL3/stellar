@@ -3,38 +3,46 @@ import { useEffect, useState } from "react";
 
 import { useAssetUrls } from "~/assets/assetUrls";
 
-import type { PhotoLookup } from "./drawSlide";
+import type { OriginalPhoto, PhotoLookup, SlidePhoto } from "./drawSlide";
 
-// Enough for a three-slide panorama at full height; a 48 MP original would hold 190 MB decoded.
+// What the editor keeps of each photo while it is open: enough for a three-slide panorama on
+// screen, where a 48 MP original would hold 190 MB decoded. An export never draws from these;
+// it decodes the originals a slide at a time (`drawExportSlide`).
 const MAX_EDGE = 4320;
 
 // One decode per photo, shared by every panel that shows it. Keyed by the photo's path, not its
 // signed URL, so a re-minted URL doesn't decode it again.
-const decoding = new Map<string, Promise<ImageBitmap | null>>();
+const decoding = new Map<string, Promise<SlidePhoto | null>>();
 
-const decode = async (url: string) => {
+const decode = async (url: string): Promise<SlidePhoto> => {
   const blob = await (await fetch(url)).blob();
   const full = await createImageBitmap(blob);
-  const scale = Math.min(1, MAX_EDGE / Math.max(full.width, full.height));
-  if (scale === 1) return full;
   const { width, height } = full;
+  const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
+  if (scale === 1) return { image: full, width, height };
   full.close();
-  return createImageBitmap(blob, {
+  const image = await createImageBitmap(blob, {
     resizeWidth: Math.round(width * scale),
     resizeHeight: Math.round(height * scale),
     resizeQuality: "high",
   });
+  return { image, width, height };
 };
 
 /**
- * The project's photos, decoded once and drawn from memory. `ready` is true once every photo
- * has loaded or failed, which is when an export can be trusted to have no holes.
+ * The project's photos, decoded once at a size for the screen and drawn from memory. `ready`
+ * is true once every photo has loaded or failed, which is when an export can be trusted to
+ * have no holes. `original` decodes one at full size, for an export; the caller closes it.
  */
 export function useCarouselPhotos(
   environmentId: EnvironmentId,
   workspaceRoot: string,
   view: CarouselView | null,
-): { readonly photoOf: PhotoLookup; readonly ready: boolean } {
+): {
+  readonly photoOf: PhotoLookup;
+  readonly original: OriginalPhoto;
+  readonly ready: boolean;
+} {
   const photos = view?.document.photos ?? [];
   const root = view?.mediaRoot.replace(/\/+$/, "") ?? "";
   const keys = photos.map((photo) => `${root}/${photo.file}`);
@@ -42,7 +50,7 @@ export function useCarouselPhotos(
     environmentId,
     keys.map((path): AssetResource => ({ _tag: "draft-workspace-file", cwd: workspaceRoot, path })),
   );
-  const [decoded, setDecoded] = useState<ReadonlyMap<string, ImageBitmap | null>>(new Map());
+  const [decoded, setDecoded] = useState<ReadonlyMap<string, SlidePhoto | null>>(new Map());
   // The lists are rebuilt every render; as text they change only when a photo or its URL does.
   const keyList = keys.join("\n");
   const urlList = urls.map((url) => url ?? "").join("\n");
@@ -58,9 +66,9 @@ export function useCarouselPhotos(
         pending = decode(url).catch(() => null);
         decoding.set(key, pending);
       }
-      void pending.then((bitmap) => {
+      void pending.then((photo) => {
         if (!current) return;
-        setDecoded((before) => (before.has(key) ? before : new Map(before).set(key, bitmap)));
+        setDecoded((before) => (before.has(key) ? before : new Map(before).set(key, photo)));
       });
     }
     return () => {
@@ -76,6 +84,15 @@ export function useCarouselPhotos(
     photoOf: (src) => {
       const key = keyOf(src);
       return key === null ? null : (decoded.get(key) ?? null);
+    },
+    original: async (src) => {
+      const url = urls[photos.findIndex((photo) => photo.src === src)];
+      if (!url) return null;
+      try {
+        return await createImageBitmap(await (await fetch(url)).blob());
+      } catch {
+        return null;
+      }
     },
     ready: view !== null && keys.every((key) => decoded.has(key)),
   };

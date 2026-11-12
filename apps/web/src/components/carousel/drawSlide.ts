@@ -15,17 +15,36 @@ import {
   layersOnSlide,
   layoutText,
   type MeasureText,
+  photoResample,
   placeBackgroundPhoto,
+  type Rect,
+  type Size,
   slideGuides,
+  slidePhotos,
   slideSize,
 } from "@t3tools/timeline/carousel";
+
+import { averagedFrom } from "./photoPixels";
 
 /**
  * The one routine that draws a slide. The preview calls it at the size on screen and the
  * export at full size, so the picture the user approves is the picture that is posted.
  */
 export type SlideContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
-export type PhotoLookup = (src: string) => ImageBitmap | null;
+
+/**
+ * A decoded photo. `width` and `height` are the original's, whatever size `image` was decoded
+ * at, so a slide is laid out the same from a small copy and from the original.
+ */
+export interface SlidePhoto extends Size {
+  readonly image: ImageBitmap;
+  /**
+   * Set for an export, where `image` is the original: its pixels averaged down, in place of
+   * the canvas's own scaling. See `photoResample`.
+   */
+  readonly average?: (window: Rect, bounds: Rect, target: Size) => CanvasImageSource;
+}
+export type PhotoLookup = (src: string) => SlidePhoto | null;
 
 let measuring: OffscreenCanvasRenderingContext2D | null = null;
 
@@ -85,6 +104,56 @@ const drawText = (context: SlideContext, layer: CarouselTextLayer) => {
   for (const line of block.lines) context.fillText(line.text, line.x, line.y);
 };
 
+/** Draws the part `crop` of a photo (in the original's pixels) into a box of the layer's space. */
+const drawPhoto = (
+  context: SlideContext,
+  photo: SlidePhoto,
+  crop: Rect,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) => {
+  const direct = () => {
+    const across = photo.image.width / photo.width;
+    const down = photo.image.height / photo.height;
+    context.drawImage(
+      photo.image,
+      crop.x * across,
+      crop.y * down,
+      crop.width * across,
+      crop.height * down,
+      x,
+      y,
+      width,
+      height,
+    );
+  };
+  if (photo.average === undefined) return direct();
+  const { a, b, c, d, e, f } = context.getTransform();
+  const turned = Math.abs(b) > 1e-9 || Math.abs(c) > 1e-9;
+  const plan = photoResample({
+    crop,
+    drawn: turned
+      ? { x: 0, y: 0, width: width * Math.hypot(a, b), height: height * Math.hypot(c, d) }
+      : { x: a * x + e, y: d * y + f, width: width * a, height: height * d },
+    turned,
+    canvas: context.canvas,
+  });
+  if (plan.kind === "hidden") return;
+  if (plan.kind === "direct") return direct();
+  const patch = photo.average(plan.window, crop, plan.target);
+  if (!plan.aligned) {
+    context.drawImage(patch, x, y, width, height);
+    return;
+  }
+  // Already on the canvas's own pixels: placed as it is, under the clip and opacity in force.
+  context.save();
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.drawImage(patch, plan.target.x, plan.target.y);
+  context.restore();
+};
+
 const drawMissing = (context: SlideContext, width: number, height: number) => {
   context.fillStyle = "#8884";
   context.fillRect(-width / 2, -height / 2, width, height);
@@ -118,14 +187,22 @@ export const drawSlide = (
   context.fillRect(0, 0, size.width, size.height);
   const placement = slide.background.photo;
   if (placement !== null) {
-    const bitmap = photos(placement.src);
-    if (bitmap === null) missing.push(placement.src);
+    const photo = photos(placement.src);
+    if (photo === null) missing.push(placement.src);
     else {
-      const box = placeBackgroundPhoto(placement, size, bitmap);
+      const box = placeBackgroundPhoto(placement, size, photo);
       context.save();
       context.translate(box.cx, box.cy);
       context.rotate(radians(box.rotation));
-      context.drawImage(bitmap, -box.width / 2, -box.height / 2, box.width, box.height);
+      drawPhoto(
+        context,
+        photo,
+        { x: 0, y: 0, width: photo.width, height: photo.height },
+        -box.width / 2,
+        -box.height / 2,
+        box.width,
+        box.height,
+      );
       context.restore();
     }
   }
@@ -148,18 +225,15 @@ export const drawSlide = (
         );
         context.clip();
       }
-      const bitmap = photos(layer.src);
-      if (bitmap === null) {
+      const photo = photos(layer.src);
+      if (photo === null) {
         missing.push(layer.src);
         drawMissing(context, layer.width, layer.height);
       } else {
-        const crop = coverCrop(layer, bitmap);
-        context.drawImage(
-          bitmap,
-          crop.x,
-          crop.y,
-          crop.width,
-          crop.height,
+        drawPhoto(
+          context,
+          photo,
+          coverCrop(layer, photo),
           -layer.width / 2,
           -layer.height / 2,
           layer.width,
@@ -257,14 +331,49 @@ const canvasOf = (width: number, height: number) => {
 const missingPhotos = (missing: ReadonlyArray<string>) =>
   new Error(`Couldn't load ${[...new Set(missing)].join(", ")}, so the slide would have a hole.`);
 
+/** A photo's original, decoded at full size; null when it can't be loaded. */
+export type OriginalPhoto = (src: string) => Promise<ImageBitmap | null>;
+
+/**
+ * Draws one slide for an export from its photos' originals, each resampled once to the pixels
+ * it covers. The originals are decoded for this slide and let go after it, so an export holds
+ * one slide's photos at a time however many the post has.
+ */
+export const drawExportSlide = async (
+  context: SlideContext,
+  document: CarouselDocument,
+  index: number,
+  original: OriginalPhoto,
+  scale: number,
+): Promise<Array<string>> => {
+  const photos = new Map<string, SlidePhoto>();
+  try {
+    for (const src of slidePhotos(document, index)) {
+      const image = await original(src);
+      if (image === null) continue;
+      photos.set(src, {
+        image,
+        width: image.width,
+        height: image.height,
+        average: averagedFrom(image),
+      });
+    }
+    return drawSlide(context, document, index, (src) => photos.get(src) ?? null, scale);
+  } finally {
+    for (const photo of photos.values()) photo.image.close();
+  }
+};
+
 /**
  * The pictures a render request asks for, drawn with `drawSlide`. An export is each slide at
- * its exact pixel size; `slides` and `sheet` are smaller pictures for an agent to look at.
+ * its exact pixel size, from the photos' originals; `slides` and `sheet` are smaller pictures
+ * for an agent to look at, from the copies the editor already holds.
  */
 export const renderRequest = async (
   document: CarouselDocument,
   request: Pick<CarouselRenderRequest, "kind" | "format" | "slides" | "width">,
   photos: PhotoLookup,
+  original: OriginalPhoto,
 ): Promise<Array<Uint8Array>> => {
   const size = slideSize(document.ratio);
   const indexes = request.slides.map((id) => {
@@ -292,7 +401,10 @@ export const renderRequest = async (
   const images: Array<Uint8Array> = [];
   for (const index of indexes) {
     const { canvas, context } = canvasOf(request.width, Math.round(size.height * scale));
-    const missing = drawSlide(context, document, index, photos, scale);
+    const missing =
+      request.kind === "export"
+        ? await drawExportSlide(context, document, index, original, scale)
+        : drawSlide(context, document, index, photos, scale);
     if (missing.length > 0) throw missingPhotos(missing);
     images.push(await encode(canvas, request.format));
   }

@@ -647,9 +647,13 @@ would buy nothing.
   cannot match a browser's, and no headless browser. The cost: an agent can export, or look at its
   work, only while a client has the carousel open. The server asks over the stream that client
   already follows, and says so plainly when none does.
-- **Photos are drawn at full size.** Originals a browser decodes are drawn as they are; HEIC,
-  TIFF, PSD and raw get a near-lossless copy up to 4320 px, not the 1600 px still renditions the
-  video preview uses.
+- **An export resamples each photo once, from its original.** Originals a browser decodes are
+  used as they are; HEIC, TIFF, PSD and raw get a near-lossless copy at their own size, not the
+  1600 px still renditions the video preview uses. The editor draws from copies capped at
+  4320 px, to bound memory; an export decodes the originals a slide at a time and averages each
+  straight onto the pixels it covers (`photoResample`). A canvas's own scaling is not used for a
+  reduction: Chromium halves the picture and blends the nearest sizes, which is exact at 2:1 and
+  4:1 and loses fine detail at any other ratio.
 - **Not built:** posting to Instagram, video slides, stickers, music, templates beyond a title and
   a photo layout, and mobile.
 

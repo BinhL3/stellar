@@ -17,7 +17,7 @@ import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 
-import { type PhotoLookup, renderRequest } from "./drawSlide";
+import { type OriginalPhoto, type PhotoLookup, renderRequest } from "./drawSlide";
 
 const HISTORY_LIMIT = 100;
 
@@ -146,16 +146,18 @@ export function useCarouselRenders(input: {
   readonly document: CarouselDocument | null;
   readonly renders: ReadonlyArray<CarouselRenderRequest>;
   readonly photoOf: PhotoLookup;
+  readonly originalPhoto: OriginalPhoto;
   readonly photosReady: boolean;
 }) {
   const submit = useAtomCommand(projectEnvironment.submitCarouselRender, { reportFailure: false });
   const handled = useRef(new Set<string>());
-  const { environmentId, workspaceRoot, document, renders, photoOf, photosReady } = input;
+  const { environmentId, workspaceRoot, document, renders, photoOf, originalPhoto, photosReady } =
+    input;
   const answer = async (request: CarouselRenderRequest, current: CarouselDocument) => {
     const target = { workspaceRoot, requestId: request.id };
     try {
       await globalThis.document.fonts.ready;
-      const images = await renderRequest(current, request, photoOf);
+      const images = await renderRequest(current, request, photoOf, originalPhoto);
       for (const [index, data] of images.entries()) {
         await submit({ environmentId, input: { ...target, index, data } });
       }

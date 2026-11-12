@@ -575,7 +575,7 @@ export function CarouselInspector(props: {
                     props.pickedPhoto === photo.src && "ring-2 ring-primary",
                   )}
                 >
-                  <PhotoThumb bitmap={props.photoOf(photo.src)} />
+                  <PhotoThumb bitmap={props.photoOf(photo.src)?.image ?? null} />
                 </button>
               </li>
             ))}

@@ -730,6 +730,90 @@ export const layersOnSlide = (
   ];
 };
 
+/** The photos slide `index` draws: its background's, then those of the layers on it. */
+export const slidePhotos = (document: CarouselDocument, index: number): Array<string> => {
+  const background = document.slides[index]?.background.photo?.src;
+  return [
+    ...new Set([
+      ...(background === undefined ? [] : [background]),
+      ...layersOnSlide(document, index).flatMap(({ layer }) =>
+        layer.kind === "photo" ? [layer.src] : [],
+      ),
+    ]),
+  ];
+};
+
+/** How an export gets the pixels a photo shows in one place, resampling the original once. */
+export type PhotoResample =
+  /** Enlarged or shown pixel for pixel: the canvas draws the original as it is. */
+  | { readonly kind: "direct" }
+  /** No part of it is on the canvas. */
+  | { readonly kind: "hidden" }
+  /**
+   * Reduced: each pixel of `target` is the average of the part of `window`, in the photo's
+   * pixels, that lands on it. Upright, `target` is the canvas pixels covered; turned, it is
+   * the drawn size alone and the canvas turns the result.
+   */
+  | {
+      readonly kind: "average";
+      readonly window: Rect;
+      readonly target: Rect;
+      readonly aligned: boolean;
+    };
+
+// Layout arithmetic leaves a size a hair off; this much more than 1:1 is still not a reduction.
+const SCALE_SLACK = 1e-6;
+
+/**
+ * How the part `crop` of a photo lands on `drawn`, a rectangle in canvas pixels before any
+ * turn. A canvas reduces by halving and blending the nearest sizes, which loses detail, so a
+ * reduction is averaged from the original onto the pixels whose centre is inside `drawn`:
+ * the ones a canvas fills, so an export's edges are the editor's and no seam opens.
+ */
+export const photoResample = (input: {
+  readonly crop: Rect;
+  readonly drawn: Rect;
+  readonly turned: boolean;
+  readonly canvas: Size;
+}): PhotoResample => {
+  const { crop, drawn, canvas } = input;
+  if (!(drawn.width > 0 && drawn.height > 0 && crop.width > 0 && crop.height > 0)) {
+    return { kind: "hidden" };
+  }
+  const across = crop.width / drawn.width;
+  const down = crop.height / drawn.height;
+  if (across <= 1 + SCALE_SLACK && down <= 1 + SCALE_SLACK) return { kind: "direct" };
+  if (input.turned) {
+    return {
+      kind: "average",
+      window: crop,
+      target: {
+        x: 0,
+        y: 0,
+        width: Math.max(1, Math.round(drawn.width)),
+        height: Math.max(1, Math.round(drawn.height)),
+      },
+      aligned: false,
+    };
+  }
+  const left = Math.max(0, Math.round(drawn.x));
+  const top = Math.max(0, Math.round(drawn.y));
+  const right = Math.min(canvas.width, Math.round(drawn.x + drawn.width));
+  const bottom = Math.min(canvas.height, Math.round(drawn.y + drawn.height));
+  if (right <= left || bottom <= top) return { kind: "hidden" };
+  return {
+    kind: "average",
+    window: {
+      x: crop.x + (left - drawn.x) * across,
+      y: crop.y + (top - drawn.y) * down,
+      width: (right - left) * across,
+      height: (bottom - top) * down,
+    },
+    target: { x: left, y: top, width: right - left, height: bottom - top },
+    aligned: true,
+  };
+};
+
 /** High enough that Instagram's own recompression is the only visible one. */
 export const EXPORT_JPEG_QUALITY = 0.95;
 

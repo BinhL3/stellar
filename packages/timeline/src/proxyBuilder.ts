@@ -773,13 +773,16 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
   return { indexPath, count: Object.keys(media).length, failed, removed };
 });
 
-/** Long edge of a carousel photo's drawable copy: a three-slide panorama at full height. */
-const PHOTO_RENDITION_EDGE = 4320;
+/**
+ * A carousel photo's drawable copy keeps the original's size, so an export resamples the
+ * photo once; this is only the largest picture a WebP can hold.
+ */
+const PHOTO_RENDITION_EDGE = 16383;
 
 /**
  * A carousel photo's upright size and the file a browser draws for it. A still no browser
- * decodes (HEIC, TIFF, PSD, raw) gets a near-lossless copy in the proxies folder, large enough
- * to export from; the video proxies' 1600 px renditions are not. Others are drawn as they are.
+ * decodes (HEIC, TIFF, PSD, raw) gets a near-lossless copy in the proxies folder, at its own
+ * size to export from; the video proxies' 1600 px renditions are not. Others are drawn as they are.
  */
 export const preparePhoto = Effect.fn("timeline.proxies.preparePhoto")(function* (input: {
   readonly source: string;
