@@ -6,6 +6,7 @@ import {
   type TimelineEdit,
 } from "@t3tools/timeline/edits";
 import { type LaidOutClip, type LaidOutTrack, layoutTimeline } from "@t3tools/timeline/layout";
+import { timelineMarkers } from "@t3tools/timeline/markers";
 import {
   type EffectRef,
   serializeTimeline,
@@ -16,6 +17,7 @@ import type { TimelineAction } from "@t3tools/timeline/premiere/shortcuts";
 import type { ProxyPeaks } from "@t3tools/timeline/proxies";
 import {
   AudioLinesIcon,
+  BookmarkPlusIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   FilmIcon,
@@ -29,6 +31,7 @@ import {
   PlayIcon,
   PlusIcon,
   RepeatIcon,
+  ScrollTextIcon,
   SkipBackIcon,
   SkipForwardIcon,
   SparklesIcon,
@@ -47,6 +50,9 @@ import {
 import { flushSync } from "react-dom";
 
 import { graphicText } from "~/components/timeline/clipTransform";
+import type { MarkerPatch } from "~/components/timeline/MarkerEditor";
+import { MarkersPanel } from "~/components/timeline/MarkersPanel";
+import { RulerMarkers, type ScriptTick } from "~/components/timeline/RulerMarkers";
 import type { PreviewEngine } from "~/components/timeline/previewEngine";
 import { useTimelineLayoutStore } from "~/components/timeline/timelineLayoutStore";
 import { TimelinePlayerContext } from "~/components/timeline/timelinePlayer";
@@ -135,6 +141,9 @@ const EDIT_LABELS: Record<TimelineEdit["kind"], string> = {
   removeRange: "remove range",
   setEnabled: "enable",
   setText: "text",
+  addMarker: "add marker",
+  setMarker: "change marker",
+  removeMarker: "remove marker",
 };
 
 const editLabel = (edit: TimelineEdit) =>
@@ -365,7 +374,17 @@ export default function TimelineViewer(props: {
     readonly projectKey: string;
     /** The Script panel's content; it can `useTimelinePlayer`. */
     readonly script: ReactNode;
+    readonly history: ReactNode;
   };
+  /** Script lines shown as notches on the ruler, and what picking one does besides seeking. */
+  readonly scriptLines?: {
+    readonly ticks: ReadonlyArray<ScriptTick>;
+    readonly shown: boolean;
+    readonly onShownChange: (shown: boolean) => void;
+    readonly onPick: () => void;
+  };
+  /** Undo and redo step through saved versions once no uncommitted edit is left to step over. */
+  readonly onStepVersion?: (step: "undo" | "redo") => void;
 }) {
   const [pending, setPendingState] = useState<{
     readonly base: string;
@@ -378,11 +397,13 @@ export default function TimelineViewer(props: {
   const [committing, setCommitting] = useState(false);
   const dragRef = useRef<Drag | null>(null);
   const suppressClickRef = useRef(false);
-  // Edits belong to the text they were made on; a new pull or a commit's reload clears them.
-  const edits = pending.base === props.text ? pending.edits : [];
-  const undone = pending.base === props.text ? pending.undone : [];
   const shortcuts = useTimelineKeymap();
   const editable = props.onCommit !== undefined;
+  // Edits belong to the text they were made on; a new pull or a commit's reload clears them.
+  // A timeline that is only being looked at (a past version) shows none.
+  const holdsEdits = editable && pending.base === props.text;
+  const edits = holdsEdits ? pending.edits : [];
+  const undone = holdsEdits ? pending.undone : [];
   const pulled = parseTimeline(props.text);
   const liveEdits = drag?.active ? [...edits, dragEdit(drag, magnetic)] : edits;
   const timeline = typeof pulled === "string" ? pulled : applyEdits(pulled, liveEdits);
@@ -395,6 +416,9 @@ export default function TimelineViewer(props: {
       : Math.max(1, layout.durationFrames / layout.rate / DEFAULT_VISIBLE_SECONDS);
   const [zoomLevel, setZoomLevel] = useState<number | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
+  // A marker picked on the ruler opens there; one picked in the Markers list opens in the list.
+  const [markerOnRuler, setMarkerOnRuler] = useState(false);
   const [playheadStore] = useState(createValueStore);
   const lineRef = useRef<HTMLDivElement | null>(null);
   const headRef = useRef<HTMLSpanElement | null>(null);
@@ -532,6 +556,7 @@ export default function TimelineViewer(props: {
   const cuts = [
     ...new Set(tracks.flatMap((t) => t.clips.flatMap((c) => [c.startFrame, c.endFrame]))),
   ].toSorted((a, b) => a - b);
+  const markers = timelineMarkers(timeline);
 
   const currentFrame = () => engine?.currentFrame ?? playheadRef.current;
   const seek = (target: number) => {
@@ -656,11 +681,31 @@ export default function TimelineViewer(props: {
     setPending({ base: props.text, edits: [...edits, next], undone: undone.slice(0, -1) });
   };
   const discardEdits = () => setPending({ base: props.text, edits: [], undone: [] });
+  const changeMarker = (patch: MarkerPatch) => pushEdit({ kind: "setMarker", ...patch });
+  const removeMarker = (markerId: string) => {
+    pushEdit({ kind: "removeMarker", markerId });
+    setSelectedMarker(null);
+  };
+  /** A marker at `frame`, opened to be named; an existing one there is opened instead. */
+  const addMarkerAt = (frame: number) => {
+    const existing = markers.find((marker) => marker.frame === frame && marker.clipId === null);
+    const edit: TimelineEdit = { kind: "addMarker", frame, author: "user" };
+    // The edit names the marker from its place, so applying it here says what it will be called.
+    const made =
+      existing ??
+      timelineMarkers(applyEdits(timeline, [edit])).find(
+        (marker) => !markers.some((known) => known.id === marker.id),
+      );
+    if (existing === undefined) pushEdit(edit);
+    setSelectedMarker(made?.id ?? null);
+    setMarkerOnRuler(true);
+  };
   const commitEdits = async () => {
     if (typeof pulled === "string" || !props.onCommit || edits.length === 0) return;
     setCommitting(true);
     const saved = await props.onCommit(serializeTimeline(applyEdits(pulled, edits)));
-    if (saved) props.onPendingEdits?.(false);
+    // Dropped for good: stepping back to the text they were made on must not bring them back.
+    if (saved) setPending({ base: props.text, edits: [], undone: [] });
     setCommitting(false);
   };
 
@@ -672,6 +717,7 @@ export default function TimelineViewer(props: {
       Math.round(currentFrame()),
       ...(marks.in === null ? [] : [marks.in]),
       ...(marks.out === null ? [] : [marks.out]),
+      ...markers.map((marker) => marker.frame),
     ];
     const edges =
       current.mode === "move"
@@ -905,6 +951,10 @@ export default function TimelineViewer(props: {
         if (needsEdit()) pushEdit({ kind: "split", frame: here });
         return true;
       case "clear":
+        if (item === null && selectedMarker !== null) {
+          if (needsEdit()) removeMarker(selectedMarker);
+          return true;
+        }
         if (item === null) return false;
         if (needsEdit()) {
           pushEdit({ kind: "delete", clipId: item.key });
@@ -1016,13 +1066,27 @@ export default function TimelineViewer(props: {
         }
         return true;
       case "undo":
-        if (edits.length === 0) return false;
-        undoEdit();
+        if (edits.length > 0) undoEdit();
+        else if (editable && props.onStepVersion) props.onStepVersion("undo");
+        else return false;
         return true;
       case "redo":
-        if (undone.length === 0) return false;
-        redoEdit();
+        if (undone.length > 0) redoEdit();
+        else if (editable && edits.length === 0 && props.onStepVersion) props.onStepVersion("redo");
+        else return false;
         return true;
+      case "addMarker":
+        if (needsEdit()) addMarkerAt(here);
+        return true;
+      case "nextMarker":
+      case "previousMarker": {
+        const next =
+          action === "nextMarker"
+            ? markers.find((marker) => marker.frame > here)
+            : markers.findLast((marker) => marker.frame < here);
+        if (next) seek(next.frame);
+        return true;
+      }
       case "maximize":
         engine?.requestFullscreen();
         return true;
@@ -1282,6 +1346,42 @@ export default function TimelineViewer(props: {
               </TooltipPopup>
             </Tooltip>
           ) : null}
+          {editable ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Add a marker at the playhead"
+                    onClick={() => addMarkerAt(Math.round(currentFrame()))}
+                  />
+                }
+              >
+                <BookmarkPlusIcon />
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">
+                Add a marker at the playhead <Kbd>M</Kbd>
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {props.scriptLines ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Toggle
+                    size="xs"
+                    aria-label="Script lines on the ruler"
+                    pressed={props.scriptLines.shown}
+                    onPressedChange={props.scriptLines.onShownChange}
+                  />
+                }
+              >
+                <ScrollTextIcon />
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">Show where each script line starts</TooltipPopup>
+            </Tooltip>
+          ) : null}
         </div>
         <div className="ml-auto flex items-center rounded-md border border-border/80 text-xs">
           <Button
@@ -1375,6 +1475,25 @@ export default function TimelineViewer(props: {
                   {rulerLabel(tick, rate)}
                 </span>
               ))}
+              <RulerMarkers
+                markers={markers}
+                scriptTicks={props.scriptLines?.shown ? props.scriptLines.ticks : []}
+                duration={duration}
+                pxPerFrame={pxPerFrame}
+                timecode={(frameNumber) => timecode(frameNumber, rate)}
+                selectedId={selectedMarker}
+                editing={markerOnRuler}
+                onSelect={(id) => {
+                  setSelectedMarker(id);
+                  setMarkerOnRuler(id !== null);
+                }}
+                onSeek={seek}
+                onScriptTick={(tick) => {
+                  seek(tick.frame);
+                  props.scriptLines?.onPick();
+                }}
+                {...(editable ? { onChange: changeMarker, onRemove: removeMarker } : {})}
+              />
               {/* The playhead's head, in the ruler that sits above the tracks' line. */}
               <span
                 aria-hidden
@@ -1601,7 +1720,31 @@ export default function TimelineViewer(props: {
     <TimelinePlayerContext value={{ playhead: playheadStore, seek, rate }}>
       <TimelineWorkspace
         projectKey={props.workspace.projectKey}
-        panels={{ monitor, timeline: tracksPanel, script: props.workspace.script }}
+        panels={{
+          monitor,
+          timeline: tracksPanel,
+          script: props.workspace.script,
+          history: props.workspace.history,
+          markers: (
+            <MarkersPanel
+              markers={markers}
+              timecode={(frameNumber) => timecode(frameNumber, rate)}
+              selectedId={selectedMarker}
+              onSelect={(id) => {
+                setSelectedMarker(id);
+                setMarkerOnRuler(false);
+              }}
+              onSeek={seek}
+              {...(editable
+                ? {
+                    onChange: changeMarker,
+                    onRemove: removeMarker,
+                    onAdd: () => addMarkerAt(Math.round(currentFrame())),
+                  }
+                : {})}
+            />
+          ),
+        }}
       />
     </TimelinePlayerContext>
   );

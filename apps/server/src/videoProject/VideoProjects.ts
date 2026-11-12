@@ -23,6 +23,13 @@ import {
   type VideoTimelineEditInput,
   type VideoTimelineExportResult,
   type VideoTimelineReadInput,
+  type VideoTimelineRestoreInput,
+  type VideoTimelineRestoreResult,
+  type VideoTimelineCommitInput,
+  type VideoTimelineVersionReadInput,
+  type VideoTimelineVersions,
+  type VideoTimelineVersionsInput,
+  type VideoTimelineVersionView,
   type VideoTimelineView,
   type VideoTimelineWords,
   type VideoTranscribeInput,
@@ -59,8 +66,9 @@ import {
   readConformState,
   readMediaIndex,
 } from "@t3tools/timeline/conformBuilder";
-import { changeLine, diffSentences } from "@t3tools/timeline/diff";
-import { applyEdits, type TimelineEdit } from "@t3tools/timeline/edits";
+import { changeLine, diffSentences, diffTimelines } from "@t3tools/timeline/diff";
+import { applyEdits, editClipId, type TimelineEdit } from "@t3tools/timeline/edits";
+import { timelineMarkers } from "@t3tools/timeline/markers";
 import {
   copyFootage,
   listFootage,
@@ -76,6 +84,8 @@ import { pushPlan as planPush } from "@t3tools/timeline/premiere/pushPlan";
 import {
   PREMIERE_LINK_PATH,
   type PremiereSyncResult,
+  pulledHash,
+  readBase,
   recordPull,
   type SequenceChange,
   syncFromPremiere,
@@ -83,7 +93,7 @@ import {
 } from "@t3tools/timeline/premiereSync";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import { buildProjectProxies, markProxiesBuilding } from "@t3tools/timeline/proxyBuilder";
-import { BASE_DIRECTORY, pullToProject } from "@t3tools/timeline/pullToProject";
+import { pullToProject } from "@t3tools/timeline/pullToProject";
 import { alignBeats, assignBeatIds, parseScript } from "@t3tools/timeline/script";
 import {
   addTake,
@@ -131,6 +141,14 @@ import {
   writeTranscriptStatus,
 } from "./Transcriber.ts";
 import { encodeTake, readTakeIndex, TAKE_FOLDER, writeTakeIndex } from "./VoiceOverTakes.ts";
+import {
+  commitFromClient,
+  commitTimelineText,
+  listTimelineVersions,
+  readTimelineVersion,
+  restoreTimelineVersion,
+  versionsText,
+} from "./TimelineHistory.ts";
 
 export class VideoProjectError extends Schema.TaggedError<VideoProjectError>()(
   "VideoProjectError",
@@ -171,6 +189,8 @@ const isSplitPiece = (clipId: string) => clipId.includes("~");
 const toTimelineEdit = (
   edit: VideoTimelineEdit,
   framesOfWords: (fromWord: number, toWord: number, ripple: boolean) => FrameRange | string,
+  /** Who a marker made by this edit is from. */
+  author: "user" | "agent",
 ): TimelineEdit | string => {
   const missing = (...keys: ReadonlyArray<keyof VideoTimelineEdit>) =>
     `needs ${keys.filter((key) => edit[key] === undefined).join(", ")}`;
@@ -230,6 +250,39 @@ const toTimelineEdit = (
       if (clipId === undefined || text === undefined) return missing("clipId", "text");
       return { kind: "setText", clipId, text };
     }
+    case "addMarker": {
+      if (edit.frame === undefined) return missing("frame");
+      if ((edit.name ?? "") === "" && (edit.note ?? "") === "") return "needs a name or a note";
+      return {
+        kind: "addMarker",
+        frame: edit.frame,
+        author,
+        ...(edit.duration === undefined ? {} : { duration: edit.duration }),
+        ...(edit.name === undefined ? {} : { name: edit.name }),
+        ...(edit.note === undefined ? {} : { note: edit.note }),
+        ...(edit.color === undefined ? {} : { color: edit.color }),
+        ...(edit.clipId === undefined ? {} : { clipId: edit.clipId }),
+      };
+    }
+    case "setMarker": {
+      if (edit.markerId === undefined) return missing("markerId");
+      return {
+        kind: "setMarker",
+        markerId: edit.markerId.replace(/^#/, ""),
+        ...(edit.frame === undefined ? {} : { frame: edit.frame }),
+        ...(edit.duration === undefined ? {} : { duration: edit.duration }),
+        ...(edit.name === undefined ? {} : { name: edit.name }),
+        ...(edit.note === undefined ? {} : { note: edit.note }),
+        ...(edit.color === undefined ? {} : { color: edit.color }),
+        ...(edit.resolved === undefined ? {} : { resolved: edit.resolved }),
+      };
+    }
+    case "removeMarker":
+      return edit.markerId === undefined
+        ? missing("markerId")
+        : { kind: "removeMarker", markerId: edit.markerId.replace(/^#/, "") };
+    case "restoreVersion":
+      return "a restore is the only edit in its call";
   }
 };
 
@@ -394,8 +447,31 @@ export class VideoProjects extends Context.Service<
      * or leave out a field their kind needs are refused, and nothing is written.
      */
     readonly editTimeline: (
-      input: VideoTimelineEditInput,
+      input: VideoTimelineEditInput & { readonly by?: "user" | "agent" },
     ) => Effect.Effect<VideoTimelineView, VideoProjectError>;
+    /**
+     * Writes a timeline edited in a client and records it as the user's version. Every write of
+     * a timeline (a commit, an agent's edit, a pull or merge, a voice-over placement, a restore)
+     * is a version, so any of them can be stepped back from.
+     */
+    readonly commitTimeline: (
+      input: VideoTimelineCommitInput,
+    ) => Effect.Effect<VideoTimelineVersions, VideoProjectError>;
+    readonly listVersions: (
+      input: VideoTimelineVersionsInput,
+    ) => Effect.Effect<VideoTimelineVersions, VideoProjectError>;
+    /** One version's text and what changed since. Changes nothing. */
+    readonly readVersion: (
+      input: VideoTimelineVersionReadInput,
+    ) => Effect.Effect<VideoTimelineVersionView, VideoProjectError>;
+    /**
+     * Brings a version back, or steps one undo or redo, as a new version. Premiere's latest
+     * save is merged first, and a version made on an earlier save has its own edits re-applied
+     * on the latest, so what the user did in Premiere since is never discarded.
+     */
+    readonly restoreVersion: (
+      input: VideoTimelineRestoreInput & { readonly by?: "user" | "agent" },
+    ) => Effect.Effect<VideoTimelineRestoreResult, VideoProjectError>;
     /**
      * The words spoken on a timeline, numbered and placed in frames, from the transcripts
      * `transcribe` or the user's own pipeline wrote under `Audio`.
@@ -451,7 +527,7 @@ export class VideoProjects extends Context.Service<
      * (`placeTake`), after merging Premiere's latest save as `editTimeline` does.
      */
     readonly applyVoiceOver: (
-      input: VideoVoiceOverApplyInput,
+      input: VideoVoiceOverApplyInput & { readonly by?: "user" | "agent" },
     ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
     /**
      * Cuts a transcribed recording of several lines into one take per line it says, each
@@ -1409,6 +1485,85 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const historyError = (cause: { readonly message: string }) =>
+    new VideoProjectError({ reason: cause.message, cause });
+  // Timeline paths come from clients: only a file in `timelines/` is one.
+  const requireTimeline = Effect.fn("VideoProjects.requireTimeline")(function* (
+    workspaceRoot: string,
+    timelinePath: string,
+  ) {
+    yield* requireProject(workspaceRoot);
+    const timelines = yield* listTimelines(workspaceRoot);
+    if (!timelines.includes(timelinePath)) {
+      return yield* new VideoProjectError({
+        reason: `No timeline ${timelinePath}. This project has: ${timelines.join(", ") || "none"}.`,
+      });
+    }
+  });
+
+  const commitTimeline: VideoProjects["Service"]["commitTimeline"] = Effect.fn(
+    "VideoProjects.commitTimeline",
+  )(function* (input) {
+    yield* requireTimeline(input.workspaceRoot, input.timeline);
+    return yield* syncing.withPermits(1)(
+      onHost(
+        commitFromClient({
+          projectDir: input.workspaceRoot,
+          timelinePath: input.timeline,
+          contents: input.contents,
+        }),
+      ).pipe(Effect.mapError(historyError)),
+    );
+  });
+
+  const listVersions: VideoProjects["Service"]["listVersions"] = Effect.fn(
+    "VideoProjects.listVersions",
+  )(function* (input) {
+    yield* requireTimeline(input.workspaceRoot, input.timeline);
+    return yield* syncing.withPermits(1)(
+      onHost(listTimelineVersions(input.workspaceRoot, input.timeline)).pipe(
+        Effect.mapError(historyError),
+      ),
+    );
+  });
+
+  const readVersion: VideoProjects["Service"]["readVersion"] = Effect.fn(
+    "VideoProjects.readVersion",
+  )(function* (input) {
+    yield* requireTimeline(input.workspaceRoot, input.timeline);
+    const read = yield* syncing.withPermits(1)(
+      onHost(readTimelineVersion(input.workspaceRoot, input.timeline, input.version)).pipe(
+        Effect.mapError(historyError),
+      ),
+    );
+    return { version: read.version, contents: read.contents, changesSince: read.changesSince };
+  });
+
+  const restoreVersion: VideoProjects["Service"]["restoreVersion"] = Effect.fn(
+    "VideoProjects.restoreVersion",
+  )(function* (input) {
+    yield* requireTimeline(input.workspaceRoot, input.timeline);
+    // Merged first, as an agent's edit is: the restore then starts from Premiere's latest save.
+    const { result: before } = yield* syncForAgent(input.workspaceRoot);
+    if (before.unmerged.includes(input.timeline)) {
+      return yield* new VideoProjectError({
+        reason: `${input.timeline} was edited here and in Premiere, and they can't be merged: ${NO_BASE} Nothing was changed. Choose a version in the Premiere badge first.`,
+      });
+    }
+    const { recorded: _recorded, ...restored } = yield* syncing.withPermits(1)(
+      onHost(
+        restoreTimelineVersion({
+          projectDir: input.workspaceRoot,
+          timelinePath: input.timeline,
+          ...(input.version === undefined ? {} : { version: input.version }),
+          ...(input.step === undefined ? {} : { step: input.step }),
+          by: input.by ?? "user",
+        }),
+      ).pipe(Effect.mapError(historyError)),
+    );
+    return restored;
+  });
+
   const readTimeline: VideoProjects["Service"]["readTimeline"] = Effect.fn(
     "VideoProjects.readTimeline",
   )(function* (input) {
@@ -1427,6 +1582,38 @@ const make = Effect.gen(function* () {
         project: yield* describeProject(input.workspaceRoot, synced),
         changes: changesText(result),
         text: "",
+      };
+    }
+    if (input.version !== undefined) {
+      // A past version, or the list of them, in place of the timeline as it is now.
+      const history = input.version === "list" ? null : input.version;
+      const text =
+        history === null
+          ? versionsText(
+              yield* listVersions({ workspaceRoot: input.workspaceRoot, timeline: chosen }),
+            )
+          : null;
+      const past =
+        history === null
+          ? null
+          : yield* onHost(readTimelineVersion(input.workspaceRoot, chosen, history)).pipe(
+              Effect.mapError(historyError),
+            );
+      return {
+        timelines,
+        timeline: chosen,
+        premiere: synced.state,
+        project: yield* describeProject(input.workspaceRoot, synced),
+        changes:
+          past === null
+            ? changesText(result)
+            : [
+                `Changed from ${past.version.id} to the timeline now:`,
+                ...capped(diffTimelines(past.timeline, past.current).changes.map(changeLine)),
+              ].join("\n"),
+        text:
+          text ??
+          `# ${past?.version.id}, not the timeline as it is now\n${past === null ? "" : editableView(past.timeline)}`,
       };
     }
     const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
@@ -1464,6 +1651,47 @@ const make = Effect.gen(function* () {
         reason: `${input.timeline} was edited here and in Premiere, and they can't be merged: ${NO_BASE} Nothing was changed. Ask the user to choose a version in Stellar.`,
       });
     }
+    // A restore names no clip or frame, so a pull just now doesn't outdate it.
+    const [only] = input.edits;
+    if (only?.kind === "restoreVersion" && input.edits.length === 1) {
+      const version = only.version;
+      if (version === undefined) {
+        return yield* new VideoProjectError({
+          reason: "Edit 1 (restoreVersion): needs version. Nothing was changed.",
+        });
+      }
+      const restored = yield* restoreVersion({
+        workspaceRoot: input.workspaceRoot,
+        timeline: input.timeline,
+        version,
+        by: input.by ?? "agent",
+      });
+      const { result: after, view: synced } = yield* syncWithPremiere({
+        workspaceRoot: input.workspaceRoot,
+      });
+      return {
+        timelines: yield* listTimelines(input.workspaceRoot),
+        timeline: input.timeline,
+        premiere: synced.state,
+        project: yield* describeProject(input.workspaceRoot, synced),
+        changes: [
+          `Restored ${version} as ${restored.versions[0]?.id ?? "a new version"}.`,
+          ...(restored.keptFromPremiere.length === 0
+            ? []
+            : [
+                `Kept from Premiere, changed there since ${version}:`,
+                ...capped(restored.keptFromPremiere),
+              ]),
+          ...(restored.conflicts.length === 0
+            ? []
+            : [`Not brought back, Premiere's version stands:`, ...capped(restored.conflicts)]),
+          changesText({ ...before, pending: after.pending }),
+        ]
+          .filter((line) => line !== "")
+          .join("\n"),
+        text: editableView(yield* loadTimeline(input.workspaceRoot, input.timeline)),
+      };
+    }
     // The edits name clips and frames from the agent's last read, which this pull just outdated.
     if (before.updated.includes(input.timeline)) {
       return yield* new VideoProjectError({
@@ -1474,6 +1702,7 @@ const make = Effect.gen(function* () {
     const layout = layoutTimeline(timeline);
     const clipIds = new Set(layout.tracks.flatMap((track) => track.clips.map((clip) => clip.key)));
     const trackNames = new Set(layout.tracks.map((track) => track.name));
+    const markerIds = new Set(timelineMarkers(timeline).map((marker) => marker.id));
     const words = input.edits.some((edit) => edit.kind === "removeWords")
       ? yield* loadWords(input.workspaceRoot, timeline)
       : null;
@@ -1499,15 +1728,19 @@ const make = Effect.gen(function* () {
     };
     const edits: Array<TimelineEdit> = [];
     for (const [index, edit] of input.edits.entries()) {
-      const parsed = toTimelineEdit(edit, framesOfWords);
+      const parsed = toTimelineEdit(edit, framesOfWords, input.by ?? "agent");
+      const clipId = typeof parsed === "string" ? undefined : (editClipId(parsed) ?? undefined);
       const problem =
         typeof parsed === "string"
           ? parsed
-          : "clipId" in parsed && !clipIds.has(parsed.clipId) && !isSplitPiece(parsed.clipId)
-            ? `no clip #${parsed.clipId}`
+          : clipId !== undefined && !clipIds.has(clipId) && !isSplitPiece(clipId)
+            ? `no clip #${clipId}`
             : parsed.kind === "move" && !trackNames.has(parsed.toTrack)
               ? `no track ${parsed.toTrack}`
-              : null;
+              : (parsed.kind === "setMarker" || parsed.kind === "removeMarker") &&
+                  !markerIds.has(parsed.markerId)
+                ? `no marker #${parsed.markerId}`
+                : null;
       if (problem !== null || typeof parsed === "string") {
         return yield* new VideoProjectError({
           reason: `Edit ${index + 1} (${edit.kind}): ${problem}. Nothing was changed.`,
@@ -1517,14 +1750,15 @@ const make = Effect.gen(function* () {
     }
     const edited = applyEdits(timeline, edits);
     yield* syncing.withPermits(1)(
-      fileSystem
-        .writeFileString(path.join(input.workspaceRoot, input.timeline), serializeTimeline(edited))
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new VideoProjectError({ reason: `Could not write ${input.timeline}.`, cause }),
-          ),
-        ),
+      onHost(
+        commitTimelineText({
+          projectDir: input.workspaceRoot,
+          timelinePath: input.timeline,
+          text: serializeTimeline(edited),
+          by: input.by ?? "agent",
+          label: input.by === "user" ? "Edited" : "Edited by an agent",
+        }),
+      ).pipe(Effect.mapError(historyError)),
     );
     const { result: after, view: synced } = yield* syncWithPremiere({
       workspaceRoot: input.workspaceRoot,
@@ -1688,13 +1922,10 @@ const make = Effect.gen(function* () {
           "Pull first: Premiere saved a newer version of this sequence than the edits here started from. Call video_timeline_read, which merges it with the edits made here, then ask for the plan again.",
         );
       }
-      const base = yield* fileSystem
-        .readFileString(path.join(input.workspaceRoot, BASE_DIRECTORY, path.basename(chosen)))
-        .pipe(
-          Effect.flatMap(decodeJson),
-          Effect.map((value) => value as Timeline),
-          Effect.option,
-        );
+      const pulled = yield* onHost(pulledHash(input.workspaceRoot, chosen));
+      const base = Option.fromNullishOr(
+        pulled === null ? null : yield* onHost(readBase(input.workspaceRoot, chosen, pulled)),
+      );
       if (Option.isNone(base)) {
         return refuse("No record of Premiere's version yet; sync once with Premiere open.");
       }
@@ -1718,6 +1949,11 @@ const make = Effect.gen(function* () {
                 : [
                     `The sequence runs at ${plan.rate.toFixed(3)} fps: a tool that takes whole frame rates only will refuse a ripple-remove; razor both ends of the range and ripple-delete what is between them.`,
                   ]),
+              ...(plan.steps.some((step) => step.kind.endsWith("Marker"))
+                ? [
+                    "Marker steps come last and give each marker's final place. List the sequence's markers first and find each by name and comment: Premiere may have moved them with the ripple steps. Write a marker's comment exactly as given; a last line like [stellar: agent, resolved] is how Stellar reads back who made it and that it is resolved. A clip marker goes on the source clip in the project, at the source time given.",
+                  ]
+                : []),
               ...(plan.manual.length === 0
                 ? []
                 : [
@@ -2020,17 +2256,15 @@ const make = Effect.gen(function* () {
       return yield* voiceOverView(input.workspaceRoot, input.timeline);
     }
     yield* syncing.withPermits(1)(
-      fileSystem
-        .writeFileString(
-          path.join(input.workspaceRoot, input.timeline),
-          serializeTimeline(timeline),
-        )
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new VideoProjectError({ reason: `Could not write ${input.timeline}.`, cause }),
-          ),
-        ),
+      onHost(
+        commitTimelineText({
+          projectDir: input.workspaceRoot,
+          timelinePath: input.timeline,
+          text: serializeTimeline(timeline),
+          by: input.by ?? "user",
+          label: "Voice-over placed",
+        }),
+      ).pipe(Effect.mapError(historyError)),
     );
     yield* syncWithPremiere({ workspaceRoot: input.workspaceRoot });
     return yield* voiceOverView(input.workspaceRoot, input.timeline, [...changes, ...refused]);
@@ -2276,6 +2510,10 @@ const make = Effect.gen(function* () {
     saveScript,
     transcribe,
     editTimeline,
+    commitTimeline,
+    listVersions,
+    readVersion,
+    restoreVersion,
     inspectPremiere,
     createFromPremiere,
     createFromIdea,

@@ -122,6 +122,11 @@ const follow = (from: Timeline, steps: ReadonlyArray<PushStep>): Timeline =>
         return applyEdits(timeline, [
           { kind: "split", frame: step.at.frame, tracks: [step.clip.track.name] },
         ]);
+      // Marker steps touch no clip; the cut these checks follow is the same without them.
+      case "addMarker":
+      case "removeMarker":
+      case "setMarker":
+        return timeline;
     }
   }, from);
 
@@ -185,6 +190,51 @@ describe("pushPlan", () => {
       '2. trim start of "a1" on A1 at 0.000s: 0.000s → 0.333333s (frames 0 → 10; source in 0.333333s)',
     ]);
     expect(spans(follow(base, pushPlan(base, ours).steps))).toEqual(spans(ours));
+
+    // A head trim moves the clip's keyframes with it, which Premiere does on its own: the
+    // trim is the whole plan, with nothing left to do by hand.
+    const animated: Timeline = {
+      ...base,
+      tracks: {
+        ...base.tracks,
+        children: base.tracks.children.map((item) => ({
+          ...item,
+          children: item.children.map((child) =>
+            child.name !== "v2"
+              ? child
+              : {
+                  ...child,
+                  metadata: {
+                    ...child.metadata,
+                    [TIMELINE_NAMESPACE]: {
+                      transform: {
+                        keyframes: {
+                          scale: [
+                            [0, 100],
+                            [1, 120],
+                          ],
+                        },
+                      },
+                      effects: [
+                        {
+                          kind: "Transform",
+                          ref: "sha256:t",
+                          params: { keyframes: { rotation: [[0.5, 0]] } },
+                        },
+                      ],
+                    },
+                  },
+                },
+          ),
+        })),
+      },
+    };
+    const plan = pushPlan(
+      animated,
+      applyEdits(animated, [{ kind: "trim", clipId: "v2", edge: "start", frame: 110 }]),
+    );
+    expect(plan.manual).toEqual([]);
+    expect(plan.steps.map((step) => step.kind)).toEqual(["trim"]);
   });
 
   it("names a sped-up clip's source point by its speed, and leaves a reversed clip's trim to a person", () => {
@@ -337,6 +387,42 @@ describe("pushPlan", () => {
       "Add broll to V2 at 3.333333s-5.000s (frames 100-150, source in 1.000s of broll.mov); import its media first if the project lacks it",
     ]);
     expect(plan.text.split("\n")[0]).toBe("By hand, no step here does it safely:");
+  });
+
+  it("adds marker steps after the cut, each marker at the place it ends up", () => {
+    // Premiere's save has a user's note at 250 and a chapter mark; here the note is answered
+    // and resolved, the chapter mark removed, and two markers made, one on v3's picture.
+    const pulled = applyEdits(base, [
+      {
+        kind: "addMarker",
+        markerId: "m1",
+        frame: 250,
+        name: "Cut too early",
+        note: "lose two frames",
+      },
+      { kind: "addMarker", markerId: "m2", frame: 20, name: "Chapter", color: "BLUE" },
+    ]);
+    const ours = applyEdits(pulled, [
+      { kind: "removeRange", start: 100, end: 110, ripple: true },
+      { kind: "setMarker", markerId: "m1", resolved: true, color: "RED" },
+      { kind: "removeMarker", markerId: "m2" },
+      { kind: "addMarker", frame: 300, duration: 30, name: "B-roll here", author: "agent" },
+      { kind: "addMarker", frame: 200, clipId: "v3", name: "Smile" },
+    ]);
+    const plan = pushPlan(pulled, ours);
+    expect(plan.text.split("\n")).toEqual([
+      "1. ripple-remove 3.333333s-3.666667s (frames 100-110) on V1,A1",
+      '2. remove sequence marker "Chapter" at 0.666667s (frame 20)',
+      // The cut moved it from 250 to 240; the step names where Premiere's save has it.
+      '3. change sequence marker "Cut too early" at 8.333333s (frame 250): move to 8.000s (frame 240), comment "lose two frames\\n[stellar: resolved]", colour red (index 1)',
+      '4. add sequence marker "B-roll here" at 10.000s (frame 300), 1.000s long, colour green (index 0), comment "[stellar: agent]"',
+      '5. add clip marker "Smile" at source 0.333333s of v3.mov, colour green (index 0), comment ""',
+    ]);
+    expect(plan.manual).toEqual([]);
+    // Only markers differ: no cut steps, and nothing left for a person.
+    expect(
+      pushPlan(pulled, applyEdits(pulled, [{ kind: "removeMarker", markerId: "m2" }])).steps,
+    ).toMatchObject([{ kind: "removeMarker", marker: { name: "Chapter", colorIndex: 6 } }]);
   });
 
   it("gives seconds for 59.94 fps as frames of 1001/60000 s", () => {

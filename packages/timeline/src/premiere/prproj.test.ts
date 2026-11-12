@@ -3,7 +3,8 @@ import * as NodeZlib from "node:zlib";
 import { describe, expect, it } from "vite-plus/test";
 import { compactView } from "../compactView.ts";
 import { layoutTimeline } from "../layout.ts";
-import { type Clip, type EffectRef, TIMELINE_NAMESPACE } from "../otio.ts";
+import { markersText } from "../markers.ts";
+import { type Clip, type EffectRef, TIMELINE_NAMESPACE, timeRange } from "../otio.ts";
 import { parsePrproj } from "./prproj.ts";
 
 // Ticks per frame: 59.94 sequence, 30 fps camera clip, 29.97 still.
@@ -105,10 +106,11 @@ const fixture = () => {
     range: { start: bigint; end: bigint; in: bigint; out: bigint },
     components: number,
     speed = "",
+    markerOwner = "",
   ) => {
     const clip = add(
       (id) =>
-        `<VideoClip ObjectID="${id}"><Clip><Source ObjectRef="${m.source}"/>${speed === "" ? "" : `<PlaybackSpeed>${speed}</PlaybackSpeed>`}<InPoint>${range.in}</InPoint><OutPoint>${range.out}</OutPoint></Clip></VideoClip>`,
+        `<VideoClip ObjectID="${id}"><Clip>${markerOwner}<Source ObjectRef="${m.source}"/>${speed === "" ? "" : `<PlaybackSpeed>${speed}</PlaybackSpeed>`}<InPoint>${range.in}</InPoint><OutPoint>${range.out}</OutPoint></Clip></VideoClip>`,
     );
     const sub = add(
       (id) =>
@@ -225,6 +227,22 @@ const fixture = () => {
     const params = [fade, blend(2, 18), blend(3, 4)];
     return `<VideoFilterComponent ObjectID="${id}"><Component><Params>${params.map((p, i) => `<Param Index="${i}" ObjectRef="${p}"/>`).join("")}</Params><DisplayName>Opacity</DisplayName><Intrinsic>true</Intrinsic></Component><MatchName>AE.ADBE Opacity</MatchName></VideoFilterComponent>`;
   });
+  // Markers as Premiere writes them: a list of `Marker` objects, each one JSON, with fields at
+  // their defaults left out. The first sequence marker is copied from a real project.
+  const markerList = (markers: ReadonlyArray<Record<string, unknown>>) => {
+    const entries = markers.map((marker) => ({
+      guid: String(marker["mMarkerID"]),
+      object: add(
+        (id) =>
+          `<Marker ObjectID="${id}" Version="3"><DVAMarker>${JSON.stringify({ DVAMarker: marker })}</DVAMarker></Marker>`,
+      ),
+    }));
+    const list = add(
+      (id) =>
+        `<Markers ObjectID="${id}" Version="4"><Markers Version="1">${entries.map((entry, i) => `<Marker Version="1" Index="${i}"><First>${entry.guid}</First><Second ObjectRef="${entry.object}"/></Marker>`).join("")}</Markers><ByGUID>byGUID</ByGUID></Markers>`,
+    );
+    return `<MarkerOwner Version="1"><Markers ObjectRef="${list}"/></MarkerOwner>`;
+  };
   const fast = item(
     "VideoClipTrackItem",
     1000010,
@@ -233,6 +251,20 @@ const fixture = () => {
     { start: 0n, end: 60n * SEQ, in: 30n * CAM, out: 90n * CAM },
     chain("VideoComponentChain", [opacity, crop]),
     "2",
+    // The source clip's markers: one on the media this piece plays, one far past it.
+    markerList([
+      {
+        mMarkerID: "c11p0001-0000-4000-8000-000000000000",
+        mStartTime: { ticks: Number(45n * CAM) },
+        mType: "Comment",
+        mName: "Smile",
+      },
+      {
+        mMarkerID: "c11p0002-0000-4000-8000-000000000000",
+        mStartTime: { ticks: Number(200n * CAM) },
+        mType: "Comment",
+      },
+    ]),
   );
   const backwards = item(
     "VideoClipTrackItem",
@@ -353,7 +385,24 @@ const fixture = () => {
       `<DataTrackGroup ObjectID="${id}"><TrackGroup><Tracks><Track Index="0" ObjectURef="track-fx-c1"/></Tracks></TrackGroup></DataTrackGroup>`,
   );
   objects.push(
-    `<Sequence ObjectUID="seq-2"><TrackGroups><TrackGroup Index="0"><First>v</First><Second ObjectRef="${fxVideo}"/></TrackGroup><TrackGroup Index="1"><First>d</First><Second ObjectRef="${fxData}"/></TrackGroup></TrackGroups><Name>Effects v1</Name></Sequence>`,
+    `<Sequence ObjectUID="seq-2"><TrackGroups><TrackGroup Index="0"><First>v</First><Second ObjectRef="${fxVideo}"/></TrackGroup><TrackGroup Index="1"><First>d</First><Second ObjectRef="${fxData}"/></TrackGroup></TrackGroups><Name>Effects v1</Name>${markerList(
+      [
+        {
+          mMarkerID: "afd09899-21d4-41e1-b3a2-27c990fbdc51",
+          mStartTime: { ticks: Number(90n * SEQ) },
+          mType: "Comment",
+          mName: "Cut too early",
+          mComment: "lose two frames\n[stellar: agent, resolved]",
+          mDuration: { ticks: Number(12n * SEQ) },
+          mColorIndex: 1,
+        },
+        {
+          mMarkerID: "fc7e2d89-ae1e-4dd7-bb2a-ba598ce96e1a",
+          mStartTime: { ticks: Number(30n * SEQ) },
+          mType: "Comment",
+        },
+      ],
+    )}</Sequence>`,
   );
   return `<?xml version="1.0" encoding="UTF-8" ?>\n<PremiereData Version="3">${objects.join("\n")}</PremiereData>`;
 };
@@ -584,5 +633,45 @@ describe("parsePrproj", () => {
     expect(compactView(timeline).split("\n")[1]).toBe(
       "V1 0–60 IMG_1.MOV src 30–60.03@30 speed=200% fx:Opacity~,Crop crop_left=10 crop_bottom=25 opacity=0→0",
     );
+  });
+
+  it("reads sequence markers in timeline frames and a clip's markers on the media it plays", () => {
+    const { timeline } = parsePrproj(NodeZlib.gzipSync(fixture())).readSequence("Effects v1");
+    const rate = timeline.global_start_time.rate;
+    // In time order, with Premiere's id shortened to something an agent can type.
+    expect(timeline.tracks.markers).toEqual([
+      {
+        OTIO_SCHEMA: "Marker.2",
+        name: "",
+        color: "GREEN",
+        comment: "",
+        marked_range: timeRange(30, 0, rate),
+        metadata: {
+          [TIMELINE_NAMESPACE]: { id: "fc7e2d89", author: "user" },
+          premiere: { markerId: "fc7e2d89-ae1e-4dd7-bb2a-ba598ce96e1a" },
+        },
+      },
+      {
+        OTIO_SCHEMA: "Marker.2",
+        name: "Cut too early",
+        color: "RED",
+        // The tag Stellar's push put on the comment is read back, not shown.
+        comment: "lose two frames",
+        marked_range: timeRange(90, 12, rate),
+        metadata: {
+          [TIMELINE_NAMESPACE]: { id: "afd09899", author: "agent", resolved: true },
+          premiere: { markerId: "afd09899-21d4-41e1-b3a2-27c990fbdc51" },
+        },
+      },
+    ]);
+    // The clip plays media frames 30–90 at double speed, so its marker at 45 shows 7.5 media
+    // frames in: 15 frames of 59.94 along the track. The marker at 200 is on no piece here.
+    expect(markersText(timeline).split("\n").slice(1)).toEqual([
+      "M 15 #c11p0001 user open on #000f424a Smile",
+      "M 30 #fc7e2d89 user open (unnamed)",
+      "M 90-102 #afd09899 agent done Cut too early: lose two frames",
+    ]);
+    // A sequence without markers reads as it always did.
+    expect(pull().timeline.tracks).not.toHaveProperty("markers");
   });
 });

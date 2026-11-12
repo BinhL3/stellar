@@ -58,6 +58,9 @@ export const TIMELINE_ACTIONS = {
   undo: ["cmd.edit.undo"],
   redo: ["cmd.edit.redo"],
   maximize: ["cmd.toggle.maximize.focused.frame"],
+  addMarker: ["cmd.set.marker", "cmd.set.marker.unnumbered"],
+  nextMarker: ["cmd.marker.gotomarker.next", "cmd.marker.gotosequencemarker.next"],
+  previousMarker: ["cmd.marker.gotomarker.previous", "cmd.marker.gotosequencemarker.previous"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 export type TimelineAction = keyof typeof TIMELINE_ACTIONS;
@@ -122,6 +125,9 @@ export const PREMIERE_DEFAULT_KEYMAP: Keymap = {
   "Meta+Z": "undo",
   "Meta+Shift+Z": "redo",
   "`": "maximize",
+  M: "addMarker",
+  "Shift+M": "nextMarker",
+  "Meta+Shift+M": "previousMarker",
 };
 
 // Premiere's own codes for non-character keys; character keys carry the high bit (0x80000000).

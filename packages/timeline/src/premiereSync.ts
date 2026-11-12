@@ -11,6 +11,7 @@ import { diffTimelines, type MergeConflict, mergeTimelines, type TimelineDiff } 
 import { serializeJson, serializeTimeline, TIMELINE_NAMESPACE, type Timeline } from "./otio.ts";
 import { parsePrproj } from "./premiere/prproj.ts";
 import { BASE_DIRECTORY, timelineFileName, writeBase, writeBlobs } from "./pullToProject.ts";
+import { hasSnapshot, readSnapshot, recordVersion } from "./versions.ts";
 
 /**
  * Which Premiere project a Stellar project follows, and whose version each timeline holds.
@@ -18,8 +19,6 @@ import { BASE_DIRECTORY, timelineFileName, writeBase, writeBlobs } from "./pullT
  * is anything new to pull without opening it.
  */
 export const PREMIERE_LINK_PATH = "premiere.json";
-/** A timeline replaced by Premiere's version while it held edits made here is kept in this folder. */
-export const REPLACED_DIRECTORY = "timelines/replaced";
 
 interface LinkedTimeline {
   readonly sequenceId: string;
@@ -126,17 +125,35 @@ const readTimeline = Effect.fn("timeline.premiereSync.readTimeline")(function* (
   return { text, timeline: (yield* decodeJson(text)) as Timeline };
 });
 
-/** What both sides started from, or null when it isn't on record (pulled before bases were kept). */
-const readBase = Effect.fn("timeline.premiereSync.readBase")(function* (
+/**
+ * What both sides started from: the snapshot the history keeps under the hash last pulled, or
+ * for a project pulled before that, the copy in `timelines/.base`. Null when neither holds it.
+ */
+export const readBase = Effect.fn("timeline.premiereSync.readBase")(function* (
   projectDir: string,
   timelinePath: string,
   pulled: string,
 ) {
   const path = yield* Path.Path;
+  const kept = yield* readSnapshot(projectDir, timelinePath, pulled);
+  if (kept !== null) {
+    const timeline = yield* decodeJson(kept).pipe(Effect.option);
+    if (Option.isSome(timeline)) return timeline.value as Timeline;
+  }
   const read = yield* readTimeline(
     path.join(projectDir, BASE_DIRECTORY, path.basename(timelinePath)),
   ).pipe(Effect.option);
   return Option.isSome(read) && sha(read.value.text) === pulled ? read.value.timeline : null;
+});
+
+/** The hash of the text last pulled from Premiere for a timeline, or null when it follows none. */
+export const pulledHash = Effect.fn("timeline.premiereSync.pulledHash")(function* (
+  projectDir: string,
+  timelinePath: string,
+) {
+  const link = yield* readLink(projectDir);
+  const pulled = link?.timelines[timelinePath]?.pulled;
+  return pulled === undefined || pulled === UNKNOWN ? null : pulled;
 });
 
 const mediaRootOf = (timeline: Timeline) =>
@@ -222,7 +239,8 @@ export const recordPull = Effect.fn("timeline.recordPull")(function* (input: {
 /**
  * Brings timelines up to Premiere's latest save; an unchanged save costs one `stat`. One edited
  * here is only overwritten by `usePremiere`, or by `merge`, which re-applies the edits made here
- * on Premiere's save. Both keep the version that was here in `timelines/replaced/`.
+ * on Premiere's save. Every rewrite is a version in the timeline's history, and so is the text
+ * it replaced.
  */
 export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function* (input: {
   readonly projectDir: string;
@@ -302,18 +320,19 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
     timelinePath: string,
     text: string,
   ) {
-    const file = path.join(input.projectDir, BASE_DIRECTORY, path.basename(timelinePath));
-    if (yield* fs.exists(file).pipe(Effect.orElseSucceed(() => false))) return;
+    if (yield* hasSnapshot(input.projectDir, timelinePath, sha(text))) return;
     yield* writeBase({ projectDir: input.projectDir, timelinePath, text });
   });
-  const keepReplaced = Effect.fn("timeline.premiereSync.keepReplaced")(function* (
-    timelinePath: string,
-    text: string,
-  ) {
-    const replaced = path.join(input.projectDir, REPLACED_DIRECTORY);
-    yield* fs.makeDirectory(replaced, { recursive: true });
-    yield* fs.writeFileString(path.join(replaced, path.basename(timelinePath)), text);
-  });
+  /** `before` is the text the file held, so edits made here stay in the history when replaced. */
+  const record = (timelinePath: string, text: string, before: string | undefined, label: string) =>
+    recordVersion({
+      projectDir: input.projectDir,
+      timelinePath,
+      text,
+      ...(before === undefined ? {} : { before }),
+      by: "premiere",
+      label,
+    });
 
   if (unchanged && input.usePremiere !== true && !mergeRemembered) {
     for (const [timelinePath, entry] of Object.entries(link.timelines)) {
@@ -389,10 +408,15 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
           continue;
         }
         const mergedText = serializeTimeline(merged.timeline);
-        yield* keepReplaced(timelinePath, mine.text);
         yield* writeBlobs(input.projectDir, pulled.blobs);
         yield* writeBase({ projectDir: input.projectDir, timelinePath, text });
         yield* fs.writeFileString(path.join(input.projectDir, timelinePath), mergedText);
+        yield* record(
+          timelinePath,
+          mergedText,
+          mine.text,
+          "Merged Premiere's save with the edits made here",
+        );
         timelines[timelinePath] = current;
         updated.push(timelinePath);
         note(changes, timelinePath, base, pulled.timeline);
@@ -405,10 +429,15 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
         }
         continue;
       }
-      if (editedHere) yield* keepReplaced(timelinePath, mine.text);
       yield* writeBlobs(input.projectDir, pulled.blobs);
       yield* fs.writeFileString(path.join(input.projectDir, timelinePath), text);
       yield* writeBase({ projectDir: input.projectDir, timelinePath, text });
+      yield* record(
+        timelinePath,
+        text,
+        mine.text,
+        editedHere ? "Replaced by Premiere's version" : "Pulled from Premiere",
+      );
       timelines[timelinePath] = current;
       updated.push(timelinePath);
       note(changes, timelinePath, base ?? mine.timeline, pulled.timeline);
@@ -447,6 +476,7 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
         yield* fs.makeDirectory(path.join(input.projectDir, "timelines"), { recursive: true });
         yield* fs.writeFileString(path.join(input.projectDir, timelinePath), text);
         yield* writeBase({ projectDir: input.projectDir, timelinePath, text });
+        yield* record(timelinePath, text, undefined, "Pulled from Premiere");
         timelines[timelinePath] = { sequenceId: sequence.id, pulled: hash, premiere: hash };
         updated.push(timelinePath);
         sequenceChanges.push({ kind: "added", name: sequence.name, timelinePath });

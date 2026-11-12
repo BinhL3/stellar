@@ -495,3 +495,141 @@ describe("mergeTimelines", () => {
     expect(lines(theirs, merge.timeline)).toEqual(["changed V1 0-100 #n0 v1: enabled"]);
   });
 });
+
+describe("keyframes through a head trim", () => {
+  // v3 slides in over its first second: Motion scale and a Transform effect's position.
+  const animate = (timeline: Timeline, scaleTo = 120) =>
+    mapClips(timeline, (item) =>
+      item.name === "v3"
+        ? {
+            ...item,
+            metadata: {
+              ...item.metadata,
+              [TIMELINE_NAMESPACE]: {
+                ...(item.metadata[TIMELINE_NAMESPACE] as object),
+                transform: {
+                  keyframes: {
+                    scale: [
+                      [0, 100],
+                      [1, scaleTo],
+                    ],
+                  },
+                },
+                effects: [
+                  {
+                    kind: "Transform",
+                    ref: "sha256:t",
+                    bypassed: true,
+                    params: {
+                      rotation: 5,
+                      keyframes: {
+                        position: [
+                          [0, [0.5, -1.4]],
+                          [1, [0.5, 0.5]],
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          }
+        : item,
+    );
+  const animated = animate(base);
+  const headTrim: TimelineEdit = { kind: "trim", clipId: "v3", edge: "start", frame: 215 };
+  /** Each piece of v3 with the times of its scale and position keyframes. */
+  const keys = (timeline: Timeline) =>
+    layoutTimeline(timeline)
+      .tracks.flatMap((t) => t.clips)
+      .filter((item) => item.clip.name === "v3")
+      .map((item) => {
+        const stellar = item.clip.metadata[TIMELINE_NAMESPACE] as {
+          transform: { keyframes: { scale: ReadonlyArray<ReadonlyArray<number>> } };
+          effects: ReadonlyArray<{
+            ref: string;
+            bypassed: boolean;
+            params: {
+              rotation: number;
+              keyframes: { position: ReadonlyArray<ReadonlyArray<unknown>> };
+            };
+          }>;
+        };
+        // What the effect is besides its timing reaches every version as it was read.
+        expect(
+          stellar.effects.map(({ ref, bypassed, params }) => [ref, bypassed, params.rotation]),
+        ).toEqual([["sha256:t", true, 5]]);
+        return {
+          at: item.startFrame,
+          scale: stellar.transform.keyframes.scale.map(([at, value]) => `${at}:${value}`),
+          position: stellar.effects.map((effect) =>
+            effect.params.keyframes.position.map(([at]) => at),
+          ),
+        };
+      });
+
+  it("reports the trim alone, however many steps it took, and a real change beside it", () => {
+    const trimmed = applyEdits(animated, [headTrim]);
+    expect(lines(animated, trimmed)).toEqual(["trimmed V1 #v3 start 200→215 v3"]);
+    expect(diffSentences(diffTimelines(animated, trimmed))).toEqual([
+      "Trimmed v3 on V1 at 0:06: cut 0.5s off its start",
+    ]);
+    // Frame by frame, where each step rounds the times again.
+    const nudged = applyEdits(
+      animated,
+      [201, 202, 203].map((frame): TimelineEdit => ({ ...headTrim, frame })),
+    );
+    expect(lines(animated, nudged)).toEqual(["trimmed V1 #v3 start 200→203 v3"]);
+    // A keyframe that really changed is still a change, trimmed or not.
+    expect(lines(animated, applyEdits(animate(base, 150), [headTrim]))).toEqual([
+      "trimmed V1 #v3 start 200→215 v3",
+      "changed V1 215-300 #v3 v3: scale keyframes",
+    ]);
+  });
+
+  it("merges our head trim onto their copy with the keyframes moved once", () => {
+    const ours = applyEdits(animated, [headTrim]);
+    const moved = { at: 215, scale: ["-0.5:100", "0.5:120"], position: [[-0.5, 0.5]] };
+    expect(keys(ours)).toEqual([moved]);
+
+    const untouched = mergeTimelines(animated, ours, repulled(animated));
+    expect(untouched.conflicts).toEqual([]);
+    expect(keys(untouched.timeline)).toEqual([moved]);
+
+    // They changed the animation's end value; our trim keeps their curve on its frames.
+    const theirs = mergeTimelines(animated, ours, repulled(animate(base, 150)));
+    expect(theirs.conflicts).toEqual([]);
+    expect(keys(theirs.timeline)).toEqual([{ ...moved, scale: ["-0.5:100", "0.5:150"] }]);
+
+    // We changed it and trimmed; they did neither.
+    const both = mergeTimelines(
+      animated,
+      applyEdits(animate(base, 150), [headTrim]),
+      repulled(animated),
+    );
+    expect(both.conflicts).toEqual([]);
+    expect(keys(both.timeline)).toEqual([{ ...moved, scale: ["-0.5:100", "0.5:150"] }]);
+
+    // An edit elsewhere (as a restored version's may be) leaves their clip as they saved it.
+    const theirSave = repulled(animate(base, 150));
+    const elsewhere = mergeTimelines(
+      animated,
+      applyEdits(animated, [{ kind: "setEnabled", clipId: "v1", enabled: false }]),
+      theirSave,
+    );
+    expect(elsewhere.conflicts).toEqual([]);
+    const v3 = (timeline: Timeline) =>
+      timeline.tracks.children[0]?.children[2]?.metadata[TIMELINE_NAMESPACE];
+    expect(v3(elsewhere.timeline)).toEqual(v3(theirSave));
+  });
+
+  it("cuts a clip whose animation they changed, each piece keeping their curve in step", () => {
+    const ours = applyEdits(animated, [{ kind: "split", frame: 215, tracks: ["V1"] }]);
+    const merge = mergeTimelines(animated, ours, repulled(animate(base, 150)));
+    expect(merge.conflicts).toEqual([]);
+    expect(keys(merge.timeline)).toEqual([
+      { at: 200, scale: ["0:100", "1:150"], position: [[0, 1]] },
+      { at: 215, scale: ["-0.5:100", "0.5:150"], position: [[-0.5, 0.5]] },
+    ]);
+  });
+});

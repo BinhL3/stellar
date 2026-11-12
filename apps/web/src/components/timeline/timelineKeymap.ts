@@ -61,6 +61,9 @@ export const ACTION_LABELS: Record<TimelineAction, string> = {
   undo: "Undo",
   redo: "Redo",
   maximize: "Full screen",
+  addMarker: "Add a marker",
+  nextMarker: "Next marker",
+  previousMarker: "Previous marker",
 };
 
 // Physical keys, not characters: on a Mac, Option turns I into ˆ, and Shift turns ` into ~.

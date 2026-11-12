@@ -35,6 +35,10 @@
       "types": "./src/layout.ts",
       "import": "./src/layout.ts"
     },
+    "./markers": {
+      "types": "./src/markers.ts",
+      "import": "./src/markers.ts"
+    },
     "./otio": {
       "types": "./src/otio.ts",
       "import": "./src/otio.ts"
@@ -98,6 +102,10 @@
     "./speed": {
       "types": "./src/speed.ts",
       "import": "./src/speed.ts"
+    },
+    "./versions": {
+      "types": "./src/versions.ts",
+      "import": "./src/versions.ts"
     },
     "./words": {
       "types": "./src/words.ts",

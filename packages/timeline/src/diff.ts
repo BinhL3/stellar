@@ -3,8 +3,15 @@
  * agent's edits and the user's hand edits in Premiere both survive a pull. Pure; frames are
  * whole timeline frames. A line reads `rippled V1,A1 from 240 by -120 (14 clips)`.
  */
-import { applyEdits, STILL_PATH, type TimelineEdit } from "./edits.ts";
+import { applyEdits, keyframesEarlier, STILL_PATH, type TimelineEdit } from "./edits.ts";
 import { clipIdOf, layoutTimeline } from "./layout.ts";
+import {
+  type MarkerChange,
+  markerChangeLine,
+  markerChanges,
+  markerChangeSentence,
+  mergeMarkers,
+} from "./markerDiff.ts";
 import { type Clip, sortKeys, type Timeline, TIMELINE_NAMESPACE, type Track } from "./otio.ts";
 import { mediaSpanSeconds, playSpan, timeScalarOf } from "./speed.ts";
 
@@ -67,7 +74,9 @@ export type TimelineChange =
       readonly kind: "trackChanged";
       readonly track: string;
       readonly properties: ReadonlyArray<string>;
-    };
+    }
+  /** Markers added, removed or changed; listed after the clip changes. */
+  | MarkerChange;
 
 export interface TimelineDiff {
   /** Frames per second of the later version, for turning frames into times. */
@@ -218,12 +227,73 @@ const propertiesOf = (item: Clip | Track): ReadonlyMap<string, Property> => {
   return out;
 };
 
-const changedProperties = (before: Clip | Track, after: Clip | Track): Array<string> => {
+// Keyframe times are kept to 0.1 ms and each head trim rounds them again.
+const KEYFRAME_SLACK = 0.001;
+
+/** Whether keyframes `b` are keyframes `a` moved `seconds` earlier, values and easing alike. */
+const samePoints = (a: unknown, b: unknown, seconds: number): boolean =>
+  Array.isArray(a) &&
+  Array.isArray(b) &&
+  a.length === b.length &&
+  a.every((point: unknown, index) => {
+    const other: unknown = b[index];
+    if (!Array.isArray(point) || !Array.isArray(other)) return false;
+    const [at, ...rest] = point as ReadonlyArray<unknown>;
+    const [otherAt, ...otherRest] = other as ReadonlyArray<unknown>;
+    return (
+      typeof at === "number" &&
+      typeof otherAt === "number" &&
+      Math.abs(at - seconds - otherAt) <= KEYFRAME_SLACK &&
+      same(rest, otherRest)
+    );
+  });
+
+/**
+ * `same`, but for a clip that lost `seconds` off its head between `a` and `b`: its keyframes,
+ * timed from its first frame, sit that much earlier (see `keyframesEarlier`) without having
+ * changed. `keyframes` is true when the values are one parameter's keyframes themselves.
+ */
+const sameAfterHeadTrim = (
+  a: unknown,
+  b: unknown,
+  seconds: number,
+  keyframes: boolean,
+): boolean => {
+  if (same(a, b) && seconds === 0) return true;
+  if (keyframes) return samePoints(a, b, seconds);
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return (
+      a.length === b.length &&
+      a.every((item, index) => sameAfterHeadTrim(item, b[index], seconds, false))
+    );
+  }
+  if (!isRecord(a) || !isRecord(b)) return same(a, b);
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].every((key) => {
+    const mine = a[key];
+    const other = b[key];
+    return key === "keyframes" && isRecord(mine) && isRecord(other)
+      ? [...new Set([...Object.keys(mine), ...Object.keys(other)])].every((param) =>
+          samePoints(mine[param], other[param], seconds),
+        )
+      : sameAfterHeadTrim(mine, other, seconds, false);
+  });
+};
+
+/** `headSeconds` is what `after` lost off its head since `before`, for a clip. */
+const changedProperties = (
+  before: Clip | Track,
+  after: Clip | Track,
+  headSeconds = 0,
+): Array<string> => {
   const was = propertiesOf(before);
   const is = propertiesOf(after);
-  return [...new Set([...was.keys(), ...is.keys()])].filter(
-    (name) => !same(was.get(name)?.value, is.get(name)?.value),
-  );
+  return [...new Set([...was.keys(), ...is.keys()])].filter((name) => {
+    const from = was.get(name);
+    const to = is.get(name);
+    if (same(from?.value, to?.value) && headSeconds === 0) return false;
+    const keyframes = (from ?? to)?.path.at(-2) === "keyframes";
+    return !sameAfterHeadTrim(from?.value, to?.value, headSeconds, keyframes);
+  });
 };
 
 /** `target` with the named properties as `ours` has them; `base` locates one that ours dropped. */
@@ -451,7 +521,7 @@ const pairOf = (base: Placed, next: Placed, rate: number): Pair => {
     trimEnd: trimStart + lengthChange,
     from,
     shift: next.start - from,
-    properties: changedProperties(base.clip, next.clip),
+    properties: changedProperties(base.clip, next.clip, trimStart / rate),
   };
 };
 
@@ -679,7 +749,7 @@ const changesOf = (analysis: Analysis): Array<TimelineChange> => {
  */
 export const diffTimelines = (base: Timeline, next: Timeline): TimelineDiff => {
   const analysis = analyze(base, next);
-  return { rate: analysis.rate, changes: changesOf(analysis) };
+  return { rate: analysis.rate, changes: [...changesOf(analysis), ...markerChanges(base, next)] };
 };
 
 const span = (state: ClipState) => `${state.track} ${state.startFrame}-${state.endFrame}`;
@@ -713,6 +783,10 @@ export const changeLine = (change: TimelineChange): string => {
       return `track renamed ${change.before} → ${change.after}`;
     case "trackChanged":
       return `track changed ${change.track}: ${change.properties.join(", ")}`;
+    case "markerAdded":
+    case "markerRemoved":
+    case "markerChanged":
+      return markerChangeLine(change);
   }
 };
 
@@ -763,6 +837,10 @@ export const changeSentence = (change: TimelineChange, rate: number): string => 
       return `Renamed track ${change.before} to ${change.after}`;
     case "trackChanged":
       return `Changed ${list(change.properties)} of track ${change.track}`;
+    case "markerAdded":
+    case "markerRemoved":
+    case "markerChanged":
+      return markerChangeSentence(change, rate);
   }
 };
 
@@ -877,7 +955,7 @@ const shiftAt = (ripples: ReadonlyArray<Ripple>, frame: number, track: string | 
  */
 export const mergeTimelines = (base: Timeline, ours: Timeline, theirs: Timeline): TimelineMerge => {
   const mine = analyze(base, ours);
-  const wanted = changesOf(mine);
+  const wanted: Array<TimelineChange> = [...changesOf(mine), ...markerChanges(base, ours)];
   if (wanted.length === 0) return { timeline: theirs, conflicts: [] };
   const their = analyze(base, theirs);
   const rate = their.rate;
@@ -998,12 +1076,20 @@ export const mergeTimelines = (base: Timeline, ours: Timeline, theirs: Timeline)
       );
       continue;
     }
-    const ourProperties = propertiesOf(pair.next.clip);
+    // Their clip still starts where they left it, so our keyframes are timed from there; our
+    // head trim, applied below, then moves them with the rest.
+    const ourClip = keyframesEarlier(pair.next.clip, (theirPair.trimStart - pair.trimStart) / rate);
+    const ourProperties = propertiesOf(ourClip);
     const theirProperties = propertiesOf(theirPair.next.clip);
     const clashing = pair.properties.filter(
       (property) =>
         theirPair.properties.includes(property) &&
-        !same(ourProperties.get(property)?.value, theirProperties.get(property)?.value),
+        !sameAfterHeadTrim(
+          ourProperties.get(property)?.value,
+          theirProperties.get(property)?.value,
+          0,
+          ourProperties.get(property)?.path.at(-2) === "keyframes",
+        ),
     );
     if (clashing.length > 0) {
       conflict(
@@ -1013,7 +1099,7 @@ export const mergeTimelines = (base: Timeline, ours: Timeline, theirs: Timeline)
     }
     const applying = pair.properties.filter((property) => !theirPair.properties.includes(property));
     working = mapClip(working, theirPair.next.id, (clip) =>
-      carry(clip, pair.next.clip, pair.base.clip, applying),
+      carry(clip, ourClip, pair.base.clip, applying),
     );
   }
 
@@ -1213,14 +1299,22 @@ export const mergeTimelines = (base: Timeline, ours: Timeline, theirs: Timeline)
     }
     let id = item.id;
     while (clips.has(id)) id = `${id}+`;
+    // How far into the base clip the piece starts: its keyframes are timed from there.
+    const headFrames = parent === undefined ? 0 : pairOf(parent, item, rate).trimStart;
     const content = withId(
       parent === undefined || theirParent === undefined
         ? item.clip
         : carry(
-            { ...theirParent.next.clip, source_range: item.clip.source_range },
+            {
+              ...keyframesEarlier(
+                theirParent.next.clip,
+                (headFrames - theirParent.trimStart) / rate,
+              ),
+              source_range: item.clip.source_range,
+            },
             item.clip,
             parent.clip,
-            changedProperties(parent.clip, item.clip).filter(
+            changedProperties(parent.clip, item.clip, headFrames / rate).filter(
               (property) => !theirParent.properties.includes(property),
             ),
           ),
@@ -1267,5 +1361,22 @@ export const mergeTimelines = (base: Timeline, ours: Timeline, theirs: Timeline)
     };
   }
 
-  return { timeline: working, conflicts };
+  // Markers last: a clip of ours that was added or cut above is there to carry its own.
+  const addedIds = new Set(mine.added.map((item) => item.id));
+  const withMarkers = mergeMarkers({
+    base,
+    ours,
+    theirs,
+    working,
+    mapFrame: (frame) => merged(frame, ""),
+    clipFor: (ourClipId) => {
+      const pair = mine.pairs.find((candidate) => candidate.next.id === ourClipId);
+      const id = pair === undefined ? undefined : their.byBaseId.get(pair.base.id)?.next.id;
+      if (id !== undefined) return clipsNow().has(id) ? id : undefined;
+      return addedIds.has(ourClipId) && clipsNow().has(ourClipId) ? ourClipId : undefined;
+    },
+    clipIdOf,
+  });
+  conflicts.push(...withMarkers.conflicts);
+  return { timeline: withMarkers.timeline, conflicts };
 };

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { applyEdits, rippleDeleteBlocked } from "./edits.ts";
 import { layoutTimeline } from "./layout.ts";
+import { timelineMarkers } from "./markers.ts";
 import { type Clip, type Gap, rationalTime, type Timeline, timeRange, type Track } from "./otio.ts";
 import { linearTimeWarp, timeScalarOf } from "./speed.ts";
 
@@ -331,5 +332,87 @@ describe("applyEdits", () => {
         ]),
       ),
     ).toEqual([{ at: 90, ...untouched }]);
+  });
+
+  it("keeps a clip's marker on its picture and its keyframes on their frames through a head trim and a cut", () => {
+    // Clip a plays source 100-160 at 0-60, with a punch-in over its first second and a note
+    // pinned to source frame 130, which shows at timeline frame 30.
+    const noted: Clip = {
+      ...clip("a", 100, 60),
+      markers: [
+        {
+          OTIO_SCHEMA: "Marker.2",
+          name: "Tighten",
+          color: "RED",
+          comment: "",
+          marked_range: timeRange(130, 0, RATE),
+          metadata: { stellar: { id: "m1", author: "user" } },
+        },
+      ],
+      metadata: {
+        premiere: { nodeId: "a" },
+        stellar: {
+          effects: [
+            {
+              kind: "Transform",
+              ref: "sha256:t",
+              params: {
+                keyframes: {
+                  scale: [
+                    [0, 100],
+                    [1, 120],
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+    const edited = applyEdits(
+      { ...timeline, tracks: { ...timeline.tracks, children: [track("V1", "Video", [noted])] } },
+      [
+        { kind: "trim", clipId: "a", edge: "start", frame: 15 },
+        { kind: "split", frame: 45 },
+        // A marker edit after the cuts reaches the marker on whichever piece shows it.
+        { kind: "setMarker", markerId: "m1", resolved: true },
+      ],
+    );
+    expect(
+      layoutTimeline(edited).tracks[0]?.clips.map((item) => {
+        const stellar = item.clip.metadata["stellar"] as {
+          effects: ReadonlyArray<{
+            ref: string;
+            params: { keyframes: { scale: ReadonlyArray<ReadonlyArray<number>> } };
+          }>;
+        };
+        return {
+          span: `${item.key} ${item.startFrame}–${item.endFrame} src ${item.clip.source_range.start_time.value}`,
+          ref: stellar.effects[0]?.ref,
+          scale: stellar.effects[0]?.params.keyframes.scale,
+        };
+      }),
+    ).toEqual([
+      {
+        span: "a 15–45 src 115",
+        ref: "sha256:t",
+        scale: [
+          [-0.5, 100],
+          [0.5, 120],
+        ],
+      },
+      {
+        span: "a~45 45–60 src 145",
+        ref: "sha256:t",
+        scale: [
+          [-1.5, 100],
+          [-0.5, 120],
+        ],
+      },
+    ]);
+    // The note is still on source frame 130, shown once, by the piece that plays it.
+    expect(timelineMarkers(edited)).toMatchObject([
+      { id: "m1", frame: 30, clipId: "a", track: "V1", name: "Tighten", resolved: true },
+    ]);
   });
 });

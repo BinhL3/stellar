@@ -43,6 +43,8 @@ export interface TimelineWorkspacePanels {
   readonly monitor: ReactNode;
   readonly timeline: ReactNode;
   readonly script: ReactNode;
+  readonly markers: ReactNode;
+  readonly history: ReactNode;
 }
 
 const PanelsContext = createContext<TimelineWorkspacePanels | null>(null);
@@ -69,6 +71,8 @@ const CONSTRAINTS: Record<TimelinePanelId, { minimumWidth: number; minimumHeight
   monitor: { minimumWidth: 120, minimumHeight: 120 },
   timeline: { minimumWidth: 160, minimumHeight: 100 },
   script: { minimumWidth: 160, minimumHeight: 100 },
+  markers: { minimumWidth: 160, minimumHeight: 100 },
+  history: { minimumWidth: 160, minimumHeight: 100 },
 };
 
 const SCRIPT_WIDTH_PX = 320;
@@ -86,7 +90,9 @@ const addTimelinePanel = (api: DockviewApi, id: TimelinePanelId) => {
     component: id,
     title: TIMELINE_PANEL_TITLES[id],
     ...CONSTRAINTS[id],
-    ...(id === "script" ? { initialWidth: SCRIPT_WIDTH_PX } : {}),
+    ...(id === "script" || id === "markers" || id === "history"
+      ? { initialWidth: SCRIPT_WIDTH_PX }
+      : {}),
     ...(position === null ? {} : { position }),
   });
 };
@@ -250,10 +256,20 @@ function ScriptDockPanel(props: IDockviewPanelProps) {
   );
 }
 
+function MarkersDockPanel() {
+  return usePanels().markers;
+}
+
+function HistoryDockPanel() {
+  return usePanels().history;
+}
+
 const PANEL_COMPONENTS: Record<TimelinePanelId, React.FunctionComponent<IDockviewPanelProps>> = {
   monitor: MonitorPanel,
   timeline: TimelineTracksPanel,
   script: ScriptDockPanel,
+  markers: MarkersDockPanel,
+  history: HistoryDockPanel,
 };
 
 const subscribeMaximized = (api: DockviewApi) => (listener: () => void) => {

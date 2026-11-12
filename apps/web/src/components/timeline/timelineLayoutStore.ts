@@ -5,13 +5,15 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "~/lib/storage";
 
-export const TIMELINE_PANEL_IDS = ["monitor", "timeline", "script"] as const;
+export const TIMELINE_PANEL_IDS = ["monitor", "timeline", "script", "markers", "history"] as const;
 export type TimelinePanelId = (typeof TIMELINE_PANEL_IDS)[number];
 
 export const TIMELINE_PANEL_TITLES: Record<TimelinePanelId, string> = {
   monitor: "Monitor",
   timeline: "Timeline",
   script: "Script",
+  markers: "Markers",
+  history: "History",
 };
 
 const isPanelId = (value: unknown): value is TimelinePanelId =>
@@ -24,7 +26,7 @@ export const timelineProjectKey = (environmentId: EnvironmentId, workspaceRoot: 
 /** Where a panel goes when it is opened again, given the panels already open. */
 export type TimelinePanelPlacement =
   | { readonly direction: "left" | "right" }
-  | { readonly referencePanel: TimelinePanelId; readonly direction: "above" | "below" }
+  | { readonly referencePanel: TimelinePanelId; readonly direction: "above" | "below" | "within" }
   | null;
 
 export const timelinePanelPlacement = (
@@ -43,6 +45,17 @@ export const timelinePanelPlacement = (
         : { direction: "left" };
     case "script":
       return { direction: "right" };
+    // Lists to scan now and then: a tab beside the other side panels, so opening one never
+    // takes room from the monitor or the tracks.
+    case "markers":
+    case "history": {
+      const beside = (["script", "markers", "history"] as const).find(
+        (other) => other !== id && open.includes(other),
+      );
+      return beside === undefined
+        ? { direction: "right" }
+        : { referencePanel: beside, direction: "within" };
+    }
   }
 };
 

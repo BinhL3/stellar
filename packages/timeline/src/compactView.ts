@@ -5,6 +5,7 @@
  *   V4 2058–2281 emoji_dumpling.png src 0–149@29.97 fx:Opacity~,Transform:"Malice Slide In"~ scale=80
  */
 import { layoutTimeline } from "./layout.ts";
+import { markersText } from "./markers.ts";
 import { type Clip, type EffectRef, type Timeline, TIMELINE_NAMESPACE } from "./otio.ts";
 import { timeScalarOf } from "./speed.ts";
 
@@ -78,7 +79,7 @@ export const compactView = (timeline: Timeline): string => {
 
 /**
  * What an agent edits from: one line per clip with its place in timeline frames and the id that
- * edits name it by, such as `V2 2058-2166 #a1b2 emoji_dumpling.png`.
+ * edits name it by, such as `V2 2058-2166 #a1b2 emoji_dumpling.png`, then the markers.
  */
 export const editableView = (timeline: Timeline): string => {
   const layout = layoutTimeline(timeline);
@@ -100,5 +101,6 @@ export const editableView = (timeline: Timeline): string => {
       );
     }
   }
-  return lines.join("\n");
+  const markers = markersText(timeline);
+  return [...lines, ...(markers === "" ? [] : [markers])].join("\n");
 };

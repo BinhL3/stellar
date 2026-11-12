@@ -17,7 +17,9 @@ import * as NodeZlib from "node:zlib";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { copyFootage, footageStringout, listFootage } from "@t3tools/timeline/footage";
 import { layoutTimeline } from "@t3tools/timeline/layout";
+import { applyEdits } from "@t3tools/timeline/edits";
 import { serializeTimeline, type Timeline, timeRange } from "@t3tools/timeline/otio";
+import { hashOfText } from "@t3tools/timeline/versions";
 import { timelineFingerprint } from "@t3tools/timeline/renderProbe";
 
 import * as ProjectService from "../project/ProjectService.ts";
@@ -213,12 +215,23 @@ it.live("syncs Premiere's saves without overwriting edits made here", () => {
       kept: [],
     });
     assert.strictEqual(yield* frameWidth, 3840);
-    assert.strictEqual(
-      yield* fs.readFileString(
-        path.join(workspaceRoot, "timelines", "replaced", path.basename(timelinePath)),
-      ),
-      edited,
+    // The text that was replaced is a version, though nothing of Stellar's wrote it.
+    const history = yield* videoProjects.listVersions({ workspaceRoot, timeline: timelinePath });
+    assert.deepStrictEqual(
+      history.versions.map((version) => [version.by, version.label]),
+      [
+        ["premiere", "Replaced by Premiere's version"],
+        ["outside", "Changed outside Stellar"],
+        ["premiere", "Pulled from Premiere"],
+        ["premiere", "Pulled from Premiere"],
+      ],
     );
+    const replaced = yield* videoProjects.readVersion({
+      workspaceRoot,
+      timeline: timelinePath,
+      version: history.versions[1]?.id ?? "",
+    });
+    assert.strictEqual(replaced.contents, edited);
 
     yield* fs.remove(premiereProjectPath);
     assert.strictEqual((yield* sync()).state, "offline");
@@ -268,7 +281,15 @@ it.live(
         sequenceId: "seq-1",
       });
       const timelineFile = path.join(workspaceRoot, timelinePath);
-      const baseFile = path.join(workspaceRoot, "timelines", ".base", path.basename(timelinePath));
+      // Premiere's last save is kept in the history's store, under the hash of its text.
+      const baseFileOf = (text: string) =>
+        path.join(
+          workspaceRoot,
+          "timelines",
+          ".history",
+          path.basename(timelinePath),
+          `${hashOfText(text)}.otio`,
+        );
       const sync = (merge?: boolean) =>
         videoProjects.sync({ workspaceRoot, ...(merge ? { merge } : {}) });
       const clipLines = (text: string) =>
@@ -282,10 +303,7 @@ it.live(
           .find((line) => line.includes(name))
           ?.match(/#(\S+)/)?.[1] ?? "";
 
-      assert.strictEqual(
-        yield* fs.readFileString(baseFile),
-        yield* fs.readFileString(timelineFile),
-      );
+      assert.isTrue(yield* fs.exists(baseFileOf(yield* fs.readFileString(timelineFile))));
       assert.strictEqual((yield* sync()).state, "current");
 
       // A pull says what it brought in and moves the base with it.
@@ -294,10 +312,9 @@ it.live(
       assert.strictEqual(pulled.state, "updated");
       assert.deepStrictEqual(pulled.changes, ["Trimmed c.MOV on V1 at 0:06: cut 1.3s off its end"]);
       assert.deepStrictEqual([pulled.pending, pulled.conflicts], [[], []]);
-      assert.strictEqual(
-        yield* fs.readFileString(baseFile),
-        yield* fs.readFileString(timelineFile),
-      );
+      const base = yield* fs.readFileString(timelineFile);
+      const baseFile = baseFileOf(base);
+      assert.isTrue(yield* fs.exists(baseFile));
 
       // Edits made here are pending until they reach Premiere.
       const read = yield* videoProjects.readTimeline({ workspaceRoot });
@@ -324,7 +341,6 @@ it.live(
       assert.strictEqual(yield* fs.readFileString(timelineFile), ours);
 
       // Without the base there is nothing to merge against, and nothing is written.
-      const base = yield* fs.readFileString(baseFile);
       yield* fs.remove(baseFile);
       const refused = yield* sync(true).pipe(Effect.flip);
       assert.include(refused.message, `Can't merge ${timelinePath}`);
@@ -349,10 +365,21 @@ it.live(
         clipLines((yield* videoProjects.readTimeline({ workspaceRoot })).text),
         ["V1 0-100 a.MOV", "V1 100-200 b.MOV (disabled)", "V1 200-240 c.MOV"],
       );
+      // What the merge replaced is the version before it.
+      const history = yield* videoProjects.listVersions({ workspaceRoot, timeline: timelinePath });
+      assert.deepStrictEqual(
+        history.versions.slice(0, 2).map((version) => [version.by, version.label]),
+        [
+          ["premiere", "Merged Premiere's save with the edits made here"],
+          ["agent", "Edited by an agent"],
+        ],
+      );
       assert.strictEqual(
-        yield* fs.readFileString(
-          path.join(workspaceRoot, "timelines", "replaced", path.basename(timelinePath)),
-        ),
+        (yield* videoProjects.readVersion({
+          workspaceRoot,
+          timeline: timelinePath,
+          version: history.versions[1]?.id ?? "",
+        })).contents,
         ours,
       );
 
@@ -928,7 +955,8 @@ it.live("plans a push from Premiere's last save, and says why when it can't", ()
     yield* videoProjects.readTimeline({ workspaceRoot });
     assert.strictEqual((yield* push).plan, planned.plan);
 
-    yield* fs.remove(path.join(workspaceRoot, "timelines", ".base", path.basename(timelinePath)));
+    // Premiere's save is a snapshot in the history's store; without it there is nothing to plan from.
+    yield* fs.remove(path.join(workspaceRoot, "timelines", ".history"), { recursive: true });
     assert.strictEqual(
       (yield* push).refused,
       "No record of Premiere's version yet; sync once with Premiere open.",
@@ -1362,3 +1390,198 @@ it.live("follows a short's run from an idea to posted, and takes posted back", (
     Effect.scoped,
   );
 });
+
+it.live(
+  "keeps a version of every write, steps back and forward, and restores onto Premiere's latest save",
+  () => {
+    const created: Array<string> = [];
+    return Effect.gen(function* () {
+      const { fs, path, premiereProjectPath } = yield* setup;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      let saves = 0;
+      const save = (aEnd: number) =>
+        Effect.gen(function* () {
+          yield* fs.writeFile(
+            premiereProjectPath,
+            prprojWithSequences([
+              {
+                id: "seq-1",
+                name: "Polish v1",
+                clips: [
+                  { name: "a.MOV", start: 0, end: aEnd },
+                  { name: "b.MOV", start: 100, end: 200 },
+                  { name: "c.MOV", start: 200, end: 300 },
+                ],
+              },
+            ]),
+          );
+          saves += 1;
+          yield* fs.utimes(premiereProjectPath, 1_000_000 + saves, 1_000_000 + saves);
+        });
+      yield* save(100);
+      const { workspaceRoot, timelinePath: timeline } = yield* videoProjects.createFromPremiere({
+        premiereProjectPath,
+        sequenceId: "seq-1",
+      });
+      const file = path.join(workspaceRoot, timeline);
+      const lines = (text: string) =>
+        text
+          .split("\n")
+          .filter((line) => !line.startsWith("#"))
+          .map((line) => line.replace(/ #\S+/, ""));
+      const versions = videoProjects.listVersions({ workspaceRoot, timeline });
+
+      // The user leaves a note at a frame and commits it from the Timeline tab.
+      const pulled = yield* fs.readFileString(file);
+      const committed = serializeTimeline(
+        applyEdits(JSON.parse(pulled) as Timeline, [
+          {
+            kind: "addMarker",
+            markerId: "m1",
+            frame: 250,
+            name: "Cut too early",
+            note: "end at the laugh",
+          },
+        ]),
+      );
+      yield* videoProjects.commitTimeline({ workspaceRoot, timeline, contents: committed });
+      assert.strictEqual(yield* fs.readFileString(file), committed);
+      const notATimeline = yield* videoProjects
+        .commitTimeline({ workspaceRoot, timeline, contents: "{}" })
+        .pipe(Effect.flip);
+      assert.strictEqual(notATimeline.message, "What was sent is not a timeline.");
+
+      // The agent finds the note in its read, acts on it and resolves it.
+      const read = yield* videoProjects.readTimeline({ workspaceRoot });
+      assert.deepStrictEqual(lines(read.text).slice(-1), [
+        "M 250 user open Cut too early: end at the laugh",
+      ]);
+      const clipC = read.text
+        .split("\n")
+        .find((line) => line.includes("c.MOV"))
+        ?.match(/#(\S+)/)?.[1];
+      const unknownMarker = yield* videoProjects
+        .editTimeline({
+          workspaceRoot,
+          timeline,
+          edits: [{ kind: "setMarker", markerId: "nope", resolved: true }],
+        })
+        .pipe(Effect.flip);
+      assert.strictEqual(
+        unknownMarker.message,
+        "Edit 1 (setMarker): no marker #nope. Nothing was changed.",
+      );
+      const answered = yield* videoProjects.editTimeline({
+        workspaceRoot,
+        timeline,
+        edits: [
+          { kind: "trim", clipId: clipC ?? "", edge: "end", frame: 250 },
+          { kind: "setMarker", markerId: "#m1", resolved: true, note: "Trimmed to the laugh." },
+          { kind: "addMarker", frame: 120, name: "Soft focus", note: "worth a look" },
+        ],
+      });
+      assert.deepStrictEqual(lines(answered.text).slice(-3), [
+        "V1 200-250 c.MOV",
+        "M 120 agent open Soft focus: worth a look",
+        "M 250 user done Cut too early: Trimmed to the laugh.",
+      ]);
+      const agentText = yield* fs.readFileString(file);
+
+      const history = yield* versions;
+      assert.deepStrictEqual(
+        history.versions.map((version) => [version.id, version.by, version.label, version.changes]),
+        [
+          [
+            "v3",
+            "agent",
+            "Edited by an agent",
+            [
+              "Trimmed c.MOV on V1 at 0:06: cut 1.7s off its end",
+              "Added marker “Soft focus” at 0:04",
+              "Changed the note and resolved of marker “Cut too early” at 0:08",
+            ],
+          ],
+          ["v2", "user", "Committed in the Timeline tab", ["Added marker “Cut too early” at 0:08"]],
+          ["v1", "premiere", "Pulled from Premiere", []],
+        ],
+      );
+      assert.deepStrictEqual([history.undo, history.redo], ["v2", null]);
+
+      // A version is read without changing anything, by the user and by an agent.
+      const second = yield* videoProjects.readVersion({ workspaceRoot, timeline, version: "v2" });
+      assert.strictEqual(second.contents, committed);
+      assert.strictEqual(second.changesSince.length, 3);
+      const listed = yield* videoProjects.readTimeline({ workspaceRoot, version: "list" });
+      assert.match(
+        listed.text.split("\n")[1] ?? "",
+        /^v3 \d{4}-\d\d-\d\d \d\d:\d\dZ agent Edited by an agent: /,
+      );
+      const past = yield* videoProjects.readTimeline({ workspaceRoot, version: "v2" });
+      assert.deepStrictEqual(lines(past.text).slice(-2), [
+        "V1 200-300 c.MOV",
+        "M 250 user open Cut too early: end at the laugh",
+      ]);
+      assert.include(past.changes, "Changed from v2 to the timeline now:");
+      assert.strictEqual(yield* fs.readFileString(file), agentText);
+
+      // Undo crosses the commit, and redo comes back; each step is itself a version.
+      const undone = yield* videoProjects.restoreVersion({ workspaceRoot, timeline, step: "undo" });
+      assert.strictEqual(yield* fs.readFileString(file), committed);
+      assert.deepStrictEqual(
+        [undone.versions[0]?.label, undone.undo, undone.redo],
+        ["Undo: back to v2", "v1", "v3"],
+      );
+      const redone = yield* videoProjects.restoreVersion({ workspaceRoot, timeline, step: "redo" });
+      assert.strictEqual(yield* fs.readFileString(file), agentText);
+      assert.deepStrictEqual([redone.undo, redone.redo], ["v2", null]);
+      const nothing = yield* videoProjects
+        .restoreVersion({ workspaceRoot, timeline, step: "redo" })
+        .pipe(Effect.flip);
+      assert.include(nothing.message, "Nothing to redo");
+      yield* videoProjects.restoreVersion({ workspaceRoot, timeline, step: "undo" });
+      assert.strictEqual(yield* fs.readFileString(file), committed);
+
+      // The user trims a.MOV in Premiere and saves. Bringing the agent's version back keeps
+      // that trim: its edits go on top of Premiere's latest save, not its text over it.
+      yield* save(80);
+      const restored = yield* videoProjects.editTimeline({
+        workspaceRoot,
+        timeline,
+        edits: [{ kind: "restoreVersion", version: "v3" }],
+      });
+      assert.deepStrictEqual(lines(restored.text), [
+        "V1 0-80 a.MOV",
+        "V1 100-200 b.MOV",
+        "V1 200-250 c.MOV",
+        "M 120 agent open Soft focus: worth a look",
+        "M 250 user done Cut too early: Trimmed to the laugh.",
+      ]);
+      assert.include(restored.changes, "Kept from Premiere, changed there since v3:");
+      assert.include(restored.changes, "Trimmed a.MOV on V1 at 0:00: cut 0.7s off its end");
+      const after = yield* versions;
+      assert.deepStrictEqual(
+        after.versions.slice(0, 2).map((version) => [version.by, version.label]),
+        [
+          ["agent", "Restored v3"],
+          ["premiere", "Merged Premiere's save with the edits made here"],
+        ],
+      );
+      // Stepping back from the restore lands on what it replaced.
+      yield* videoProjects.restoreVersion({ workspaceRoot, timeline, step: "undo" });
+      assert.deepStrictEqual(lines((yield* videoProjects.readTimeline({ workspaceRoot })).text), [
+        "V1 0-80 a.MOV",
+        "V1 100-200 b.MOV",
+        "V1 200-300 c.MOV",
+        "M 250 user open Cut too early: end at the laugh",
+      ]);
+    }).pipe(
+      Effect.provide(
+        VideoProjects.layer.pipe(
+          Layer.provideMerge(withProjects(created)),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        ),
+      ),
+      Effect.scoped,
+    );
+  },
+);

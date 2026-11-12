@@ -7,6 +7,8 @@
 import { changeSentence, diffTimelines, type TimelineChange } from "../diff.ts";
 import { applyEdits, STILL_PATH, type TimelineEdit } from "../edits.ts";
 import { clipIdOf, layoutTimeline } from "../layout.ts";
+import { type MarkerEntry, markerPairs } from "../markerDiff.ts";
+import { PREMIERE_MARKER_COLORS, premiereMarkerComment, withoutMarkers } from "../markers.ts";
 import { type Clip, type Timeline, TIMELINE_NAMESPACE, type Track } from "../otio.ts";
 import { playSpan, sourceSecondsAt, timeScalarOf } from "../speed.ts";
 
@@ -56,7 +58,37 @@ export type PushStep =
       readonly toStart: PushTime;
     }
   | { readonly kind: "setEnabled"; readonly clip: PushClip; readonly enabled: boolean }
-  | { readonly kind: "split"; readonly clip: PushClip; readonly at: PushTime };
+  | { readonly kind: "split"; readonly clip: PushClip; readonly at: PushTime }
+  /** A marker to make, as it should end up. `comment` carries Stellar's tag when it has one. */
+  | { readonly kind: "addMarker"; readonly marker: PushMarker }
+  /** `marker` is where Premiere's last save has it; `premiereId` is its id there, if it has one. */
+  | { readonly kind: "removeMarker"; readonly marker: PushMarker }
+  /** `marker` as Premiere's last save has it, and what to change it `to`. */
+  | {
+      readonly kind: "setMarker";
+      readonly marker: PushMarker;
+      readonly to: {
+        readonly at?: PushTime;
+        readonly duration?: PushTime;
+        readonly name?: string;
+        readonly comment?: string;
+        readonly colorIndex?: number;
+      };
+    };
+
+/** A marker in Premiere's terms. */
+export interface PushMarker {
+  readonly name: string;
+  readonly comment: string;
+  /** Premiere's colour index: 0 green, 1 red, 2 purple, 3 orange, 4 yellow, 5 white, 6 blue, 7 cyan. */
+  readonly colorIndex: number;
+  /** On the sequence for a sequence marker; in the source media for a clip's. */
+  readonly at: PushTime;
+  readonly duration: PushTime;
+  /** Set for a clip marker: the media file whose source clip carries it. */
+  readonly media: string | null;
+  readonly premiereId: string | null;
+}
 
 export interface PushPlan {
   /** Frames per second of the sequence. */
@@ -334,6 +366,77 @@ interface Candidate {
  * assumed about which edits made ours: the two are diffed, so it holds after a merge as well.
  */
 export const pushPlan = (base: Timeline, ours: Timeline): PushPlan => {
+  const rate = ours.global_start_time.rate;
+  // The cut is planned without markers, so trying a step never counts a marker it rippled.
+  const cut = cutPlan(withoutMarkers(base), withoutMarkers(ours));
+  const markers = markerSteps(base, ours);
+  return markers.length === 0 ? cut : finish(rate, [...cut.steps, ...markers], cut.manual);
+};
+
+const pushMarker = (entry: MarkerEntry, rate: number): PushMarker => {
+  const { marker } = entry;
+  const { start_time, duration } = marker.marked_range;
+  const onClip = entry.state.clipId !== null;
+  const time = (frame: number, seconds: number): PushTime => ({
+    frame,
+    seconds: Math.round(seconds * 1e6) / 1e6,
+  });
+  const meta = marker.metadata[TIMELINE_NAMESPACE] as { author?: string } | undefined;
+  const colorIndex = PREMIERE_MARKER_COLORS.indexOf(marker.color);
+  return {
+    name: marker.name,
+    comment: premiereMarkerComment({
+      note: marker.comment,
+      author: meta?.author === "agent" ? "agent" : "user",
+      resolved: entry.values.resolved === true,
+    }),
+    colorIndex: Math.max(0, colorIndex),
+    // A clip's marker is a place in its media; a sequence marker's frame is exact at the rate.
+    at: onClip
+      ? time(Math.round(start_time.value), start_time.value / start_time.rate)
+      : time(entry.state.frame, secondsAtFrame(entry.state.frame, rate)),
+    duration: onClip
+      ? time(Math.round(duration.value), duration.value / duration.rate)
+      : time(entry.state.durationFrames, secondsAtFrame(entry.state.durationFrames, rate)),
+    media: entry.media,
+    premiereId:
+      (marker.metadata["premiere"] as { markerId?: string } | undefined)?.markerId ?? null,
+  };
+};
+
+/**
+ * Marker steps, run after the cut is in place: each gives the marker's final place, since
+ * Premiere may or may not have moved its sequence markers with the ripples before them.
+ */
+const markerSteps = (base: Timeline, ours: Timeline): Array<PushStep> => {
+  const rate = ours.global_start_time.rate;
+  const { removed, added, changed } = markerPairs(base, ours);
+  return [
+    ...removed.map((entry): PushStep => ({
+      kind: "removeMarker",
+      marker: pushMarker(entry, rate),
+    })),
+    ...changed.map(({ before, after, properties }): PushStep => {
+      const was = pushMarker(before, rate);
+      const now = pushMarker(after, rate);
+      return {
+        kind: "setMarker",
+        marker: was,
+        to: {
+          ...(properties.includes("position") ? { at: now.at } : {}),
+          ...(properties.includes("length") ? { duration: now.duration } : {}),
+          ...(now.name === was.name ? {} : { name: now.name }),
+          ...(now.comment === was.comment ? {} : { comment: now.comment }),
+          ...(now.colorIndex === was.colorIndex ? {} : { colorIndex: now.colorIndex }),
+        },
+      };
+    }),
+    ...added.map((entry): PushStep => ({ kind: "addMarker", marker: pushMarker(entry, rate) })),
+  ];
+};
+
+/** The steps for the clips alone; see `pushPlan`. */
+const cutPlan = (base: Timeline, ours: Timeline): PushPlan => {
   const rate = ours.global_start_time.rate;
   const first = diffTimelines(base, ours);
   if (first.changes.length === 0) return { rate, steps: [], manual: [], text: "" };
@@ -652,8 +755,38 @@ const stepLine = (step: PushStep): string => {
       return `${step.enabled ? "enable" : "disable"} ${where(step.clip)} (frame ${step.clip.start.frame})`;
     case "split":
       return `split ${where(step.clip)}: cut at ${stamp(step.at.seconds)} (frame ${step.at.frame})`;
+    case "addMarker": {
+      const { marker } = step;
+      const length = marker.duration.frame === 0 ? "" : `, ${stamp(marker.duration.seconds)} long`;
+      return `add ${markerKind(marker)} ${JSON.stringify(marker.name)} at ${markerPlace(marker)}${length}, colour ${COLOR_NAMES[marker.colorIndex]} (index ${marker.colorIndex}), comment ${JSON.stringify(marker.comment)}`;
+    }
+    case "removeMarker":
+      return `remove ${markerKind(step.marker)} ${JSON.stringify(step.marker.name)} at ${markerPlace(step.marker)}${markerId(step.marker)}`;
+    case "setMarker": {
+      const { to } = step;
+      const changes = [
+        ...(to.at === undefined ? [] : [`move to ${markerPlace({ ...step.marker, at: to.at })}`]),
+        ...(to.duration === undefined ? [] : [`length ${stamp(to.duration.seconds)}`]),
+        ...(to.name === undefined ? [] : [`name ${JSON.stringify(to.name)}`]),
+        ...(to.comment === undefined ? [] : [`comment ${JSON.stringify(to.comment)}`]),
+        ...(to.colorIndex === undefined
+          ? []
+          : [`colour ${COLOR_NAMES[to.colorIndex]} (index ${to.colorIndex})`]),
+      ];
+      return `change ${markerKind(step.marker)} ${JSON.stringify(step.marker.name)} at ${markerPlace(step.marker)}${markerId(step.marker)}: ${changes.join(", ")}`;
+    }
   }
 };
+
+const COLOR_NAMES = PREMIERE_MARKER_COLORS.map((color) => color.toLowerCase());
+const markerKind = (marker: PushMarker) =>
+  marker.media === null ? "sequence marker" : "clip marker";
+const markerPlace = (marker: PushMarker) =>
+  marker.media === null
+    ? `${stamp(marker.at.seconds)} (frame ${marker.at.frame})`
+    : `source ${stamp(marker.at.seconds)} of ${marker.media}`;
+const markerId = (marker: PushMarker) =>
+  marker.premiereId === null ? "" : ` (Premiere id ${marker.premiereId})`;
 
 const finish = (
   rate: number,

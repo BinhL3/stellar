@@ -5,6 +5,13 @@
  */
 import { layoutTimeline } from "./layout.ts";
 import {
+  applyMarkerEdit,
+  isMarkerEdit,
+  type MarkerEdit,
+  type MarkerHost,
+  rippleMarkers,
+} from "./markers.ts";
+import {
   type Clip,
   type Gap,
   rationalTime,
@@ -49,11 +56,13 @@ export type TimelineEdit =
     }
   | { readonly kind: "setEnabled"; readonly clipId: string; readonly enabled: boolean }
   /** New words for a text graphic; its style stays in the native blob. */
-  | { readonly kind: "setText"; readonly clipId: string; readonly text: string };
+  | { readonly kind: "setText"; readonly clipId: string; readonly text: string }
+  /** Notes on the sequence or on a clip; see `markers.ts`. */
+  | MarkerEdit;
 
 /** The clip an edit is about, if it is about one clip. */
 export const editClipId = (edit: TimelineEdit): string | null =>
-  "clipId" in edit ? edit.clipId : null;
+  "clipId" in edit ? (edit.clipId ?? null) : null;
 
 interface Placed {
   readonly id: string;
@@ -103,7 +112,7 @@ const earlier = <Holder extends { readonly keyframes?: unknown }>(
  * has them moved that much earlier, in `transform` and in each effect's `params`: the animation
  * stays on its frames, as in Premiere. Ones now before the clip stay to be eased from.
  */
-const keyframesEarlier = (clip: Clip, seconds: number): Clip => {
+export const keyframesEarlier = (clip: Clip, seconds: number): Clip => {
   const stellar = clip.metadata[TIMELINE_NAMESPACE] as
     | {
         readonly transform?: { readonly keyframes?: unknown };
@@ -238,7 +247,12 @@ const gapIsShared = (tracks: PlacedTracks, start: number, end: number, except: s
     placed.some((item) => item.id !== except && item.start < end && item.end > start),
   );
 
-const applyRangeEdit = (tracks: PlacedTracks, edit: TimelineEdit, rate: number): boolean => {
+const applyRangeEdit = (
+  tracks: PlacedTracks,
+  edit: TimelineEdit,
+  rate: number,
+  markers: MarkerHost,
+): boolean => {
   if (edit.kind === "split") {
     const frame = Math.round(edit.frame);
     for (const { track, placed } of tracks) {
@@ -266,7 +280,10 @@ const applyRangeEdit = (tracks: PlacedTracks, edit: TimelineEdit, rate: number):
     const end = Math.round(Math.max(edit.start, edit.end));
     if (end <= start) return true;
     for (const { placed } of tracks) overwrite(placed, start, end, rate);
-    if (edit.ripple) shiftAfter(tracks, end, end - start);
+    if (edit.ripple) {
+      shiftAfter(tracks, end, end - start);
+      markers.sequence = rippleMarkers(markers.sequence, start, end, rate);
+    }
     return true;
   }
   return false;
@@ -279,8 +296,12 @@ export const rippleDeleteBlocked = (timeline: Timeline, clipId: string): boolean
   return item === undefined || gapIsShared(tracks, item.start, item.end, clipId);
 };
 
-const applyOne = (tracks: PlacedTracks, edit: TimelineEdit, rate: number) => {
-  if (applyRangeEdit(tracks, edit, rate)) return;
+const applyOne = (tracks: PlacedTracks, edit: TimelineEdit, rate: number, markers: MarkerHost) => {
+  if (isMarkerEdit(edit)) {
+    applyMarkerEdit(markers, edit, rate);
+    return;
+  }
+  if (applyRangeEdit(tracks, edit, rate, markers)) return;
   if (!("clipId" in edit)) return;
   const from = tracks.find((t) => t.placed.some((p) => p.id === edit.clipId));
   const item = from?.placed.find((p) => p.id === edit.clipId);
@@ -296,6 +317,7 @@ const applyOne = (tracks: PlacedTracks, edit: TimelineEdit, rate: number) => {
     if (gapIsShared(tracks, item.start, item.end, item.id)) return;
     from.placed.splice(0, from.placed.length, ...others);
     shiftAfter(tracks, item.end, item.end - item.start);
+    markers.sequence = rippleMarkers(markers.sequence, item.start, item.end, rate);
     return;
   }
 
@@ -395,13 +417,27 @@ export const applyEdits = (timeline: Timeline, edits: ReadonlyArray<TimelineEdit
   if (edits.length === 0) return timeline;
   const rate = timeline.global_start_time.rate;
   const tracks = placedTracks(timeline);
-  for (const edit of edits) applyOne(tracks, edit, rate);
+  // Clip markers ride on their clip through every edit; sequence markers are held here.
+  const markers: MarkerHost = {
+    sequence: timeline.tracks.markers ?? [],
+    clips: () => tracks.flatMap(({ placed }) => placed),
+    setClip: (id, clip) => {
+      for (const { placed } of tracks) {
+        for (const [index, item] of placed.entries()) {
+          if (item.id === id) placed[index] = { ...item, clip };
+        }
+      }
+    },
+  };
+  for (const edit of edits) applyOne(tracks, edit, rate, markers);
+  const { markers: _before, ...stack } = timeline.tracks;
   return {
     ...timeline,
     global_start_time: rationalTime(timeline.global_start_time.value, rate),
     tracks: {
-      ...timeline.tracks,
+      ...stack,
       children: tracks.map(({ track, placed }) => ({ ...track, children: rebuild(placed, rate) })),
+      ...(markers.sequence.length === 0 ? {} : { markers: markers.sequence }),
     },
   };
 };

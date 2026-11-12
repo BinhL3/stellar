@@ -22,6 +22,12 @@ import {
   sortKeys,
   timeRange,
 } from "../otio.ts";
+import {
+  DEFAULT_MARKER_COLOR,
+  parsePremiereMarkerComment,
+  PREMIERE_MARKER_COLORS,
+} from "../markers.ts";
+import type { Marker, TimeRange } from "../otio.ts";
 import { linearTimeWarp } from "../speed.ts";
 import { readTextStyle, type TextStyle, textOfRuns } from "./textStyle.ts";
 
@@ -526,7 +532,21 @@ const readSequence = (
         },
       },
     };
-    return { clip, start, end, storedIndex };
+    const markers = still
+      ? []
+      : clipMarkers(graph, clipNode, {
+          mediaStart,
+          ticksPerFrame: sourceTicksPerFrame,
+          rate: sourceRate,
+          from: sourceStart,
+          to: sourceStart + sourceDuration * Math.abs(speed),
+        });
+    return {
+      clip: markers.length === 0 ? clip : { ...clip, markers },
+      start,
+      end,
+      storedIndex,
+    };
   };
 
   /**
@@ -724,6 +744,7 @@ const readSequence = (
       OTIO_SCHEMA: "Stack.1",
       name: "tracks",
       children: tracks,
+      ...sequenceMarkers(graph, sequence.node, ticksPerFrame, rate),
       enabled: true,
       metadata: {},
     },
@@ -737,6 +758,143 @@ const readSequence = (
     },
   };
   return { timeline, blobs, warnings };
+};
+
+/** A marker as Premiere stores it: a JSON object in a `Marker` its owner's `Markers` lists. */
+interface PremiereMarker {
+  readonly id: string;
+  readonly start: bigint;
+  readonly duration: bigint;
+  readonly name: string;
+  readonly comment: string;
+  readonly colorIndex: number | undefined;
+  readonly type: string;
+}
+
+const tickCount = (value: unknown): bigint => {
+  const ticks = (value as { ticks?: unknown } | undefined)?.ticks;
+  return typeof ticks === "number" && Number.isFinite(ticks) ? BigInt(Math.round(ticks)) : 0n;
+};
+
+/**
+ * The markers of a sequence or a clip: `MarkerOwner` points at a `Markers` object that lists
+ * `Marker` objects, each holding `{"DVAMarker": {...}}`. Premiere leaves out fields at their
+ * defaults, so a plain marker has only an id, a start and a type.
+ */
+const readMarkers = (
+  graph: ProjectGraph,
+  owner: XmlNode | undefined,
+): ReadonlyArray<PremiereMarker> => {
+  const listed = graph.resolve(at(owner, "MarkerOwner", "Markers"));
+  const out: Array<PremiereMarker> = [];
+  for (const entry of nodes(at(listed?.node, "Markers")?.["Marker"]).toSorted(byIndex)) {
+    const json = text(graph.resolve(at(entry, "Second"))?.node, "DVAMarker");
+    if (json === undefined) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      continue;
+    }
+    const marker = (parsed as { DVAMarker?: Record<string, unknown> } | null)?.DVAMarker;
+    if (marker === undefined || marker === null) continue;
+    const string = (key: string) => (typeof marker[key] === "string" ? marker[key] : "");
+    out.push({
+      id: string("mMarkerID") || text(entry, "First") || `index-${out.length}`,
+      start: tickCount(marker["mStartTime"]),
+      duration: tickCount(marker["mDuration"]),
+      name: string("mName"),
+      comment: string("mComment"),
+      colorIndex: typeof marker["mColorIndex"] === "number" ? marker["mColorIndex"] : undefined,
+      type: string("mType") || "Comment",
+    });
+  }
+  return out;
+};
+
+/** Ids agents can type: the first eight characters of Premiere's, or all of it on a clash. */
+const markerIds = (markers: ReadonlyArray<PremiereMarker>): ReadonlyArray<string> => {
+  const short = markers.map((marker) => marker.id.slice(0, 8));
+  return markers.map((marker, index) =>
+    short.indexOf(short[index] ?? "") === short.lastIndexOf(short[index] ?? "")
+      ? (short[index] ?? marker.id)
+      : marker.id,
+  );
+};
+
+const otioMarker = (marker: PremiereMarker, id: string, range: TimeRange): Marker => {
+  const { note, author, resolved } = parsePremiereMarkerComment(marker.comment);
+  return {
+    OTIO_SCHEMA: "Marker.2",
+    name: marker.name,
+    color: PREMIERE_MARKER_COLORS[marker.colorIndex ?? 0] ?? DEFAULT_MARKER_COLOR,
+    comment: note,
+    marked_range: range,
+    metadata: {
+      [TIMELINE_NAMESPACE]: { id, author, ...(resolved ? { resolved: true } : {}) },
+      premiere: {
+        markerId: marker.id,
+        ...(marker.type === "Comment" ? {} : { type: marker.type }),
+      },
+    },
+  };
+};
+
+/** Sequence markers for the stack, in timeline frames; nothing when the sequence has none. */
+const sequenceMarkers = (
+  graph: ProjectGraph,
+  sequence: XmlNode,
+  ticksPerFrame: bigint,
+  rate: number,
+): { readonly markers?: ReadonlyArray<Marker> } => {
+  const read = readMarkers(graph, sequence);
+  if (read.length === 0) return {};
+  const ids = markerIds(read);
+  const frames = (ticks: bigint) => Math.round(Number(ticks) / Number(ticksPerFrame));
+  return {
+    markers: read
+      .map((marker, index) =>
+        otioMarker(
+          marker,
+          ids[index] ?? marker.id,
+          timeRange(frames(marker.start), frames(marker.duration), rate),
+        ),
+      )
+      .toSorted((a, b) => a.marked_range.start_time.value - b.marked_range.start_time.value),
+  };
+};
+
+/**
+ * A clip's markers that fall on the media it plays, in media frames like its source range.
+ * Premiere keeps them on the source clip, shared by every piece cut from it, so the ones
+ * outside this piece are left to the pieces they fall on.
+ */
+const clipMarkers = (
+  graph: ProjectGraph,
+  clipNode: XmlNode,
+  source: {
+    readonly mediaStart: bigint;
+    readonly ticksPerFrame: bigint;
+    readonly rate: number;
+    readonly from: number;
+    readonly to: number;
+  },
+): ReadonlyArray<Marker> => {
+  const read = readMarkers(graph, clipNode);
+  if (read.length === 0) return [];
+  const ids = markerIds(read);
+  const frames = (ticks: bigint) => Number(ticks) / Number(source.ticksPerFrame);
+  return read.flatMap((marker, index) => {
+    const at = Math.round(frames(marker.start - source.mediaStart) * 1000) / 1000;
+    if (at < source.from || at >= source.to) return [];
+    return [
+      otioMarker(
+        marker,
+        ids[index] ?? marker.id,
+        timeRange(at, Math.round(frames(marker.duration) * 1000) / 1000, source.rate),
+      ),
+    ];
+  });
 };
 
 const gap = (frames: number, rate: number): Gap => ({

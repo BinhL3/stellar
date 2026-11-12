@@ -9,6 +9,7 @@ import {
   type ScopedThreadRef,
   type VideoProjectIntakeStatus,
   type VideoProjectSyncResult,
+  type VideoScriptBeat,
   type VideoTranscriptStatus,
 } from "@t3tools/contracts";
 import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
@@ -55,10 +56,12 @@ import { ImportFootageButton } from "../videoProject/ImportFootageButton";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
 import { RecordVoiceOverButton } from "../videoProject/RecordVoiceOverButton";
 import { VideoStageSelect } from "../videoProject/VideoStageSelect";
+import { HistoryPanel, type VersionPreview } from "./HistoryPanel";
 import type { PremierePull } from "./premiereChanges";
 import { PremierePullNotice } from "./PremierePullNotice";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
 import { PreflightStrip } from "./PreflightStrip";
+import { scriptTicks } from "./scriptBeats";
 import { ScriptPanel } from "./ScriptPanel";
 import {
   TIMELINE_PANEL_IDS,
@@ -193,6 +196,24 @@ const parseTranscriptStatus = (text: string | undefined): VideoTranscriptStatus 
 
 const timelineLabel = (path: string) =>
   path.slice(path.lastIndexOf("/") + 1).replace(/\.otio$/i, "");
+
+// Whether script lines show on the ruler is a per-browser habit, like the shortcut layout.
+const SCRIPT_LINES_KEY = "stellar.timeline.scriptLines";
+const readScriptLinesShown = () => {
+  try {
+    return window.localStorage.getItem(SCRIPT_LINES_KEY) !== "off";
+  } catch {
+    return true;
+  }
+};
+
+const versionTime = (time: number) =>
+  new Date(time).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
 export default function TimelinePanel(props: {
   readonly environmentId: EnvironmentId;
@@ -383,14 +404,17 @@ export default function TimelinePanel(props: {
   );
   const scriptOpen = workspace?.open.includes("script") ?? false;
 
-  const writeFile = useAtomCommand(projectEnvironment.writeFile, { reportFailure: false });
-  // Committing writes the edited timeline over the .otio, then reloads it, which clears the
-  // pending edits. Sending the change on to Premiere is the adapter's push, not this.
+  const commitTimeline = useAtomCommand(projectEnvironment.commitVideoTimeline, {
+    reportFailure: false,
+  });
+  // Committing writes the edited timeline over the .otio as a version of its history, then
+  // reloads it, which clears the pending edits. Sending the change on to Premiere is the
+  // adapter's push, not this.
   const commit = async (contents: string) => {
     if (selectedPath === null) return false;
-    const result = await writeFile({
+    const result = await commitTimeline({
       environmentId: props.environmentId,
-      input: { cwd: props.workspaceRoot, relativePath: selectedPath, contents },
+      input: { workspaceRoot: props.workspaceRoot, timeline: selectedPath, contents },
     });
     if (result._tag === "Success") {
       file.refresh();
@@ -409,6 +433,91 @@ export default function TimelinePanel(props: {
     }
     return false;
   };
+
+  // A version on show in the Monitor instead of the timeline; it belongs to the timeline it is of.
+  const [previewing, setPreviewing] = useState<{
+    readonly timeline: string;
+    readonly view: VersionPreview;
+  } | null>(null);
+  const preview = previewing?.timeline === selectedPath ? previewing.view : null;
+  const restoreVersion = useAtomCommand(projectEnvironment.restoreVideoTimelineVersion, {
+    reportFailure: false,
+  });
+  /** Brings a version back, or steps one undo or redo through the versions. */
+  const restore = async (
+    target: { readonly version: string } | { readonly step: "undo" | "redo" },
+  ) => {
+    if (selectedPath === null) return;
+    if (hasPendingEdits) {
+      toastManager.add({
+        type: "info",
+        title: "Commit or discard your edits first",
+        description: "Bringing a version back replaces the timeline they were made on.",
+      });
+      return;
+    }
+    const result = await restoreVersion({
+      environmentId: props.environmentId,
+      input: { workspaceRoot: props.workspaceRoot, timeline: selectedPath, ...target },
+    });
+    if (result._tag !== "Success") {
+      if (isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      const message = error instanceof Error ? error.message : "Try again in a moment.";
+      // Nothing left to step to is an answer, not a failure.
+      const nothing = "step" in target && message.startsWith("Nothing to");
+      toastManager.add({
+        type: nothing ? "info" : "error",
+        title: nothing ? message.split(":")[0] : "Could not bring that version back",
+        ...(nothing ? {} : { description: message }),
+      });
+      return;
+    }
+    setPreviewing(null);
+    file.refresh();
+    void sync({ quiet: true });
+    const { restored, keptFromPremiere, conflicts } = result.value;
+    const kept =
+      keptFromPremiere.length === 0
+        ? ""
+        : ` Kept ${keptFromPremiere.length === 1 ? "a change" : `${keptFromPremiere.length} changes`} made in Premiere since.`;
+    toastManager.add({
+      type: conflicts.length > 0 ? "warning" : "success",
+      title:
+        "step" in target
+          ? `${target.step === "undo" ? "Stepped back" : "Stepped forward"} to ${versionTime(restored.at)}`
+          : `Restored the version from ${versionTime(restored.at)}`,
+      description:
+        conflicts.length > 0
+          ? `${conflicts.join(" ")}${kept}`
+          : `${"step" in target ? `${restored.label}.` : "Undo steps back from it."}${kept}`,
+    });
+  };
+
+  // Script lines on the ruler: read from the Script panel when it is open, else fetched here.
+  const [scriptLinesShown, setScriptLinesShown] = useState(readScriptLinesShown);
+  const [scriptBeats, setScriptBeats] = useState<{
+    readonly key: string;
+    readonly beats: ReadonlyArray<VideoScriptBeat>;
+  } | null>(null);
+  const readScript = useAtomCommand(projectEnvironment.readVideoScript, { reportFailure: false });
+  const beatsKey = `${selectedPath ?? ""}\n${file.data?.contents.length ?? 0}:${transcripts?.ready ?? 0}`;
+  const wantsBeats =
+    scriptLinesShown && !scriptOpen && selectedPath !== null && file.data !== undefined;
+  const loadBeats = useEffectEvent(async (key: string) => {
+    if (selectedPath === null) return;
+    const result = await readScript({
+      environmentId: props.environmentId,
+      input: { workspaceRoot: props.workspaceRoot, timeline: selectedPath },
+    });
+    if (result._tag === "Success") setScriptBeats({ key, beats: result.value.beats });
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Where script lines fall is worked out on the server; with the Script panel closed nothing else reads it, so the ruler's ticks read it when the timeline's text changes.
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- The beats are set when the server answers, not as the effect runs.
+    if (wantsBeats) void loadBeats(beatsKey);
+  }, [wantsBeats, beatsKey]);
+  const ticks = scriptBeats !== null && selectedPath !== null ? scriptTicks(scriptBeats.beats) : [];
 
   const stageSelect = (variant?: "ghost") => (
     <VideoStageSelect
@@ -572,12 +681,49 @@ export default function TimelinePanel(props: {
       {pull !== null && !pull.dismissed ? (
         <PremierePullNotice pull={pull} onDismiss={() => setPull({ ...pull, dismissed: true })} />
       ) : null}
+      {preview !== null ? (
+        <div
+          role="status"
+          className="mx-3 mt-2 flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-info/40 bg-info/8 py-1.5 pr-1.5 pl-3 text-xs"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">
+              Looking at the version from {versionTime(preview.version.at)}
+            </span>
+            <span className="text-muted-foreground">
+              {" "}
+              · {preview.version.label}. The timeline itself is unchanged.
+            </span>
+          </span>
+          {canWriteFiles ? (
+            <Button size="xs" onClick={() => void restore({ version: preview.version.id })}>
+              Restore this version
+            </Button>
+          ) : null}
+          <Button size="xs" variant="ghost" onClick={() => setPreviewing(null)}>
+            Back to now
+          </Button>
+        </div>
+      ) : null}
       {file.data ? (
         <Suspense fallback={null}>
           <TimelineViewer
             key={selectedPath}
-            text={file.data.contents}
+            text={preview?.contents ?? file.data.contents}
             media={media}
+            scriptLines={{
+              ticks: preview === null ? ticks : [],
+              shown: scriptLinesShown,
+              onShownChange: (shown) => {
+                setScriptLinesShown(shown);
+                try {
+                  window.localStorage.setItem(SCRIPT_LINES_KEY, shown ? "on" : "off");
+                } catch {
+                  // Storage can be unavailable (private windows); the choice still holds this session.
+                }
+              },
+              onPick: () => workspace?.controls.show("script"),
+            }}
             onReference={reference}
             onPendingEdits={(pending) => {
               setEditedContents(pending ? (file.data?.contents ?? null) : null);
@@ -631,11 +777,29 @@ export default function TimelinePanel(props: {
                     // The timeline now differs from Premiere's save; the badge should say so.
                     void sync({ quiet: true });
                   }}
+                  onBeats={(beats) => setScriptBeats({ key: beatsKey, beats })}
                   onClose={() => workspace?.controls.close("script")}
                 />
               ),
+              history: (
+                <HistoryPanel
+                  environmentId={props.environmentId}
+                  workspaceRoot={props.workspaceRoot}
+                  timeline={selectedPath}
+                  revision={file.data?.contents ?? ""}
+                  canWrite={canWriteFiles}
+                  preview={preview}
+                  onPreview={(view) =>
+                    setPreviewing(view === null ? null : { timeline: selectedPath, view })
+                  }
+                  onRestore={(version) => restore({ version })}
+                />
+              ),
             }}
-            {...(canWriteFiles ? { onCommit: commit } : {})}
+            // A version on show is read-only: it can be looked at and played, not edited.
+            {...(canWriteFiles && preview === null
+              ? { onCommit: commit, onStepVersion: (step) => void restore({ step }) }
+              : {})}
           />
         </Suspense>
       ) : (
