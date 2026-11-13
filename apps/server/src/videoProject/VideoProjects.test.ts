@@ -296,6 +296,7 @@ it.live(
         text
           .split("\n")
           .slice(1)
+          .filter((line) => !line.startsWith("#"))
           .map((line) => line.replace(/ #\S+/, ""));
       const clipId = (text: string, name: string) =>
         text
@@ -318,6 +319,7 @@ it.live(
       yield* videoProjects.editTimeline({
         workspaceRoot,
         timeline: timelinePath,
+        summary: "Trimmed the end of c.",
         edits: [
           { kind: "trim", clipId: clipId(beforePush.text, "c.MOV"), edge: "end", frame: 255 },
         ],
@@ -326,8 +328,18 @@ it.live(
       const pushed = yield* sync();
       assert.deepStrictEqual([pushed.state, pushed.kept, pushed.pending], ["updated", [], []]);
       assert.strictEqual((yield* sync()).state, "current");
+      // The pull that confirmed the push changed nothing, so the edit can still come out alone.
+      const takenOut = yield* videoProjects.reviewEdit({
+        workspaceRoot,
+        timeline: timelinePath,
+        edit: 1,
+        action: "undo",
+      });
+      assert.strictEqual(takenOut.blocked, null);
+      assert.strictEqual((yield* sync()).state, "edited");
+      // Premiere takes the undo too, and the two hold the same text again.
       yield* save(260);
-      assert.strictEqual((yield* sync()).state, "updated");
+      assert.strictEqual((yield* sync()).state, "current");
 
       const base = yield* fs.readFileString(timelineFile);
       const baseFile = baseFileOf(base);

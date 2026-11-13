@@ -66,6 +66,8 @@ export const LONG_PAUSE_SECONDS = 0.75;
 /** A second saying counts as a repeat when it starts within this of the first, as heard. */
 const REPEAT_WITHIN_SECONDS = 3;
 const NEAREST_QUIET_REACH_SECONDS = 0.75;
+/** No single word is trusted to last longer than this. */
+const LONGEST_WORD_SECONDS = 1.5;
 /** A piece of a clip this short beside a word cut is a flash of picture, not something kept. */
 const SLIVER_SECONDS = 0.1;
 /** Joins and pauses in one page of the audit. */
@@ -383,9 +385,15 @@ const joinsOf = (view: WordsView): Array<Join> => {
 
 /** The transcript word a source second falls inside, clear of its ends. */
 const wordAround = (words: ReadonlyArray<TranscriptWord> | undefined, at: number) =>
-  words?.find(
-    (word) => word.start + WORD_MARGIN_SECONDS < at && at < word.end - WORD_MARGIN_SECONDS,
-  );
+  words?.find((word, index) => {
+    // An aligner can give a word seconds it does not last: it ends by the next, and soon.
+    const end = Math.min(
+      word.end,
+      words[index + 1]?.start ?? word.end,
+      word.start + LONGEST_WORD_SECONDS,
+    );
+    return word.start + WORD_MARGIN_SECONDS < at && at < end - WORD_MARGIN_SECONDS;
+  });
 
 export interface ClippedEdge extends SourceEdge {
   readonly track: string;

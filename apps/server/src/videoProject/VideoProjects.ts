@@ -128,6 +128,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -646,6 +647,7 @@ const make = Effect.gen(function* () {
   const syncing = yield* Semaphore.make(1);
   // One source is measured at a time, so two reads never write the same levels file at once.
   const measuring = yield* Semaphore.make(1);
+  const MEASURE_WAIT_MILLIS = 20_000;
   const savingScript = yield* Semaphore.make(1);
   // Premiere's process is named for its year ("Adobe Premiere Pro 2026"); `ps` lists it on macOS
   // and Linux. Where `ps` isn't there, the answer is unknown rather than "closed".
@@ -1494,14 +1496,31 @@ const make = Effect.gen(function* () {
     const mediaRoot = path.dirname(workspaceRoot);
     const levels = new Map<string, AudioLevels>();
     const unmeasured = new Set<string>();
+    // A first measurement reads each whole recording, which off an external drive takes minutes:
+    // a read waits only so long, the rest goes on behind it and is there for the next read.
+    const until = (yield* Clock.currentTimeMillis) + MEASURE_WAIT_MILLIS;
+    let waiting = 0;
     for (const [target, transcriptFile] of files) {
-      const measured = yield* measuring.withPermits(1)(
-        onHost(ensureLevels({ mediaRoot, target, transcriptFile })),
+      const measurement = yield* FiberSet.run(
+        background,
+        measuring.withPermits(1)(onHost(ensureLevels({ mediaRoot, target, transcriptFile }))),
       );
+      const left = Math.max(0, until - (yield* Clock.currentTimeMillis));
+      const waited = yield* Fiber.join(measurement).pipe(Effect.timeoutOption(left));
+      if (Option.isNone(waited)) {
+        waiting += 1;
+        continue;
+      }
+      const measured = waited.value;
       if ("unavailable" in measured) unmeasured.add(measured.unavailable);
       else levels.set(target, measured);
       // Nothing else will be measured either, and each try would spawn again.
       if ("unavailable" in measured && measured.unavailable === NO_FFMPEG) break;
+    }
+    if (waiting > 0) {
+      unmeasured.add(
+        `the sound of ${waiting} of ${files.size} recordings is still being measured, which can take minutes the first time; until then their cuts go by word timings, so read again shortly`,
+      );
     }
     return {
       view: timelineWords(timeline, transcripts),

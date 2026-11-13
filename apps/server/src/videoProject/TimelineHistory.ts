@@ -427,8 +427,12 @@ export const reviewTimelineEdit = Effect.fn("TimelineHistory.reviewEdit")(functi
   if (undo === (edit.decision === "undone")) {
     return yield* done(undo ? `${name} is already undone.` : `${name} is in the timeline.`);
   }
-  // A pull rewrites the whole file, so the versions around the edit no longer line up with it.
-  if (version.base !== history.base) {
+  // A pull that brought changes rewrites the whole file, so the versions around the edit no
+  // longer line up with it. A pull that only confirmed a push changed nothing and is no bar.
+  const pulledChanges = history.versions
+    .slice(index + 1)
+    .some((later) => later.by === "premiere" && later.changes.length > 0);
+  if (version.base !== history.base && pulledChanges) {
     return yield* done(
       `Premiere's save was pulled in after ${name}, so it can't be ${undo ? "taken out" : "put back"} on its own.${undo ? " Restoring the version before it would also take out everything done after it." : ""}`,
     );

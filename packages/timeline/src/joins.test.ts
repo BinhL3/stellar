@@ -218,6 +218,20 @@ describe("clippedEdges", () => {
         [],
       ),
     ).toEqual([]);
+    // A word the aligner timed over seconds is not being said three seconds in.
+    const drawnOut = new Map([[TARGET, [{ w: "kênh", start: 1, end: 9 }]]]);
+    expect(
+      clippedEdges(
+        timelineWords(stringout, drawnOut),
+        timelineWords(
+          applyEdits(stringout, [{ kind: "trim", clipId: "1:0", edge: "end", frame: 180 }]),
+          drawnOut,
+        ),
+        drawnOut,
+        measured([[1, 3.9]]),
+        [],
+      ),
+    ).toEqual([]);
     // Nor is the edge of a piece the user razored out mid-word, once the piece between goes.
     const razored = applyEdits(stringout, [
       { kind: "split", frame: 72 },
