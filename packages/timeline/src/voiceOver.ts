@@ -483,7 +483,10 @@ export const sliceByBeats = (
           word: word.w,
           startFrame: Math.round(word.start * 1000),
           endFrame: Math.round(word.end * 1000),
+          start: word.start,
+          end: word.end,
         })),
+        source: null,
       },
     ],
   });

@@ -13,6 +13,8 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Schema from "effect/Schema";
 
+import { ensureLevels } from "./AudioLevels.ts";
+
 /** Progress of a transcription run, in the project folder; clients re-read it while it runs. */
 const TRANSCRIPT_STATUS_FILE = "transcripts.json";
 /** New transcripts go here; a project's own pipeline may also write under its `transcripts/`. */
@@ -174,6 +176,8 @@ export const runTranscription = Effect.fn("VideoProjects.runTranscription")(func
         // Only a transcript that reads back is kept, whatever the command's exit said.
         yield* fs.readFileString(part).pipe(Effect.flatMap(decodeTranscript));
         yield* fs.rename(part, out);
+        // Measured now, while the file is at hand, so the first cut by words doesn't wait for it.
+        yield* ensureLevels({ mediaRoot, target, transcriptFile: out });
       }).pipe(
         Effect.as(true),
         Effect.catch((cause) =>

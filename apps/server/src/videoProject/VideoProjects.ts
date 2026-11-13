@@ -32,6 +32,7 @@ import {
   type VideoTimelineVersionView,
   type VideoTimelineView,
   type VideoTimelineWords,
+  type VideoTimelineWordsInput,
   type VideoTranscribeInput,
   type VideoTranscriptStatus,
   type VideoVoiceOverApplyInput,
@@ -68,6 +69,16 @@ import {
 } from "@t3tools/timeline/conformBuilder";
 import { changeLine, diffSentences, diffTimelines } from "@t3tools/timeline/diff";
 import { applyEdits, editClipId, type TimelineEdit } from "@t3tools/timeline/edits";
+import {
+  auditJoins,
+  clippedEdgeReason,
+  clippedEdges,
+  joinAuditText,
+  placePauseCut,
+  placeWordCut,
+  type SourceEdge,
+} from "@t3tools/timeline/joins";
+import type { AudioLevels } from "@t3tools/timeline/levels";
 import { timelineMarkers } from "@t3tools/timeline/markers";
 import {
   copyFootage,
@@ -105,7 +116,7 @@ import {
   sliceByBeats,
   takesOnTimeline,
 } from "@t3tools/timeline/voiceOver";
-import { timelineWords, type TranscriptWord, wordRange, wordsText } from "@t3tools/timeline/words";
+import { timelineWords, type TranscriptWord, wordsText } from "@t3tools/timeline/words";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -131,6 +142,7 @@ import {
   runRenderCheck,
   writePosted,
 } from "./RenderCheck.ts";
+import { ensureLevels, NO_FFMPEG } from "./AudioLevels.ts";
 import {
   decodeTranscript,
   findTranscript,
@@ -181,6 +193,16 @@ const NO_SCRIPT: typeof ScriptIndex.Type = { docUrl: null, savedAt: null, beats:
 
 type FrameRange = { readonly start: number; readonly end: number };
 
+/** The edits that can leave a clip starting or ending somewhere new. */
+const EDGE_MAKING_EDITS: ReadonlySet<VideoTimelineEdit["kind"]> = new Set([
+  "move",
+  "trim",
+  "delete",
+  "rippleDelete",
+  "removeRange",
+  "setEnabled",
+]);
+
 // A split names its new pieces after the clip it cut ("id~frame"), so a later edit in the same
 // call can name a piece that doesn't exist until the split has run.
 const isSplitPiece = (clipId: string) => clipId.includes("~");
@@ -188,10 +210,16 @@ const isSplitPiece = (clipId: string) => clipId.includes("~");
 /** The typed edit a flat tool input describes, or what is missing from it. */
 const toTimelineEdit = (
   edit: VideoTimelineEdit,
-  framesOfWords: (fromWord: number, toWord: number, ripple: boolean) => FrameRange | string,
+  /** The frames a cut named by words removes; null when it has nothing to remove. */
+  framesOfWords: (
+    cut:
+      | { readonly fromWord: number; readonly toWord: number }
+      | { readonly afterWord: number; readonly leave: number | undefined },
+    ripple: boolean,
+  ) => FrameRange | string | null,
   /** Who a marker made by this edit is from. */
   author: "user" | "agent",
-): TimelineEdit | string => {
+): TimelineEdit | string | null => {
   const missing = (...keys: ReadonlyArray<keyof VideoTimelineEdit>) =>
     `needs ${keys.filter((key) => edit[key] === undefined).join(", ")}`;
   switch (edit.kind) {
@@ -237,8 +265,19 @@ const toTimelineEdit = (
       const { fromWord, toWord } = edit;
       if (fromWord === undefined || toWord === undefined) return missing("fromWord", "toWord");
       const ripple = edit.ripple ?? false;
-      const range = framesOfWords(fromWord, toWord, ripple);
-      return typeof range === "string" ? range : { kind: "removeRange", ...range, ripple };
+      const range = framesOfWords({ fromWord, toWord }, ripple);
+      return typeof range === "string" || range === null
+        ? range
+        : { kind: "removeRange", ...range, ripple };
+    }
+    case "trimPause": {
+      if (edit.afterWord === undefined) return missing("afterWord");
+      // A pause trimmed and left open would only be a hole, so this closes up unless told not to.
+      const ripple = edit.ripple ?? true;
+      const range = framesOfWords({ afterWord: edit.afterWord, leave: edit.leave }, ripple);
+      return typeof range === "string" || range === null
+        ? range
+        : { kind: "removeRange", ...range, ripple };
     }
     case "setEnabled": {
       const { clipId, enabled } = edit;
@@ -477,7 +516,7 @@ export class VideoProjects extends Context.Service<
      * `transcribe` or the user's own pipeline wrote under `Audio`.
      */
     readonly readWords: (
-      input: VideoTimelineReadInput,
+      input: VideoTimelineWordsInput,
     ) => Effect.Effect<VideoTimelineWords, VideoProjectError>;
     /**
      * Starts the host's transcriber on the footage and voice-over takes that have no word-timed
@@ -566,6 +605,8 @@ const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const background = yield* FiberSet.make();
   const syncing = yield* Semaphore.make(1);
+  // One source is measured at a time, so two reads never write the same levels file at once.
+  const measuring = yield* Semaphore.make(1);
   const savingScript = yield* Semaphore.make(1);
   // Premiere's process is named for its year ("Adobe Premiere Pro 2026"); `ps` lists it on macOS
   // and Linux. Where `ps` isn't there, the answer is unknown rather than "closed".
@@ -1332,7 +1373,7 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const loadWords = Effect.fn("VideoProjects.loadWords")(function* (
+  const loadTranscripts = Effect.fn("VideoProjects.loadTranscripts")(function* (
     workspaceRoot: string,
     timeline: Timeline,
   ) {
@@ -1345,6 +1386,7 @@ const make = Effect.gen(function* () {
     );
     const mediaRoot = path.dirname(workspaceRoot);
     const transcripts = new Map<string, ReadonlyArray<TranscriptWord>>();
+    const files = new Map<string, string>();
     for (const target of targets) {
       if (target === "") continue;
       const file = yield* findTranscript(mediaRoot, target).pipe(
@@ -1352,6 +1394,7 @@ const make = Effect.gen(function* () {
         Effect.provideService(Path.Path, path),
       );
       if (file === null) continue;
+      files.set(target, file);
       transcripts.set(
         target,
         yield* fileSystem.readFileString(file).pipe(
@@ -1366,7 +1409,44 @@ const make = Effect.gen(function* () {
         ),
       );
     }
+    return { transcripts, files };
+  });
+
+  const loadWords = Effect.fn("VideoProjects.loadWords")(function* (
+    workspaceRoot: string,
+    timeline: Timeline,
+  ) {
+    const { transcripts } = yield* loadTranscripts(workspaceRoot, timeline);
     return timelineWords(timeline, transcripts);
+  });
+
+  /**
+   * A timeline's words with the measured levels of each source that has a transcript, made now
+   * for the ones not measured yet. `unmeasured` says why any are missing, once per reason.
+   */
+  const loadSound = Effect.fn("VideoProjects.loadSound")(function* (
+    workspaceRoot: string,
+    timeline: Timeline,
+  ) {
+    const { transcripts, files } = yield* loadTranscripts(workspaceRoot, timeline);
+    const mediaRoot = path.dirname(workspaceRoot);
+    const levels = new Map<string, AudioLevels>();
+    const unmeasured = new Set<string>();
+    for (const [target, transcriptFile] of files) {
+      const measured = yield* measuring.withPermits(1)(
+        onHost(ensureLevels({ mediaRoot, target, transcriptFile })),
+      );
+      if ("unavailable" in measured) unmeasured.add(measured.unavailable);
+      else levels.set(target, measured);
+      // Nothing else will be measured either, and each try would spawn again.
+      if ("unavailable" in measured && measured.unavailable === NO_FFMPEG) break;
+    }
+    return {
+      view: timelineWords(timeline, transcripts),
+      transcripts,
+      levels,
+      unmeasured: [...unmeasured],
+    };
   });
 
   const readWords: VideoProjects["Service"]["readWords"] = Effect.fn("VideoProjects.readWords")(
@@ -1382,7 +1462,38 @@ const make = Effect.gen(function* () {
         return yield* new VideoProjectError({ reason: "This project has no timeline to read." });
       }
       const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
-      return { timeline: chosen, text: wordsText(yield* loadWords(input.workspaceRoot, timeline)) };
+      const sound = yield* loadSound(input.workspaceRoot, timeline);
+      const from = input.from === undefined ? {} : { from: input.from };
+      const unmeasured = sound.unmeasured.map((reason) => `# Not measured: ${reason}.`);
+      if (input.action !== "joins") {
+        return {
+          timeline: chosen,
+          text: [
+            wordsText(sound.view, {
+              levels: sound.levels,
+              ...(input.from === undefined ? {} : { fromWord: input.from }),
+            }),
+            ...unmeasured,
+          ].join("\n"),
+        };
+      }
+      const pauseOver = input.pauseOver === undefined ? {} : { pauseOver: input.pauseOver };
+      const sources = [...sound.levels].map(
+        ([target, levels]) =>
+          `${path.basename(target)} speech ${levels.speech}, room tone ${levels.roomTone}`,
+      );
+      return {
+        timeline: chosen,
+        text: [
+          joinAuditText(
+            sound.view,
+            auditJoins(sound.view, sound.transcripts, sound.levels, input.pauseOver),
+            { ...from, ...pauseOver },
+          ),
+          ...(sources.length === 0 ? [] : [`# Levels in dBFS: ${sources.join("; ")}`]),
+          ...unmeasured,
+        ].join("\n"),
+      };
     },
   );
 
@@ -1703,8 +1814,15 @@ const make = Effect.gen(function* () {
     const clipIds = new Set(layout.tracks.flatMap((track) => track.clips.map((clip) => clip.key)));
     const trackNames = new Set(layout.tracks.map((track) => track.name));
     const markerIds = new Set(timelineMarkers(timeline).map((marker) => marker.id));
-    const words = input.edits.some((edit) => edit.kind === "removeWords")
-      ? yield* loadWords(input.workspaceRoot, timeline)
+    const by = input.by ?? "agent";
+    // An agent's cut is checked against the sound; a person hears their own and may cut anywhere.
+    const sound = input.edits.some(
+      (edit) =>
+        edit.kind === "removeWords" ||
+        edit.kind === "trimPause" ||
+        (by === "agent" && EDGE_MAKING_EDITS.has(edit.kind)),
+    )
+      ? yield* loadSound(input.workspaceRoot, timeline)
       : null;
     // Words are placed on the timeline as it was before the call, so a ripple word cut moves
     // the ones resolved after it by the frames it removed ahead of them.
@@ -1715,20 +1833,32 @@ const make = Effect.gen(function* () {
         (removed, cut) => removed + Math.max(0, Math.min(frame, cut.end) - cut.start),
         0,
       );
-    const framesOfWords = (fromWord: number, toWord: number, ripple: boolean) => {
-      const range = wordRange(
-        words ?? { name: timeline.name, rate: layout.rate, count: 0, clips: [] },
-        fromWord,
-        toWord,
-      );
+    const cutNotes: Array<string> = [];
+    const placedEdges: Array<SourceEdge> = [];
+    const framesOfWords: Parameters<typeof toTimelineEdit>[1] = (cut, ripple) => {
+      const view = sound?.view ?? { name: timeline.name, rate: layout.rate, count: 0, clips: [] };
+      const levels = sound?.levels ?? new Map<string, AudioLevels>();
+      const range =
+        "afterWord" in cut
+          ? placePauseCut(view, levels, cut.afterWord, cut.leave)
+          : placeWordCut(view, levels, cut.fromWord, cut.toWord);
       if (typeof range === "string") return range;
+      if ("nothing" in range) {
+        cutNotes.push(range.nothing);
+        return null;
+      }
+      cutNotes.push(range.note);
+      placedEdges.push(...range.edges);
       const placed = { start: afterCuts(range.start), end: afterCuts(range.end) };
       if (ripple) rippled.push(range);
       return placed;
     };
     const edits: Array<TimelineEdit> = [];
+    // The call's edit each applied one came from, since a pause with nothing to trim is skipped.
+    const asked: Array<number> = [];
     for (const [index, edit] of input.edits.entries()) {
-      const parsed = toTimelineEdit(edit, framesOfWords, input.by ?? "agent");
+      const parsed = toTimelineEdit(edit, framesOfWords, by);
+      if (parsed === null) continue;
       const clipId = typeof parsed === "string" ? undefined : (editClipId(parsed) ?? undefined);
       const problem =
         typeof parsed === "string"
@@ -1747,15 +1877,49 @@ const make = Effect.gen(function* () {
         });
       }
       edits.push(parsed);
+      asked.push(index);
     }
     const edited = applyEdits(timeline, edits);
+    if (sound !== null && by === "agent") {
+      const clippedBy = (result: Timeline) =>
+        clippedEdges(
+          sound.view,
+          timelineWords(result, sound.transcripts),
+          sound.transcripts,
+          sound.levels,
+          placedEdges,
+        );
+      const clipped = clippedBy(edited);
+      const [first] = clipped;
+      if (first !== undefined) {
+        // The first edit after which the edge is there made it.
+        const made = edits.findIndex((_, index) =>
+          clippedBy(applyEdits(timeline, edits.slice(0, index + 1))).some(
+            (edge) =>
+              edge.target === first.target &&
+              edge.side === first.side &&
+              edge.seconds === first.seconds,
+          ),
+        );
+        const index = asked[made] ?? asked.at(-1) ?? 0;
+        return yield* new VideoProjectError({
+          reason: `Edit ${index + 1} (${input.edits[index]?.kind}): ${clippedEdgeReason(first, layout.rate)}.${clipped.length > 1 ? ` ${clipped.length - 1} more edges in this call cut a sounding word too.` : ""} Nothing was changed.`,
+        });
+      }
+    }
+    const cuts = [
+      ...cutNotes,
+      ...(cutNotes.length === 0 ? [] : (sound?.unmeasured ?? [])).map(
+        (reason) => `Not measured: ${reason}.`,
+      ),
+    ];
     yield* syncing.withPermits(1)(
       onHost(
         commitTimelineText({
           projectDir: input.workspaceRoot,
           timelinePath: input.timeline,
           text: serializeTimeline(edited),
-          by: input.by ?? "agent",
+          by,
           label: input.by === "user" ? "Edited" : "Edited by an agent",
         }),
       ).pipe(Effect.mapError(historyError)),
@@ -1771,6 +1935,7 @@ const make = Effect.gen(function* () {
       // What the sync before the edit pulled or merged in, then what is pending with the edit.
       changes: changesText({ ...before, pending: after.pending }),
       text: editableView(edited),
+      ...(cuts.length === 0 ? {} : { cuts: cuts.join("\n") }),
     };
   });
 
