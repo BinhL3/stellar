@@ -1,0 +1,19 @@
+{
+  "decisions": [
+    {
+      "fromWord": 1,
+      "toWord": 5,
+      "decision": "kept"
+    },
+    {
+      "fromWord": 13,
+      "toWord": 13,
+      "decision": "kept"
+    },
+    {
+      "fromWord": 19,
+      "toWord": 19,
+      "decision": "undone"
+    }
+  ]
+}

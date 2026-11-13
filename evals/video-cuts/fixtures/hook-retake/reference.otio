@@ -1,0 +1,294 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "global_start_time": {
+    "OTIO_SCHEMA": "RationalTime.1",
+    "rate": 60,
+    "value": 0
+  },
+  "metadata": {
+    "stellar": {
+      "frame": {
+        "height": 1920,
+        "width": 1080
+      },
+      "generated": "footage",
+      "mediaRoot": "/home/user/Shorts/acme-hook",
+      "rate": 60
+    }
+  },
+  "name": "Footage",
+  "tracks": {
+    "OTIO_SCHEMA": "Stack.1",
+    "children": [
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "children": [
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "enabled": true,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "metadata": {},
+                "target_url": "Footage/take-01.mov"
+              }
+            },
+            "metadata": {
+              "stellar": {
+                "id": "0:0"
+              }
+            },
+            "name": "take-01.mov",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 24
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 0
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "enabled": true,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "metadata": {},
+                "target_url": "Footage/take-01.mov"
+              }
+            },
+            "metadata": {
+              "stellar": {
+                "id": "0:0~174"
+              }
+            },
+            "name": "take-01.mov",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 108
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 174
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "enabled": true,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "metadata": {},
+                "target_url": "Footage/take-01.mov"
+              }
+            },
+            "metadata": {
+              "stellar": {
+                "id": "0:0~174~228"
+              }
+            },
+            "name": "take-01.mov",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 24
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 378
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "enabled": true,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "metadata": {},
+                "target_url": "Footage/take-01.mov"
+              }
+            },
+            "metadata": {
+              "stellar": {
+                "id": "0:0~174~282"
+              }
+            },
+            "name": "take-01.mov",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 288
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 432
+              }
+            }
+          }
+        ],
+        "enabled": true,
+        "kind": "Video",
+        "metadata": {},
+        "name": "V1"
+      },
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "children": [
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "enabled": true,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "metadata": {},
+                "target_url": "Footage/take-01.mov"
+              }
+            },
+            "metadata": {
+              "stellar": {
+                "id": "1:0"
+              }
+            },
+            "name": "take-01.mov",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 24
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 0
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "enabled": true,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "metadata": {},
+                "target_url": "Footage/take-01.mov"
+              }
+            },
+            "metadata": {
+              "stellar": {
+                "id": "1:0~174"
+              }
+            },
+            "name": "take-01.mov",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 108
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 174
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "enabled": true,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "metadata": {},
+                "target_url": "Footage/take-01.mov"
+              }
+            },
+            "metadata": {
+              "stellar": {
+                "id": "1:0~174~228"
+              }
+            },
+            "name": "take-01.mov",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 24
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 378
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "enabled": true,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "metadata": {},
+                "target_url": "Footage/take-01.mov"
+              }
+            },
+            "metadata": {
+              "stellar": {
+                "id": "1:0~174~282"
+              }
+            },
+            "name": "take-01.mov",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 288
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 60,
+                "value": 432
+              }
+            }
+          }
+        ],
+        "enabled": true,
+        "kind": "Audio",
+        "metadata": {},
+        "name": "A1"
+      }
+    ],
+    "enabled": true,
+    "metadata": {},
+    "name": "tracks"
+  }
+}

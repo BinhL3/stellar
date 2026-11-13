@@ -38,6 +38,8 @@ import {
 } from "./run.ts";
 import { briefRoute, gradeDevice, shellInvocations } from "./device-grading.ts";
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
+import { CarouselToolkit } from "../../apps/server/src/mcp/toolkits/carousel/tools.ts";
+import { VideoToolkit } from "../../apps/server/src/mcp/toolkits/video/tools.ts";
 
 it("grades Codex shell and subagent calls with the shared rules", () => {
   const calls = [
@@ -946,6 +948,63 @@ it.effect("builds device cases from product-backed worlds and synthetic prior tu
     assert.isNotEmpty(cases.find((c) => c.id === "SEED-01")!.setup.priorTurns!);
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
+
+const editorCases = () =>
+  ["video", "carousel"].flatMap((area) =>
+    NodeFS.readFileSync(new URL(`./cases/${area}.ndjson`, import.meta.url), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => decodeDeviceCase(line)),
+  );
+
+it("builds the video and carousel cases, which name only tools this checkout has", () => {
+  const cases = editorCases();
+  assert.equal(new Set(cases.map((c) => c.id)).size, cases.length);
+  const base = buildBase(template, { model: "claude-sonnet-5-5", keepUserInstructions: false });
+  const known = new Set(
+    [VideoToolkit, CarouselToolkit].flatMap((toolkit) => Object.keys(toolkit.tools)),
+  );
+  for (const testCase of cases) {
+    assert.include(
+      buildMessages(makeSample(testCase, base)).at(-1)?.content.at(-1)?.text,
+      testCase.prompt,
+      testCase.id,
+    );
+    const { calls = [], callsMustNot = [], notCalls = [], order = [] } = testCase.expect;
+    const named = [
+      ...[...calls, ...callsMustNot].flatMap((call) => call.tool.split("|")),
+      ...notCalls,
+      ...order,
+      ...Object.keys(testCase.setup.mocks ?? {}),
+    ].filter((tool) => /^(video|carousel)_/.test(tool));
+    assert.isNotEmpty(named, testCase.id);
+    // A renamed tool would leave a case that can only fail, or a notCalls that can only pass.
+    for (const tool of named) assert.isTrue(known.has(tool), `${testCase.id}: ${tool}`);
+  }
+});
+
+it("grades a word cut by its word numbers, whatever else the edit carries", () => {
+  const { expect } = editorCases().find((c) => c.id === "video-cut-second-take-by-words")!;
+  const run = (...edits: ReadonlyArray<object>) => ({
+    calls: [
+      { step: 0, tool: "video_timeline_read", input: {} },
+      { step: 1, tool: "video_timeline_words", input: {} },
+      { step: 2, tool: "video_timeline_edit", input: { timeline: "timelines/main.otio", edits } },
+    ],
+    text: "",
+    stopReason: "end_turn",
+  });
+  const cut = (fromWord: number, toWord: number) => ({ kind: "removeWords", fromWord, toWord });
+  // An argument the tool gains later, such as a summary of the edit, does not fail the case.
+  assert.deepEqual(
+    failed(expect, run({ ...cut(12, 19), ripple: true, summary: "Cut take two." })),
+    [],
+  );
+  assert.deepEqual(failed(expect, run(cut(10, 19))), []);
+  assert.isNotEmpty(failed(expect, run({ kind: "removeRange", start: 300, end: 480 })));
+  assert.isNotEmpty(failed(expect, run(cut(2, 9))));
+  assert.isNotEmpty(failed(expect, run(cut(12, 31))));
+});
 
 const secretCases = () =>
   NodeFS.readFileSync(new URL("./cases/secrets.ndjson", import.meta.url), "utf8")

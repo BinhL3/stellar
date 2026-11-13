@@ -177,8 +177,24 @@ apply it in the target's insertion order; QE inserts at the top, so a Premiere s
 - Agents write through typed operations (`place`, `trim`, `ripple`, `keyframe`, `applyPreset`), not file
   rewrites. Every operation is checked on the frame grid, so stills and graphics land on exact frames.
 
-**Learnings become invariants in code, not notes in prompts.** The toolkit enforces what past edits
-taught us on every write. Today these rules live in `premiere-automation.md`:
+**Who owns what.** A learning from a past edit goes to the one place that owns it:
+
+- **Stellar measures, enforces and reports.** What code can check (the invariants below, word
+  times, quiet at a cut edge, an export against its timeline) is checked on every write, and every
+  adjustment Stellar makes to an agent's edit is said in the tool's result. Nothing is corrected
+  silently.
+- **The model decides.** Which take stays, what to cut and when to stop are its calls, made from
+  what Stellar measured.
+- **Taste lives in the user's skills and house rules**, which they edit. Stellar's code and
+  instructions carry no opinion about pacing or style.
+- **Tool mechanics live in tool descriptions**: what a tool takes, returns and refuses.
+- **An instruction is added only for a failure we observed**, with an eval case that fails without
+  it. When the evals show a newer model passes without the instruction, remove it.
+
+`evals/mcp-tool-use` checks tool choice and arguments in fake video and carousel threads;
+`evals/video-cuts` scores a finished cut by code and replays stored edit calls for free.
+
+The invariants the toolkit enforces today (these rules came from `premiere-automation.md`):
 
 - Items stay in time order on a track.
 - Everything snaps to the frame grid.
@@ -321,8 +337,8 @@ Built from the past threads: it targets where time and failures actually went, a
   returns an ordered plan (`packages/timeline/src/premiere/pushPlan.ts`) that the agent applies
   to the live sequence with its Premiere tools, touching only what differs from Premiere's last
   save; Stellar's server cannot drive Premiere itself, and the next read's sync is the check.
-  No plan has been applied to a real Premiere yet. The baton and native re-attach are not built. The tool text has not been through
-  `evals/mcp-tool-use` yet.
+  No plan has been applied to a real Premiere yet. The baton and native re-attach are not built. `evals/mcp-tool-use` has
+  tool-choice cases for this text, with no model baseline recorded yet.
 - **Cutting by words, on measured quiet: built.** `video_timeline_words` numbers the words heard
   on a timeline, and the `removeWords` edit cuts a run of them and `trimPause` the pause after
   one. Transcripts are `Audio/<clip>.words.json` files, which a project's own pipeline may write

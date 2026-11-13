@@ -1,0 +1,14 @@
+{
+  "id": "hook-retake-decisions",
+  "source": "synthetic",
+  "request": "Cut the first take of the hook and the ums.",
+  "timeline": "../hook-retake/start.otio",
+  "timelineName": "timelines/main.otio",
+  "transcripts": {
+    "Footage/take-01.mov": "../hook-retake/take-01.words.json"
+  },
+  "reference": {
+    "decisions": "decisions.json"
+  },
+  "plan": "../hook-retake/plan.json"
+}
