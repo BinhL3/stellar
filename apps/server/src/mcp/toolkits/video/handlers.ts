@@ -94,7 +94,14 @@ const handlers = {
       const workspaceRoot = yield* callerWorkspaceRoot;
       const videoProjects = yield* VideoProjects.VideoProjects;
       return yield* videoProjects
-        .editTimeline({ workspaceRoot, timeline: input.timeline, edits: input.edits, by: "agent" })
+        .editTimeline({
+          workspaceRoot,
+          timeline: input.timeline,
+          edits: input.edits,
+          by: "agent",
+          summary: input.summary,
+          ...(input.check === undefined ? {} : { check: input.check }),
+        })
         .pipe(Effect.mapError(refused));
     }),
   ),

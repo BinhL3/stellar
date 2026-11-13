@@ -771,6 +771,53 @@ export const VideoTimelineRestoreResult = Schema.Struct({
 });
 export type VideoTimelineRestoreResult = typeof VideoTimelineRestoreResult.Type;
 
+/** One agent edit as the user reviews it. */
+export const VideoTimelineEditRecord = Schema.Struct({
+  /** Counted up per timeline and never reused; shown and said as `E<n>`. */
+  number: Schema.Number,
+  /** The version the edit wrote, and the one before it; `before` is null once it is no longer kept. */
+  version: TrimmedNonEmptyString,
+  before: Schema.NullOr(Schema.String),
+  /** Epoch milliseconds. */
+  at: Schema.Number,
+  /** What the agent says it did, in a sentence. */
+  summary: Schema.String,
+  /** A doubt the agent left that only watching or listening settles; null when it left none. */
+  check: Schema.NullOr(Schema.String),
+  decision: Schema.NullOr(Schema.Literals(["kept", "undone"])),
+  /** Where the edit is in the timeline now, in frames; null when it has no place. */
+  frame: Schema.NullOr(Schema.Number),
+  /** The first stretch it took out, in the frames of the version before it. */
+  removed: Schema.NullOr(Schema.Struct({ start: Schema.Number, end: Schema.Number })),
+});
+export type VideoTimelineEditRecord = typeof VideoTimelineEditRecord.Type;
+
+export const VideoTimelineEdits = Schema.Struct({
+  timeline: Schema.String,
+  /** Newest first. */
+  edits: Schema.Array(VideoTimelineEditRecord),
+});
+export type VideoTimelineEdits = typeof VideoTimelineEdits.Type;
+
+export const VideoTimelineReviewEditInput = Schema.Struct({
+  ...VideoTimelineVersionsInput.fields,
+  edit: Schema.Number,
+  /**
+   * `keep` settles an edit and `reopen` unsettles it. `undo` takes just that edit out and
+   * `redo` puts it back, each only when the edits made since leave room. `restoreBefore`
+   * brings back the version before the edit, taking every later edit with it.
+   */
+  action: Schema.Literals(["keep", "reopen", "undo", "redo", "restoreBefore"]),
+});
+export type VideoTimelineReviewEditInput = typeof VideoTimelineReviewEditInput.Type;
+
+export const VideoTimelineReviewEditResult = Schema.Struct({
+  ...VideoTimelineEdits.fields,
+  /** Why an undo or redo changed nothing, in plain words; null when the action was done. */
+  blocked: Schema.NullOr(Schema.String),
+});
+export type VideoTimelineReviewEditResult = typeof VideoTimelineReviewEditResult.Type;
+
 export const VideoTimelineExportResult = Schema.Struct({
   /** The XML file Premiere imports as a new sequence. */
   path: TrimmedNonEmptyString,
@@ -806,6 +853,10 @@ export const VideoTimelineEditInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   timeline: TrimmedNonEmptyString.check(Schema.isMaxLength(512)),
   edits: Schema.Array(VideoTimelineEdit).check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+  /** What the edits did, in a sentence. With it the call is an edit the user reviews. */
+  summary: Schema.optional(Schema.String.check(Schema.isMaxLength(500))),
+  /** A doubt left that the user must settle by watching or listening. */
+  check: Schema.optional(Schema.String.check(Schema.isMaxLength(300))),
 });
 export type VideoTimelineEditInput = typeof VideoTimelineEditInput.Type;
 

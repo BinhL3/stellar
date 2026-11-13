@@ -1,7 +1,15 @@
-import { describe, expect, it } from "vite-plus/test";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 
+import { applyEdits } from "./edits.ts";
+import { rationalTime, serializeTimeline, type Timeline, timeRange } from "./otio.ts";
 import {
+  decideEdits,
   historySteps,
+  readHistory,
+  recordVersion,
   RETAIN_DAYS,
   RETAIN_RECENT,
   retainVersions,
@@ -60,4 +68,106 @@ describe("historySteps", () => {
     expect(historySteps(history(undone.slice(1)))).toEqual({ undo: null, redo: "v3" });
     expect(historySteps(history([]))).toEqual({ undo: null, redo: null });
   });
+});
+
+describe("recordVersion", () => {
+  const timeline: Timeline = {
+    OTIO_SCHEMA: "Timeline.1",
+    name: "t",
+    global_start_time: rationalTime(0, 30),
+    tracks: {
+      OTIO_SCHEMA: "Stack.1",
+      name: "tracks",
+      enabled: true,
+      metadata: {},
+      children: [
+        {
+          OTIO_SCHEMA: "Track.1",
+          name: "V1",
+          kind: "Video",
+          enabled: true,
+          metadata: {},
+          children: [
+            {
+              OTIO_SCHEMA: "Clip.2",
+              name: "a",
+              source_range: timeRange(0, 300, 30),
+              media_references: {
+                DEFAULT_MEDIA: {
+                  OTIO_SCHEMA: "ExternalReference.1",
+                  target_url: "a.mov",
+                  metadata: {},
+                },
+              },
+              active_media_reference_key: "DEFAULT_MEDIA",
+              enabled: true,
+              metadata: { premiere: { nodeId: "a" } },
+            },
+          ],
+        },
+      ],
+    },
+    metadata: {},
+  };
+
+  it.effect("keeps an edit's summary, check and place, and what the user decides on it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const projectDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-versions-" });
+      const timelinePath = "timelines/main.otio";
+      const start = serializeTimeline(timeline);
+      const cut = applyEdits(timeline, [{ kind: "removeRange", start: 60, end: 90, ripple: true }]);
+      const cutText = serializeTimeline(cut);
+      const record = (text: string, before: string, review?: { summary: string; check?: string }) =>
+        recordVersion({
+          projectDir,
+          timelinePath,
+          text,
+          before,
+          by: "agent",
+          label: "Edited by an agent",
+          ...(review === undefined ? {} : { review }),
+        });
+
+      yield* record(cutText, start, {
+        summary: "Cut the false start at 0:02",
+        check: "The breath before the next line may be clipped",
+      });
+      // An edit with no summary is a version and not a reviewed edit; the next one is E2.
+      const trimmed = serializeTimeline(
+        applyEdits(cut, [{ kind: "trim", clipId: "a", edge: "end", frame: 50 }]),
+      );
+      yield* record(trimmed, cutText);
+      yield* record(cutText, trimmed, { summary: "Put the trim back" });
+
+      const history = yield* readHistory(projectDir, timelinePath);
+      expect(history.versions.map((version) => [version.id, version.edit])).toEqual([
+        ["v1", undefined],
+        [
+          "v2",
+          {
+            number: 1,
+            summary: "Cut the false start at 0:02",
+            check: "The breath before the next line may be clipped",
+            frame: 60,
+            removed: { start: 60, end: 90 },
+            anchor: { track: "V1", target: "a.mov", seconds: 3 },
+          },
+        ],
+        ["v3", undefined],
+        ["v4", expect.objectContaining({ number: 2, summary: "Put the trim back" })],
+      ]);
+
+      const decisions = Effect.map(readHistory(projectDir, timelinePath), (read) =>
+        read.versions.flatMap((version) => version.edit?.decision ?? []),
+      );
+      yield* decideEdits({ projectDir, timelinePath, numbers: [1, 2], decision: "undone" });
+      yield* decideEdits({ projectDir, timelinePath, numbers: [2], decision: "kept" });
+      expect(yield* decisions).toEqual(["undone", "kept"]);
+      yield* decideEdits({ projectDir, timelinePath, numbers: [1], decision: null });
+      expect(yield* decisions).toEqual(["kept"]);
+      // Deciding rewrites the index only: the numbering carries on.
+      expect((yield* readHistory(projectDir, timelinePath)).nextEdit).toBe(3);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
 });

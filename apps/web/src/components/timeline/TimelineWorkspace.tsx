@@ -44,6 +44,7 @@ export interface TimelineWorkspacePanels {
   readonly timeline: ReactNode;
   readonly script: ReactNode;
   readonly markers: ReactNode;
+  readonly edits: ReactNode;
   readonly history: ReactNode;
 }
 
@@ -72,6 +73,7 @@ const CONSTRAINTS: Record<TimelinePanelId, { minimumWidth: number; minimumHeight
   timeline: { minimumWidth: 160, minimumHeight: 100 },
   script: { minimumWidth: 160, minimumHeight: 100 },
   markers: { minimumWidth: 160, minimumHeight: 100 },
+  edits: { minimumWidth: 160, minimumHeight: 100 },
   history: { minimumWidth: 160, minimumHeight: 100 },
 };
 
@@ -90,9 +92,7 @@ const addTimelinePanel = (api: DockviewApi, id: TimelinePanelId) => {
     component: id,
     title: TIMELINE_PANEL_TITLES[id],
     ...CONSTRAINTS[id],
-    ...(id === "script" || id === "markers" || id === "history"
-      ? { initialWidth: SCRIPT_WIDTH_PX }
-      : {}),
+    ...(id === "monitor" || id === "timeline" ? {} : { initialWidth: SCRIPT_WIDTH_PX }),
     ...(position === null ? {} : { position }),
   });
 };
@@ -260,6 +260,10 @@ function MarkersDockPanel() {
   return usePanels().markers;
 }
 
+function EditsDockPanel() {
+  return usePanels().edits;
+}
+
 function HistoryDockPanel() {
   return usePanels().history;
 }
@@ -269,6 +273,7 @@ const PANEL_COMPONENTS: Record<TimelinePanelId, React.FunctionComponent<IDockvie
   timeline: TimelineTracksPanel,
   script: ScriptDockPanel,
   markers: MarkersDockPanel,
+  edits: EditsDockPanel,
   history: HistoryDockPanel,
 };
 

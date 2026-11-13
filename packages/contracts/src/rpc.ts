@@ -265,8 +265,11 @@ import {
   VideoRenderReport,
   VideoSetPostedInput,
   VideoTimelineCommitInput,
+  VideoTimelineEdits,
   VideoTimelineRestoreInput,
   VideoTimelineRestoreResult,
+  VideoTimelineReviewEditInput,
+  VideoTimelineReviewEditResult,
   VideoTimelineVersionReadInput,
   VideoTimelineVersions,
   VideoTimelineVersionsInput,
@@ -489,6 +492,8 @@ export const WS_METHODS = {
   videoProjectsListVersions: "videoProjects.listVersions",
   videoProjectsReadVersion: "videoProjects.readVersion",
   videoProjectsRestoreVersion: "videoProjects.restoreVersion",
+  videoProjectsListEdits: "videoProjects.listEdits",
+  videoProjectsReviewEdit: "videoProjects.reviewEdit",
 
   carouselCreate: "carousel.create",
   carouselEdit: "carousel.edit",
@@ -1578,6 +1583,18 @@ const WsVideoProjectsRestoreVersionRpc = Rpc.make(WS_METHODS.videoProjectsRestor
   error: VideoHistoryRpcError,
 });
 
+const WsVideoProjectsListEditsRpc = Rpc.make(WS_METHODS.videoProjectsListEdits, {
+  payload: VideoTimelineVersionsInput,
+  success: VideoTimelineEdits,
+  error: VideoHistoryRpcError,
+});
+
+const WsVideoProjectsReviewEditRpc = Rpc.make(WS_METHODS.videoProjectsReviewEdit, {
+  payload: VideoTimelineReviewEditInput,
+  success: VideoTimelineReviewEditResult,
+  error: VideoHistoryRpcError,
+});
+
 const CarouselRpcError = Schema.Union([
   OrchestrationDispatchCommandError,
   EnvironmentAuthorizationError,
@@ -2417,6 +2434,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsListVersionsRpc,
   WsVideoProjectsReadVersionRpc,
   WsVideoProjectsRestoreVersionRpc,
+  WsVideoProjectsListEditsRpc,
+  WsVideoProjectsReviewEditRpc,
   WsCarouselCreateRpc,
   WsCarouselEditRpc,
   WsCarouselImportPhotosRpc,

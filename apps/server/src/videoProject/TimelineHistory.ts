@@ -3,15 +3,21 @@
  * reading versions, and bringing one back. The store itself is `@t3tools/timeline/versions`.
  */
 import type {
+  VideoTimelineEdits,
   VideoTimelineRestoreResult,
+  VideoTimelineReviewEditInput,
+  VideoTimelineReviewEditResult,
   VideoTimelineVersion,
   VideoTimelineVersions,
   VideoTimelineVersionView,
 } from "@t3tools/contracts";
 import { diffSentences, diffTimelines, mergeTimelines } from "@t3tools/timeline/diff";
+import { carryChange, frameOfAnchor } from "@t3tools/timeline/editReview";
 import { serializeTimeline, type Timeline } from "@t3tools/timeline/otio";
 import { pulledHash, readBase } from "@t3tools/timeline/premiereSync";
 import {
+  decideEdits,
+  hashOfText,
   historySteps,
   readHistory,
   readSnapshot,
@@ -111,6 +117,8 @@ export const commitTimelineText = Effect.fn("TimelineHistory.commit")(function* 
   readonly by: VersionAuthor;
   readonly label: string;
   readonly steps?: { readonly parent: string | null; readonly redo?: string };
+  /** An agent's account of the change, which makes it an edit the user reviews. */
+  readonly review?: { readonly summary: string; readonly check?: string };
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -127,6 +135,7 @@ export const commitTimelineText = Effect.fn("TimelineHistory.commit")(function* 
     by: input.by,
     label: input.label,
     ...(input.steps === undefined ? {} : { steps: input.steps }),
+    ...(input.review === undefined ? {} : { review: input.review }),
   }).pipe(Effect.mapError(failed(`Could not record the history of ${input.timelinePath}.`)));
 });
 
@@ -197,6 +206,7 @@ export const restoreTimelineVersion = Effect.fn("TimelineHistory.restore")(funct
   readonly version?: string;
   readonly step?: "undo" | "redo";
   readonly by: VersionAuthor;
+  readonly review?: { readonly summary: string; readonly check?: string };
 }) {
   const { projectDir, timelinePath } = input;
   const { history } = yield* caughtUp(projectDir, timelinePath);
@@ -264,6 +274,7 @@ export const restoreTimelineVersion = Effect.fn("TimelineHistory.restore")(funct
             },
           }
         : {}),
+    ...(input.review === undefined ? {} : { review: input.review }),
   });
   return {
     ...viewOf(timelinePath, yield* readHistory(projectDir, timelinePath)),
@@ -291,3 +302,194 @@ export const versionsText = (view: VideoTimelineVersions): string =>
           return `${version.id} ${stamp(version.at)} ${version.by} ${version.label}${changes}`;
         }),
       ].join("\n");
+
+/** `current` is the timeline now, in which each edit's place is found again; null when unreadable. */
+const editsOf = (
+  timelinePath: string,
+  history: TimelineHistory,
+  current: Timeline | null,
+): VideoTimelineEdits => ({
+  timeline: timelinePath,
+  edits: history.versions
+    .flatMap((version) => {
+      const edit = version.edit;
+      if (edit === undefined) return [];
+      const moved =
+        current === null || edit.anchor === undefined || edit.frame === null
+          ? null
+          : frameOfAnchor(current, edit.anchor, edit.frame);
+      return [
+        {
+          number: edit.number,
+          version: version.id,
+          before: history.versions.find((candidate) => candidate.id === version.parent)?.id ?? null,
+          at: version.at,
+          summary: edit.summary,
+          check: edit.check ?? null,
+          decision: edit.decision ?? null,
+          frame: moved ?? edit.frame,
+          removed: edit.removed ?? null,
+        },
+      ];
+    })
+    .toReversed(),
+});
+
+const editsNow = Effect.fn("TimelineHistory.editsNow")(function* (
+  projectDir: string,
+  timelinePath: string,
+) {
+  const { current, history } = yield* caughtUp(projectDir, timelinePath);
+  const timeline = yield* parse(current, timelinePath).pipe(Effect.orElseSucceed(() => null));
+  return editsOf(timelinePath, history, timeline);
+});
+
+export const listTimelineEdits = Effect.fn("TimelineHistory.listEdits")(function* (
+  projectDir: string,
+  timelinePath: string,
+) {
+  return yield* editsNow(projectDir, timelinePath);
+});
+
+const named = (words: ReadonlyArray<string>) =>
+  words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+
+/**
+ * What the user decides about one edit. Undo and redo carry just that edit's change onto the
+ * timeline as it is now; when a later edit changed the same thing they change nothing and say
+ * so in `blocked`. Call it after a merging sync, as a restore is.
+ */
+export const reviewTimelineEdit = Effect.fn("TimelineHistory.reviewEdit")(function* (
+  input: Pick<VideoTimelineReviewEditInput, "edit" | "action"> & {
+    readonly projectDir: string;
+    readonly timelinePath: string;
+  },
+) {
+  const { projectDir, timelinePath } = input;
+  const { current, history } = yield* caughtUp(projectDir, timelinePath);
+  const index = history.versions.findIndex((version) => version.edit?.number === input.edit);
+  const version = history.versions[index];
+  const edit = version?.edit;
+  const name = `E${input.edit}`;
+  if (version === undefined || edit === undefined) {
+    return yield* new TimelineHistoryError({ reason: `${timelinePath} has no edit ${name}.` });
+  }
+  const decide = (numbers: ReadonlyArray<number>, decision: "kept" | "undone" | null) =>
+    decideEdits({ projectDir, timelinePath, numbers, decision }).pipe(
+      Effect.mapError(failed(`Could not record the decision on ${name}.`)),
+    );
+  const done = Effect.fn("TimelineHistory.reviewEdit.done")(function* (
+    blocked: string | null = null,
+  ) {
+    return {
+      ...(yield* editsNow(projectDir, timelinePath)),
+      blocked,
+    } satisfies VideoTimelineReviewEditResult;
+  });
+
+  if (input.action === "keep" || input.action === "reopen") {
+    // An undone edit is out of the timeline; only putting it back changes that.
+    if (edit.decision === "undone") {
+      return yield* done(`${name} was undone. Put it back first.`);
+    }
+    yield* decide([input.edit], input.action === "keep" ? "kept" : null);
+    return yield* done();
+  }
+
+  const before = history.versions.find((candidate) => candidate.id === version.parent);
+  const beforeText =
+    before === undefined ? null : yield* readSnapshot(projectDir, timelinePath, before.hash);
+  const afterText = yield* readSnapshot(projectDir, timelinePath, version.hash);
+  if (before === undefined || beforeText === null || afterText === null) {
+    return yield* done(
+      `The versions around ${name} are no longer in the history, so it can't be taken out or put back.`,
+    );
+  }
+
+  if (input.action === "restoreBefore") {
+    yield* restoreTimelineVersion({ projectDir, timelinePath, version: before.id, by: "user" });
+    yield* decide(
+      history.versions.slice(index).flatMap((later) => later.edit?.number ?? []),
+      "undone",
+    );
+    return yield* done();
+  }
+
+  const undo = input.action === "undo";
+  if (undo === (edit.decision === "undone")) {
+    return yield* done(undo ? `${name} is already undone.` : `${name} is in the timeline.`);
+  }
+  // A pull rewrites the whole file, so the versions around the edit no longer line up with it.
+  if (version.base !== history.base) {
+    return yield* done(
+      `Premiere's save was pulled in after ${name}, so it can't be ${undo ? "taken out" : "put back"} on its own.${undo ? " Restoring the version before it would also take out everything done after it." : ""}`,
+    );
+  }
+  const [from, to] = undo ? [afterText, beforeText] : [beforeText, afterText];
+  let text = to;
+  // With nothing changed since, the other side of the edit is the exact text to write.
+  if (hashOfText(current) !== hashOfText(from)) {
+    const carried = carryChange(
+      yield* parse(from, `A version around ${name}`),
+      yield* parse(to, `A version around ${name}`),
+      yield* parse(current, timelinePath),
+    );
+    if (carried.overlaps.length > 0) {
+      return yield* done(
+        undo
+          ? `${name} can't be undone on its own: changes made since touch what it changed (${named(carried.overlaps)}). Restoring the version before it would also take out everything done after it.`
+          : `${name} can't be put back: changes made since touch what it changed (${named(carried.overlaps)}).`,
+      );
+    }
+    text = serializeTimeline(carried.timeline);
+  }
+  yield* commitTimelineText({
+    projectDir,
+    timelinePath,
+    text,
+    by: "user",
+    label: `${undo ? "Undid" : "Put back"} ${name}: ${edit.summary}`,
+  });
+  yield* decide([input.edit], undo ? "undone" : null);
+  return yield* done();
+});
+
+const editState = (edit: VideoTimelineEdits["edits"][number]) =>
+  edit.decision === "kept"
+    ? "kept by the user"
+    : edit.decision === "undone"
+      ? "undone by the user"
+      : edit.check === null
+        ? "not reviewed"
+        : "waiting on the user's check";
+
+/** The edits as an agent reads them, newest first: `E3 v12 undone by the user: summary`. */
+export const editsText = (view: VideoTimelineEdits): string =>
+  view.edits.length === 0
+    ? "No reviewed edits yet."
+    : [
+        "# edits, newest first · E<n> version state: summary (check: the doubt left for the user)",
+        ...view.edits.map(
+          (edit) =>
+            `E${edit.number} ${edit.version} ${editState(edit)}: ${edit.summary}${edit.check === null ? "" : ` (check: ${edit.check})`}`,
+        ),
+      ].join("\n");
+
+/** One line for every read of the timeline, so a turn sees what the user sent back; null with no edits. */
+export const editsLine = (view: VideoTimelineEdits): string | null => {
+  if (view.edits.length === 0) return null;
+  const numbers = (state: string) =>
+    view.edits
+      .filter((edit) => editState(edit) === state)
+      .map((edit) => `E${edit.number}`)
+      .toReversed();
+  const part = (label: string, state: string) =>
+    numbers(state).length === 0 ? [] : [`${label}: ${numbers(state).join(", ")}`];
+  return [
+    `# edits: ${view.edits.length}`,
+    ...part("undone by the user", "undone by the user"),
+    ...part("kept by the user", "kept by the user"),
+    ...part("waiting on the user's check", "waiting on the user's check"),
+    'list them with version: "edits"',
+  ].join(" · ");
+};

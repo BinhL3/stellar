@@ -64,7 +64,19 @@ export const ACTION_LABELS: Record<TimelineAction, string> = {
   addMarker: "Add a marker",
   nextMarker: "Next marker",
   previousMarker: "Previous marker",
+  listenToCut: "Hear the selected edit's cut, then the join",
 };
+
+/**
+ * Keys for actions Premiere has no command for. They are tried before the layout's, and an
+ * action that doesn't apply lets the key fall through to the layout: backslash fits the timeline
+ * unless an edit that removed footage is selected.
+ */
+const OWN_KEYMAP: Keymap = { "\\": "listenToCut" };
+
+/** The actions a key runs, in the order to try them. */
+export const actionsFor = (keymap: Keymap, combo: string): ReadonlyArray<TimelineAction> =>
+  [OWN_KEYMAP[combo], keymap[combo]].filter((action) => action !== undefined);
 
 // Physical keys, not characters: on a Mac, Option turns I into ˆ, and Shift turns ` into ~.
 const KEY_BY_CODE: Readonly<Record<string, string>> = {
@@ -174,6 +186,6 @@ export function useTimelineKeymap() {
 
 /** The keys bound to an action, for hints. */
 export const combosFor = (keymap: Keymap, action: TimelineAction) =>
-  Object.entries(keymap)
+  [...Object.entries(OWN_KEYMAP), ...Object.entries(keymap)]
     .filter(([, bound]) => bound === action)
     .map(([combo]) => combo);

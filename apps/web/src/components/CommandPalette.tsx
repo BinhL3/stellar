@@ -164,6 +164,7 @@ import {
   useCommandPaletteStore,
 } from "../commandPaletteStore";
 import { PULL_REQUESTS_PANEL_REF, useRightPanelStore } from "../rightPanelStore";
+import { listenToCut } from "./timeline/timelineEditsStore";
 import {
   TIMELINE_PANEL_IDS,
   TIMELINE_PANEL_TITLES,
@@ -1508,6 +1509,22 @@ function OpenCommandPaletteDialog(props: {
         run: async () => (isOpen ? controls.close(id) : controls.show(id)),
       });
     }
+    actionItems.push({
+      kind: "action",
+      value: "action:timeline-listen-to-cut",
+      searchTerms: ["timeline", "edit", "edits", "cut", "listen", "hear", "removed", "join"],
+      title: "Hear the selected edit's cut, then the join",
+      icon: <LayoutPanelTopIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        if (listenToCut()) return;
+        controls.show("edits");
+        toastManager.add({
+          type: "info",
+          title: "Select an edit that removed footage",
+          description: "Choose one in the Edits panel, then run this again or press \\.",
+        });
+      },
+    });
     actionItems.push({
       kind: "action",
       value: "action:timeline-panel-reset",

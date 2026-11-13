@@ -56,6 +56,7 @@ import { ImportFootageButton } from "../videoProject/ImportFootageButton";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
 import { RecordVoiceOverButton } from "../videoProject/RecordVoiceOverButton";
 import { VideoStageSelect } from "../videoProject/VideoStageSelect";
+import { EditsPanel } from "./EditsPanel";
 import { HistoryPanel, type VersionPreview } from "./HistoryPanel";
 import type { PremierePull } from "./premiereChanges";
 import { PremierePullNotice } from "./PremierePullNotice";
@@ -780,6 +781,26 @@ export default function TimelinePanel(props: {
                   }}
                   onBeats={(beats) => setScriptBeats({ key: beatsKey, beats })}
                   onClose={() => workspace?.controls.close("script")}
+                />
+              ),
+              edits: (
+                <EditsPanel
+                  environmentId={props.environmentId}
+                  workspaceRoot={props.workspaceRoot}
+                  timeline={selectedPath}
+                  revision={file.data?.contents ?? ""}
+                  canWrite={canWriteFiles}
+                  pendingEdits={hasPendingEdits}
+                  preview={preview}
+                  onPreview={(view) =>
+                    setPreviewing(view === null ? null : { timeline: selectedPath, view })
+                  }
+                  onTimelineChanged={() => {
+                    file.refresh();
+                    // The timeline now differs from Premiere's save; the badge should say so.
+                    void sync({ quiet: true });
+                  }}
+                  onRevise={reference}
                 />
               ),
               history: (

@@ -8,6 +8,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import { diffSentences, diffTimelines } from "./diff.ts";
+import { NOWHERE, placeOfChanges } from "./editReview.ts";
 import { serializeJson, type Timeline } from "./otio.ts";
 
 /**
@@ -20,6 +21,27 @@ export const HISTORY_DIRECTORY = "timelines/.history";
 const VersionAuthor = Schema.Literals(["user", "agent", "premiere", "outside"]);
 /** `outside` is a change no tool of ours made: the file was edited by hand or by another program. */
 export type VersionAuthor = typeof VersionAuthor.Type;
+
+const FrameSpan = Schema.Struct({ start: Schema.Number, end: Schema.Number });
+
+/** An agent's edit as the user reviews it: what it says it did, and what the user decided. */
+const VersionEdit = Schema.Struct({
+  /** Counted up per timeline and never reused; the user and the agent both say `E<n>`. */
+  number: Schema.Number,
+  summary: Schema.String,
+  /** A doubt only watching or listening settles. */
+  check: Schema.optional(Schema.String),
+  decision: Schema.optional(Schema.Literals(["kept", "undone"])),
+  /** Where it changed the timeline, in this version's frames. */
+  frame: Schema.NullOr(Schema.Number),
+  /** The first stretch it took out, in the frames of the version before. */
+  removed: Schema.optional(FrameSpan),
+  /** The footage at `frame`, by which the place is found again after later changes. */
+  anchor: Schema.optional(
+    Schema.Struct({ track: Schema.String, target: Schema.String, seconds: Schema.Number }),
+  ),
+});
+export type VersionEdit = typeof VersionEdit.Type;
 
 const TimelineVersion = Schema.Struct({
   /** `v<n>`, counted up per timeline and never reused. */
@@ -36,12 +58,15 @@ const TimelineVersion = Schema.Struct({
   parent: Schema.NullOr(Schema.String),
   /** Set on a version an undo made: the version redo goes back to. */
   redo: Schema.optional(Schema.String),
+  edit: Schema.optional(VersionEdit),
 });
 export type TimelineVersion = typeof TimelineVersion.Type;
 
 const HistoryIndex = Schema.Struct({
   version: Schema.Literal(1),
   next: Schema.Number,
+  /** The number the next reviewed edit takes; absent until there is one. */
+  nextEdit: Schema.optional(Schema.Number),
   /** Hash of the text last read from Premiere for this timeline. */
   base: Schema.NullOr(Schema.String),
   /** Oldest first. */
@@ -167,26 +192,28 @@ export const keepBase = Effect.fn("timeline.keepBase")(function* (input: {
   if (history.base !== hash) yield* writeIndex(files.index, { ...history, base: hash });
 });
 
-// The diff throws on a file that is JSON but not a timeline; such a version just lists nothing.
-const diffOrNothing = (from: Timeline, to: Timeline): ReadonlyArray<string> => {
-  try {
-    return diffSentences(diffTimelines(from, to));
-  } catch {
-    return [];
-  }
-};
-
-/** What changed between two texts of a timeline; none when either can't be read as one. */
-const sentencesBetween = Effect.fn("timeline.versions.sentencesBetween")(
+/**
+ * What changed between two texts of a timeline, as sentences and as a place; nothing when
+ * either can't be read as one, or is JSON the diff can't lay out.
+ */
+const changesBetween = Effect.fn("timeline.versions.changesBetween")(
   function* (before: string, after: string) {
     const from = (yield* decodeJson(before)) as Timeline;
     const to = (yield* decodeJson(after)) as Timeline;
-    const sentences = diffOrNothing(from, to);
-    return sentences.length <= CHANGES_KEPT
-      ? sentences
-      : [...sentences.slice(0, CHANGES_KEPT), `and ${sentences.length - CHANGES_KEPT} more`];
+    const diff = yield* Effect.try({
+      try: () => diffTimelines(from, to),
+      catch: () => "not a timeline the diff can lay out" as const,
+    });
+    const sentences = diffSentences(diff);
+    return {
+      sentences:
+        sentences.length <= CHANGES_KEPT
+          ? sentences
+          : [...sentences.slice(0, CHANGES_KEPT), `and ${sentences.length - CHANGES_KEPT} more`],
+      place: placeOfChanges(diff.changes, from, to),
+    };
   },
-  Effect.orElseSucceed((): ReadonlyArray<string> => []),
+  Effect.orElseSucceed(() => ({ sentences: [] as ReadonlyArray<string>, place: NOWHERE })),
 );
 
 /**
@@ -204,6 +231,8 @@ export const recordVersion = Effect.fn("timeline.recordVersion")(function* (inpu
   readonly label: string;
   /** For an undo or redo: where undo and redo go from the new version. */
   readonly steps?: { readonly parent: string | null; readonly redo?: string };
+  /** Makes the version an edit the user reviews. */
+  readonly review?: { readonly summary: string; readonly check?: string };
 }) {
   const fs = yield* FileSystem.FileSystem;
   const files = yield* paths(input.projectDir, input.timelinePath);
@@ -213,11 +242,13 @@ export const recordVersion = Effect.fn("timeline.recordVersion")(function* (inpu
 
   const versions = [...history.versions];
   let next = history.next;
+  let nextEdit = history.nextEdit ?? 1;
   const add = Effect.fn("timeline.versions.add")(function* (
     text: string,
     by: VersionAuthor,
     label: string,
     steps: { readonly parent: string | null; readonly redo?: string } | undefined,
+    review?: { readonly summary: string; readonly check?: string },
   ) {
     const head = versions.at(-1);
     const previous =
@@ -228,17 +259,32 @@ export const recordVersion = Effect.fn("timeline.recordVersion")(function* (inpu
             .pipe(Effect.orElseSucceed(() => null));
     const hash = hashOfText(text);
     yield* fs.writeFileString(files.snapshot(hash), text);
+    const changed =
+      previous === null ? { sentences: [], place: NOWHERE } : yield* changesBetween(previous, text);
     const version: TimelineVersion = {
       id: `v${next}`,
       at: now,
       by,
       label,
-      changes: previous === null ? [] : yield* sentencesBetween(previous, text),
+      changes: changed.sentences,
       hash,
       base: history.base,
       parent: steps === undefined ? (head?.id ?? null) : steps.parent,
       ...(steps?.redo === undefined ? {} : { redo: steps.redo }),
+      ...(review === undefined
+        ? {}
+        : {
+            edit: {
+              number: nextEdit,
+              summary: review.summary,
+              ...(review.check === undefined ? {} : { check: review.check }),
+              frame: changed.place.frame,
+              ...(changed.place.removed === null ? {} : { removed: changed.place.removed }),
+              ...(changed.place.anchor === null ? {} : { anchor: changed.place.anchor }),
+            },
+          }),
     };
+    if (review !== undefined) nextEdit += 1;
     versions.push(version);
     next += 1;
     return version;
@@ -259,10 +305,15 @@ export const recordVersion = Effect.fn("timeline.recordVersion")(function* (inpu
     }
     return head;
   }
-  const added = yield* add(input.text, input.by, input.label, input.steps);
+  const added = yield* add(input.text, input.by, input.label, input.steps, input.review);
 
   const kept = retainVersions(versions);
-  yield* writeIndex(files.index, { ...history, next, versions: kept });
+  yield* writeIndex(files.index, {
+    ...history,
+    next,
+    ...(nextEdit === 1 ? {} : { nextEdit }),
+    versions: kept,
+  });
   const needed = new Set<string | null>([
     history.base,
     ...kept.flatMap((version) => [version.hash, version.base]),
@@ -276,4 +327,26 @@ export const recordVersion = Effect.fn("timeline.recordVersion")(function* (inpu
     yield* fs.remove(files.snapshot(hash)).pipe(Effect.ignore);
   }
   return added;
+});
+
+/** Records what the user decided about edits; `null` puts one back to undecided. */
+export const decideEdits = Effect.fn("timeline.decideEdits")(function* (input: {
+  readonly projectDir: string;
+  readonly timelinePath: string;
+  readonly numbers: ReadonlyArray<number>;
+  readonly decision: "kept" | "undone" | null;
+}) {
+  const files = yield* paths(input.projectDir, input.timelinePath);
+  const history = yield* readHistory(input.projectDir, input.timelinePath);
+  const versions = history.versions.map((version) => {
+    if (version.edit === undefined || !input.numbers.includes(version.edit.number)) return version;
+    const { decision: _decision, ...edit } = version.edit;
+    return {
+      ...version,
+      edit: input.decision === null ? edit : { ...edit, decision: input.decision },
+    };
+  });
+  const decided = { ...history, versions };
+  yield* writeIndex(files.index, decided);
+  return decided;
 });

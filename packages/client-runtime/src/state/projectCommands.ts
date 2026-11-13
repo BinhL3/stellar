@@ -421,6 +421,21 @@ export function createProjectEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
       },
     }),
+    listVideoTimelineEdits: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:list-edits",
+      tag: WS_METHODS.videoProjectsListEdits,
+      scheduler: projectScheduler,
+      concurrency: { mode: "parallel" },
+    }),
+    reviewVideoTimelineEdit: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:review-edit",
+      tag: WS_METHODS.videoProjectsReviewEdit,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
     createFromThread: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:create-from-thread",
       tag: WS_METHODS.projectsCreateFromThread,
