@@ -72,6 +72,10 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.peerLinksUnlink]: AuthAccessWriteScope,
   // A link lets every agent here reach the other environment: Settings' bar.
   [WS_METHODS.peerLinksAnswerRequest]: AuthAccessWriteScope,
+  // A house rule is a standing instruction to every later agent, like custom instructions.
+  [WS_METHODS.learningsApprove]: AuthSettingsWriteScope,
+  [WS_METHODS.learningsDismiss]: AuthSettingsWriteScope,
+  [WS_METHODS.learningsRemoveRule]: AuthSettingsWriteScope,
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 

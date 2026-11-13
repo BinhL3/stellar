@@ -107,7 +107,23 @@ export interface TranscriptionPostProcessingResult {
   transcription: string;
 }
 
+export interface LearningCheckInput {
+  cwd: string;
+  prompt: string;
+  modelSelection: ModelSelection;
+}
+
+/** Both empty when the message holds no standing preference. */
+export interface LearningCheckResult {
+  rule: string;
+  contradicts: string;
+}
+
 export interface ProviderTextGeneration {
+  readonly generateLearningCheck: (
+    input: LearningCheckInput,
+  ) => Effect.Effect<LearningCheckResult, TextGenerationError>;
+
   readonly generateTranscriptionPostProcessing: (
     input: TranscriptionPostProcessingInput,
   ) => Effect.Effect<TranscriptionPostProcessingResult, TextGenerationError>;

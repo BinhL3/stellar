@@ -102,6 +102,7 @@ import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { PullRequestLinksOpenInAppSetting } from "./IntegrationsSettings";
 import { StorageCleanupSections } from "./StorageSettings";
+import { HouseRulesSettings } from "./HouseRulesSettings";
 import { VideoTranscriberRow } from "./VideoTranscriberRow";
 import { UpdateTrackSwitchDialog } from "./UpdateTrackSwitchDialog";
 import { environmentIdsKey } from "~/state/environmentAtomList";
@@ -1076,6 +1077,7 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection id="video" title="Video">
         <VideoTranscriberRow />
+        <HouseRulesSettings />
       </SettingsSection>
     </SettingsPageContainer>
   );

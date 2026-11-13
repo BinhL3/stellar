@@ -20,6 +20,10 @@ import {
 } from "./textGenerationUtils.ts";
 
 export const TranscriptionPostProcessingOutput = Schema.Struct({ transcription: Schema.String });
+export const LearningCheckOutput = Schema.Struct({
+  rule: Schema.String,
+  contradicts: Schema.String,
+});
 
 export type Operation = keyof ProviderTextGeneration;
 
@@ -168,6 +172,18 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
       });
     });
 
+  const generateLearningCheck: ProviderTextGeneration["generateLearningCheck"] = Effect.fn(
+    `${name}.generateLearningCheck`,
+  )(function* (input) {
+    return yield* run({
+      operation: "generateLearningCheck",
+      cwd: input.cwd,
+      prompt: input.prompt,
+      outputSchema: LearningCheckOutput,
+      modelSelection: input.modelSelection,
+    });
+  });
+
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = Effect.fn(
     `${name}.generateReviewGuide`,
   )(function* (input) {
@@ -187,5 +203,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateThreadTitle,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
+    generateLearningCheck,
   } satisfies ProviderTextGeneration;
 }

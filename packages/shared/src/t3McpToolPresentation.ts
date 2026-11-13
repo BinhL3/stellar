@@ -64,6 +64,7 @@ export type T3McpToolSummaryAction =
   | "carousel-photos"
   | "carousel-export"
   | "carousel-start"
+  | "house-rule-propose"
   | "project-list"
   | "project-read"
   | "project-create"
@@ -246,6 +247,10 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   carousel_photos: tool(["Import", "Importing", "Imported", "photos"], "carousel-photos"),
   carousel_export: tool(["Export", "Exporting", "Exported", "the carousel"], "carousel-export"),
   carousel_start: tool(["Start", "Starting", "Started", "a carousel project"], "carousel-start"),
+  house_rule_propose: tool(
+    ["Propose", "Proposing", "Proposed", "a house rule"],
+    "house-rule-propose",
+  ),
   preview_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),
   preview_open: tool(
     ["Open", "Opening", "Opened", "a page in the preview browser"],

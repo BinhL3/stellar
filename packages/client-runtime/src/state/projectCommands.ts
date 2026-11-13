@@ -253,6 +253,28 @@ export function createProjectEnvironmentAtoms<R, E>(
       // The server counts a subscriber as a client that can draw, so let go soon after the panel closes.
       idleTtlMs: 1_000,
     }),
+    watchLearnings: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:learnings:watch",
+      tag: WS_METHODS.learningsWatch,
+    }),
+    approveLearning: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:learnings:approve",
+      tag: WS_METHODS.learningsApprove,
+      scheduler: projectScheduler,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
+    dismissLearning: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:learnings:dismiss",
+      tag: WS_METHODS.learningsDismiss,
+      scheduler: projectScheduler,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
+    removeHouseRule: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:learnings:remove-rule",
+      tag: WS_METHODS.learningsRemoveRule,
+      scheduler: projectScheduler,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
     inspectPremiere: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:video-projects:inspect-premiere",
       tag: WS_METHODS.videoProjectsInspectPremiere,

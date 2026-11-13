@@ -25,6 +25,7 @@ import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textG
 import {
   investigationUnsupported,
   TranscriptionPostProcessingOutput,
+  LearningCheckOutput,
 } from "@t3tools/provider-core/server/textGenerationOperations";
 import {
   buildBranchNamePrompt,
@@ -359,6 +360,16 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
         modelSelection: input.modelSelection,
       });
     });
+  const generateLearningCheck: ProviderTextGeneration["generateLearningCheck"] = Effect.fn(
+    "MuseTextGeneration.generateLearningCheck",
+  )(function* (input) {
+    return yield* runMuseJson({
+      operation: "generateLearningCheck",
+      prompt: input.prompt,
+      outputSchema: LearningCheckOutput,
+      modelSelection: input.modelSelection,
+    });
+  });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
   return {
@@ -368,5 +379,6 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     generateThreadTitle,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
+    generateLearningCheck,
   } satisfies ProviderTextGeneration;
 });

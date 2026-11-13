@@ -261,6 +261,20 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["video transcript transcribe words stt speech captions cut by words program"],
   },
   {
+    id: "learnings",
+    title: "Notice house rules",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["video carousel learnings learn preference always never style taste suggest"],
+  },
+  {
+    id: "house-rules",
+    title: "House rules",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["video carousel learnings rules preferences editing style taste remove delete"],
+  },
+  {
     id: "storage-artifacts",
     title: "Artifacts and logs",
     to: "/settings/maintenance",
