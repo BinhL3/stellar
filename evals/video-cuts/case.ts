@@ -7,6 +7,7 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as Schema from "effect/Schema";
 
+import { levelsOf } from "../../packages/timeline/src/levels.ts";
 import type { Timeline } from "../../packages/timeline/src/otio.ts";
 import { Plan } from "./replay.ts";
 import type { CutScore, Reference } from "./score.ts";
@@ -24,6 +25,11 @@ export const CaseFile = Schema.Struct({
   timelineName: Schema.optional(Schema.String),
   /** A `[{ w, start, end }]` words file per media `target_url` on the timeline. */
   transcripts: Schema.Record(Schema.String, Schema.String),
+  /**
+   * A levels file per media `target_url`, as Stellar keeps beside a transcript
+   * (`Audio/<clip>.levels.json`). With one, a replayed word cut lands on measured quiet.
+   */
+  levels: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   /** The finished cut as an OTIO timeline, or the user's decisions on the agent's cuts. */
   reference: Schema.optional(
     Schema.Union([
@@ -42,6 +48,7 @@ export const CaseFile = Schema.Struct({
 const Words = Schema.Array(
   Schema.Struct({ w: Schema.String, start: Schema.Number, end: Schema.Number }),
 );
+const LevelsFile = Schema.Struct({ step: Schema.Number, db: Schema.Array(Schema.Number) });
 const Decisions = Schema.Struct({
   complete: Schema.optional(Schema.Boolean),
   decisions: Schema.Array(
@@ -73,6 +80,7 @@ export const assertOutsideRepo = (file: string) => {
 const read = (file: string) => NodeFS.readFileSync(file, "utf8");
 const decodeCaseFile = Schema.decodeUnknownSync(Schema.fromJsonString(CaseFile));
 const decodeWords = Schema.decodeUnknownSync(Schema.fromJsonString(Words));
+const decodeLevels = Schema.decodeUnknownSync(Schema.fromJsonString(LevelsFile));
 const decodeDecisions = Schema.decodeUnknownSync(Schema.fromJsonString(Decisions));
 const decodePlan = Schema.decodeUnknownSync(Schema.fromJsonString(Plan));
 
@@ -109,6 +117,12 @@ export const loadCase = (directory: string) => {
         media,
         decodeWords(read(at(words))),
       ]),
+    ),
+    levels: new Map(
+      Object.entries(file.levels ?? {}).map(([media, name]) => {
+        const { db, step } = decodeLevels(read(at(name)));
+        return [media, levelsOf(db, step)];
+      }),
     ),
     reference,
     plan: file.plan === undefined ? undefined : readPlan(at(file.plan)),

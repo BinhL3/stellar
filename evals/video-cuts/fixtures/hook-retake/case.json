@@ -7,6 +7,9 @@
   "transcripts": {
     "Footage/take-01.mov": "take-01.words.json"
   },
+  "levels": {
+    "Footage/take-01.mov": "take-01.levels.json"
+  },
   "reference": {
     "timeline": "reference.otio"
   },

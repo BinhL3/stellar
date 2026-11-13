@@ -56,6 +56,7 @@ for (const entry of selected) {
       : replayPlan({
           start: entry.start,
           transcripts: entry.transcripts,
+          levels: entry.levels,
           plan,
           timelineName: entry.timelineName,
         });

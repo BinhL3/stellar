@@ -43,7 +43,7 @@ Times are seconds of each source file, so two cuts of the same footage compare w
 - **Pauses at joins.** A join is two neighbouring words the cut brought together, or whose pause it changed. The pause runs from the first word's end to the next word's start, in whole frames. Reported as count, median, 90th percentile, longest, and a distribution over under 0.1 s, 0.25 s, 0.5 s, 1 s and longer. With a reference timeline the same numbers are reported for it, with the pause difference at the joins both cuts made.
 - **Time to first edit.** Seconds from the plan's `startedAt` to its first `video_timeline_edit`, when both carry times.
 
-Not measured: picture, audio levels, speed-changed clips' pauses (a pause assumes normal speed), and anything about taste.
+Not measured: picture, the level at an edge (`video_timeline_words` with `action: "joins"` reads that), speed-changed clips' pauses (a pause assumes normal speed), and anything about taste.
 
 ## A case
 
@@ -57,6 +57,7 @@ A folder with `case.json` (`CaseFile` in `case.ts` documents every field) and th
   "timeline": "start.otio",
   "timelineName": "timelines/main.otio",
   "transcripts": { "Footage/take-01.mov": "take-01.words.json" },
+  "levels": { "Footage/take-01.mov": "take-01.levels.json" },
   "reference": { "timeline": "reference.otio" },
   "plan": "plan.json"
 }
@@ -64,6 +65,7 @@ A folder with `case.json` (`CaseFile` in `case.ts` documents every field) and th
 
 - `timeline`: the OTIO file the agent started from, as Stellar wrote it (a project's `Stellar/timelines/*.otio`).
 - `transcripts`: a words file per media `target_url` on that timeline, in Stellar's `Audio/<clip>.words.json` format: `[{ "w": "hook", "start": 1.4, "end": 1.8 }]`.
+- `levels`: optional, a levels file per media `target_url`, as Stellar keeps beside the transcript (`Audio/<clip>.levels.json`). With one, a replayed `removeWords` or `trimPause` lands on measured quiet and an edit that leaves an edge inside a sounding word is refused, as on the server. Without one, word cuts keep their word timings, `trimPause` is refused, and no edge is judged, as on a host with no ffmpeg.
 - `reference`: the finished cut as an OTIO timeline, or `{ "decisions": "decisions.json" }` for the user's verdicts on the agent's cuts.
 - `plan`: the agent's calls, replayed to get the timeline to score. A case with no plan names the timeline the agent left as `result`.
 
@@ -113,12 +115,12 @@ pnpm video-cuts:capture --db ~/.t3/userdata/statev2.sqlite --thread <thread id> 
 
 ## What replay does and does not do
 
-Replay applies each `video_timeline_edit` call as the server does: word numbers are read once before the call, and one bad edit refuses the whole call. A refused or skipped call is printed and recorded, and the replay goes on with the next call.
+Replay applies each `video_timeline_edit` call as the server does: word numbers are read once before the call, word cuts and pause trims are placed by the server's own code (`packages/timeline/src/joins.ts`) on the case's levels, and one bad edit, or one edge left inside a sounding word, refuses the whole call. A refused or skipped call is printed and recorded, and the replay goes on with the next call.
 
 - `replay.ts` mirrors the edit checks of `VideoProjects.editTimeline` in `apps/server`. When that method changes how it resolves an edit, change `resolveEdits` with it.
 - Marker and text edits are left out: they change no cut. `restoreVersion` is refused, because a version id names a state of the run's own history.
 - `video_voice_over`, `video_footage` and `video_premiere_pull` change a timeline from files a plan does not carry. Their calls are skipped and say so.
-- An input this checkout can't read (an edit kind added later) refuses the call. Arguments it doesn't know are dropped.
+- An input this checkout can't read (an edit kind added later) refuses the call. Arguments it doesn't know are dropped. A call's `summary` is kept beside its outcome in `results.jsonl`.
 - Nothing the user did in Premiere between calls is replayed.
 
 ## Tests

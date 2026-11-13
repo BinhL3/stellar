@@ -7,10 +7,21 @@ import { VideoTimelineEdit } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import { applyEdits, type TimelineEdit } from "../../packages/timeline/src/edits.ts";
+import {
+  clippedEdgeReason,
+  clippedEdges,
+  placePauseCut,
+  placeWordCut,
+  type SourceEdge,
+} from "../../packages/timeline/src/joins.ts";
 import { layoutTimeline } from "../../packages/timeline/src/layout.ts";
+import type { AudioLevels } from "../../packages/timeline/src/levels.ts";
 import type { Timeline } from "../../packages/timeline/src/otio.ts";
-import { timelineWords, wordRange } from "../../packages/timeline/src/words.ts";
+import { timelineWords } from "../../packages/timeline/src/words.ts";
 import type { Transcripts } from "./score.ts";
+
+/** Each source's measured levels, by media `target_url`. A source with none is cut by timings. */
+export type Levels = ReadonlyMap<string, AudioLevels>;
 
 /**
  * A plan file. `calls` are the run's Stellar video tool calls in order; only `video_timeline_edit`
@@ -36,13 +47,27 @@ export type Plan = typeof Plan.Type;
 const EditInput = Schema.Struct({
   timeline: Schema.optional(Schema.String),
   edits: Schema.Array(VideoTimelineEdit),
+  summary: Schema.optional(Schema.String),
 });
 // Undeclared keys are dropped, as the MCP server drops them, so a plan captured after a tool gained
-// an optional argument still replays on a checkout without it.
+// an argument still replays on a checkout without it. `summary` is optional here though the tool
+// requires it: plans captured before it existed still replay.
 const decodeEditInput = Schema.decodeUnknownOption(EditInput);
 
 /** Tools that change a timeline in ways a plan alone can't reproduce. */
 const UNREPLAYED = new Set(["video_voice_over", "video_footage", "video_premiere_pull"]);
+
+/** The edits that can leave a clip starting or ending somewhere new, as the server lists them. */
+const EDGE_MAKING_EDITS: ReadonlySet<VideoTimelineEdit["kind"]> = new Set([
+  "removeWords",
+  "trimPause",
+  "move",
+  "trim",
+  "delete",
+  "rippleDelete",
+  "removeRange",
+  "setEnabled",
+]);
 
 export interface ReplayedCall {
   readonly index: number;
@@ -50,20 +75,24 @@ export interface ReplayedCall {
   readonly status: "applied" | "refused" | "skipped";
   /** Why a call was refused or skipped, or what an applied call left out. */
   readonly note?: string;
+  /** What the agent said the call did, for the person reading the results. */
+  readonly summary?: string;
 }
 
 type FrameRange = { readonly start: number; readonly end: number };
 
 /**
  * One call's typed edits, or why the call is refused. This mirrors `VideoProjects.editTimeline`,
- * which holds the same steps inside the server: word numbers are read once, before the call, and
- * one bad edit refuses the whole call.
+ * which holds the same steps inside the server: word numbers are read once, before the call, a
+ * cut named by words goes where `packages/timeline`'s `joins.ts` places it on the measured
+ * levels, an edge left inside a sounding word refuses the call, and so does one bad edit.
  */
 const resolveEdits = (
   timeline: Timeline,
   transcripts: Transcripts,
+  levels: Levels,
   edits: ReadonlyArray<VideoTimelineEdit>,
-): { readonly edits: Array<TimelineEdit>; readonly left: Array<string> } | string => {
+): { readonly timeline: Timeline; readonly left: Array<string> } | string => {
   const layout = layoutTimeline(timeline);
   const clipIds = new Set(layout.tracks.flatMap((track) => track.clips.map((clip) => clip.key)));
   const trackNames = new Set(layout.tracks.map((track) => track.name));
@@ -73,20 +102,36 @@ const resolveEdits = (
     frame -
     rippled.reduce((sum, cut) => sum + Math.max(0, Math.min(frame, cut.end) - cut.start), 0);
   const resolved: Array<TimelineEdit> = [];
+  // The call's edit each resolved one came from, to name the edit that clips a word.
+  const asked: Array<number> = [];
+  const placedEdges: Array<SourceEdge> = [];
   const left: Array<string> = [];
   for (const [index, edit] of edits.entries()) {
     const refuse = (problem: string) => `Edit ${index + 1} (${edit.kind}): ${problem}`;
     const { clipId } = edit;
     // A split names its later piece `<clipId>~<frame>` before that piece exists.
     const knownClip = clipId !== undefined && (clipIds.has(clipId) || clipId.includes("~"));
+    const before = resolved.length;
     switch (edit.kind) {
-      case "removeWords": {
-        if (edit.fromWord === undefined || edit.toWord === undefined) {
-          return refuse("needs fromWord, toWord");
-        }
-        const range = wordRange(words, edit.fromWord, edit.toWord);
+      case "removeWords":
+      case "trimPause": {
+        const { fromWord, toWord, afterWord } = edit;
+        const range =
+          edit.kind === "trimPause"
+            ? afterWord === undefined
+              ? "needs afterWord"
+              : placePauseCut(words, levels, afterWord, edit.leave)
+            : fromWord === undefined || toWord === undefined
+              ? "needs fromWord, toWord"
+              : placeWordCut(words, levels, fromWord, toWord);
         if (typeof range === "string") return refuse(range);
-        const ripple = edit.ripple ?? false;
+        if ("nothing" in range) {
+          left.push(range.nothing);
+          break;
+        }
+        // A trimmed pause closes up unless told not to; a word cut leaves a hole unless told to.
+        const ripple = edit.ripple ?? edit.kind === "trimPause";
+        placedEdges.push(...range.edges);
         resolved.push({
           kind: "removeRange",
           start: afterCuts(range.start),
@@ -149,8 +194,26 @@ const resolveEdits = (
         // Markers and text change no cut, so they are left out rather than refused.
         left.push(edit.kind);
     }
+    if (resolved.length > before) asked.push(index);
   }
-  return { edits: resolved, left };
+  const clippedBy = (result: Timeline) =>
+    clippedEdges(words, timelineWords(result, transcripts), transcripts, levels, placedEdges);
+  const edited = applyEdits(timeline, resolved);
+  const [first] = edits.some((edit) => EDGE_MAKING_EDITS.has(edit.kind)) ? clippedBy(edited) : [];
+  if (first !== undefined) {
+    // The first edit after which the edge is there made it.
+    const made = resolved.findIndex((_, index) =>
+      clippedBy(applyEdits(timeline, resolved.slice(0, index + 1))).some(
+        (edge) =>
+          edge.target === first.target &&
+          edge.side === first.side &&
+          edge.seconds === first.seconds,
+      ),
+    );
+    const index = asked[made] ?? asked.at(-1) ?? 0;
+    return `Edit ${index + 1} (${edits[index]?.kind}): ${clippedEdgeReason(first, layout.rate)}`;
+  }
+  return { timeline: edited, left };
 };
 
 /** `mcp__t3-code__video_timeline_edit` and Codex's `t3-code.video_timeline_edit`, as one name. */
@@ -159,6 +222,8 @@ export const bareToolName = (name: string) => name.replace(/^(mcp__)?t3[-_]code(
 export const replayPlan = (input: {
   readonly start: Timeline;
   readonly transcripts: Transcripts;
+  /** Omitted, nothing is measured: word cuts keep their word timings and no edge is judged. */
+  readonly levels?: Levels | undefined;
   readonly plan: Plan;
   /** The timeline the case is about. Omitted, the one the plan's first edit names. */
   readonly timelineName?: string | undefined;
@@ -183,17 +248,24 @@ export const replayPlan = (input: {
       calls.push({ index, tool, status: "skipped", note: `edits ${decoded.value.timeline}` });
       continue;
     }
-    const resolved = resolveEdits(timeline, input.transcripts, decoded.value.edits);
+    const summary = decoded.value.summary === undefined ? {} : { summary: decoded.value.summary };
+    const resolved = resolveEdits(
+      timeline,
+      input.transcripts,
+      input.levels ?? new Map(),
+      decoded.value.edits,
+    );
     if (typeof resolved === "string") {
-      calls.push({ index, tool, status: "refused", note: resolved });
+      calls.push({ index, tool, status: "refused", note: resolved, ...summary });
       continue;
     }
-    timeline = applyEdits(timeline, resolved.edits);
+    timeline = resolved.timeline;
     calls.push({
       index,
       tool,
       status: "applied",
       ...(resolved.left.length === 0 ? {} : { note: `left out: ${resolved.left.join(", ")}` }),
+      ...summary,
     });
   }
   return { timeline, calls };

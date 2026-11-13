@@ -17,20 +17,22 @@ it("scores a replayed cut against the editor's finished timeline", () => {
   // The first take of the hook is said again in what plays; "thanks" is not.
   assert.deepEqual(score.removed, {
     words: 7,
-    seconds: 3.5,
-    byKind: { retake: 0.9, filler: 0.45, speech: 0.5, pause: 1.65, untranscribed: 0 },
+    seconds: 3.467,
+    byKind: { retake: 0.9, filler: 0.45, speech: 0.5, pause: 1.617, untranscribed: 0 },
   });
   // The agent cut "thanks", which the editor kept, and nothing the editor cut was left in.
   assert.deepInclude(score.words, { removed: 7, referenceRemoved: 6, precision: 0.857, recall: 1 });
   assert.deepInclude(score.edges, { count: 6, insideWord: 0 });
-  // A word cut runs to the next word's start, so its join has no pause; the pause the agent left
-  // alone is no join. The editor tightened that pause to 0.4 s, which is one more join.
-  assert.deepInclude(score.joins, { count: 1, median: 0, distribution: [1, 0, 0, 0, 0] });
+  // A word cut runs to the next word's start by its timing, but "here" is heard 50 ms before its
+  // timing, so the edge went 4 frames earlier onto the measured quiet and the join keeps that
+  // much pause. The pause the agent left alone is no join. The editor tightened that pause to
+  // 0.4 s, which is one more join.
+  assert.deepInclude(score.joins, { count: 1, median: 0.067, distribution: [1, 0, 0, 0, 0] });
   assert.deepInclude(score.reference?.joins, { count: 2, median: 0.2, max: 0.4 });
   assert.deepEqual(score.reference?.sharedJoins, {
     count: 1,
-    medianDifference: 0,
-    medianAbsoluteDifference: 0,
+    medianDifference: 0.067,
+    medianAbsoluteDifference: 0.067,
   });
   assert.equal(score.timeToFirstEditSeconds, 21);
 });
