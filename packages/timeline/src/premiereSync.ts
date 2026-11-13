@@ -393,8 +393,15 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
         : mine.timeline;
       if (editedHere && input.usePremiere !== true) {
         const premiereChanged = theirs !== entry.pulled;
+        // A push that was applied and saved: Premiere made the changes made here and holds the
+        // same cut, so nothing is in conflict.
+        const pushed =
+          premiereChanged &&
+          base !== null &&
+          (attempt(() => diffTimelines(base, pulled.timeline))?.changes.length ?? 0) > 0 &&
+          attempt(() => diffTimelines(mine.timeline, pulled.timeline))?.changes.length === 0;
         const merged =
-          premiereChanged && input.merge === true && base !== null
+          premiereChanged && (input.merge === true || pushed) && base !== null
             ? attempt(() => mergeTimelines(base, mine.timeline, pulled.timeline))
             : null;
         if (merged === null || base === null) {

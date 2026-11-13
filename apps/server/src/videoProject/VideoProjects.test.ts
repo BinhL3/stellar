@@ -312,6 +312,23 @@ it.live(
       assert.strictEqual(pulled.state, "updated");
       assert.deepStrictEqual(pulled.changes, ["Trimmed c.MOV on V1 at 0:06: cut 1.3s off its end"]);
       assert.deepStrictEqual([pulled.pending, pulled.conflicts], [[], []]);
+
+      // An edit made here, then made in Premiere and saved, is a push that landed: no conflict.
+      const beforePush = yield* videoProjects.readTimeline({ workspaceRoot });
+      yield* videoProjects.editTimeline({
+        workspaceRoot,
+        timeline: timelinePath,
+        edits: [
+          { kind: "trim", clipId: clipId(beforePush.text, "c.MOV"), edge: "end", frame: 255 },
+        ],
+      });
+      yield* save(255);
+      const pushed = yield* sync();
+      assert.deepStrictEqual([pushed.state, pushed.kept, pushed.pending], ["updated", [], []]);
+      assert.strictEqual((yield* sync()).state, "current");
+      yield* save(260);
+      assert.strictEqual((yield* sync()).state, "updated");
+
       const base = yield* fs.readFileString(timelineFile);
       const baseFile = baseFileOf(base);
       assert.isTrue(yield* fs.exists(baseFile));

@@ -1393,6 +1393,23 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  /**
+   * The timeline meant when none is named: the cut linked to Premiere, since that is the one a
+   * push reaches, else the first cut, else the footage timeline.
+   */
+  const defaultTimeline = (workspaceRoot: string, timelines: ReadonlyArray<string>) =>
+    fileSystem.readFileString(path.join(workspaceRoot, PREMIERE_LINK_PATH)).pipe(
+      Effect.flatMap(decodeJson),
+      Effect.map((value) => Object.keys((value as { timelines?: object }).timelines ?? {})),
+      Effect.orElseSucceed((): Array<string> => []),
+      Effect.map(
+        (linked) =>
+          timelines.find((candidate) => linked.includes(candidate)) ??
+          timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
+          timelines[0],
+      ),
+    );
+
   const loadTimeline = Effect.fn("VideoProjects.loadTimeline")(function* (
     workspaceRoot: string,
     timelinePath: string,
@@ -1493,10 +1510,7 @@ const make = Effect.gen(function* () {
       // Merged first, as editTimeline does, so the word numbers here are the ones it cuts by.
       yield* syncForAgent(input.workspaceRoot);
       const timelines = yield* listTimelines(input.workspaceRoot);
-      const chosen =
-        input.timeline ??
-        timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
-        timelines[0];
+      const chosen = input.timeline ?? (yield* defaultTimeline(input.workspaceRoot, timelines));
       if (chosen === undefined) {
         return yield* new VideoProjectError({ reason: "This project has no timeline to read." });
       }
@@ -1542,10 +1556,7 @@ const make = Effect.gen(function* () {
     // Merged first, as readWords is, so the word numbers here are the ones it gives.
     yield* syncForAgent(input.workspaceRoot);
     const timelines = yield* listTimelines(input.workspaceRoot);
-    const chosen =
-      input.timeline ??
-      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
-      timelines[0];
+    const chosen = input.timeline ?? (yield* defaultTimeline(input.workspaceRoot, timelines));
     if (chosen === undefined) {
       return yield* new VideoProjectError({ reason: "This project has no timeline to read." });
     }
@@ -1579,11 +1590,7 @@ const make = Effect.gen(function* () {
   ) {
     const script = yield* loadScript(workspaceRoot);
     const timelines = yield* listTimelines(workspaceRoot);
-    const chosen =
-      requested ??
-      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
-      timelines[0] ??
-      null;
+    const chosen = requested ?? (yield* defaultTimeline(workspaceRoot, timelines)) ?? null;
     const timeline = chosen === null ? null : yield* loadTimeline(workspaceRoot, chosen);
     const words =
       timeline === null
@@ -1853,10 +1860,7 @@ const make = Effect.gen(function* () {
     const { result, view: synced } = yield* syncForAgent(input.workspaceRoot);
     const timelines = yield* listTimelines(input.workspaceRoot);
     const chosen =
-      input.timeline ??
-      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
-      timelines[0] ??
-      null;
+      input.timeline ?? (yield* defaultTimeline(input.workspaceRoot, timelines)) ?? null;
     if (chosen === null) {
       return {
         timelines,
@@ -2181,10 +2185,7 @@ const make = Effect.gen(function* () {
   )(function* (input) {
     yield* requireProject(input.workspaceRoot);
     const timelines = yield* listTimelines(input.workspaceRoot);
-    const chosen =
-      input.timeline ??
-      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
-      timelines[0];
+    const chosen = input.timeline ?? (yield* defaultTimeline(input.workspaceRoot, timelines));
     if (chosen === undefined) {
       return yield* new VideoProjectError({ reason: "This project has no timeline to export." });
     }
@@ -2242,10 +2243,7 @@ const make = Effect.gen(function* () {
         workspaceRoot: input.workspaceRoot,
       });
       const timelines = yield* listTimelines(input.workspaceRoot);
-      const chosen =
-        input.timeline ??
-        timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
-        timelines[0];
+      const chosen = input.timeline ?? (yield* defaultTimeline(input.workspaceRoot, timelines));
       if (chosen === undefined) {
         return yield* new VideoProjectError({ reason: "This project has no timeline to push." });
       }
@@ -2339,11 +2337,7 @@ const make = Effect.gen(function* () {
     const script = yield* loadScript(workspaceRoot);
     const index = yield* onHost(readTakeIndex(workspaceRoot));
     const timelines = yield* listTimelines(workspaceRoot);
-    const chosen =
-      requested ??
-      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
-      timelines[0] ??
-      null;
+    const chosen = requested ?? (yield* defaultTimeline(workspaceRoot, timelines)) ?? null;
     const placed =
       chosen === null
         ? null
@@ -2798,10 +2792,7 @@ const make = Effect.gen(function* () {
     // sync that can't run (the drive unplugged) leaves the timeline as it is.
     yield* syncWithPremiere({ workspaceRoot: input.workspaceRoot }).pipe(Effect.ignore);
     const timelines = yield* listTimelines(input.workspaceRoot);
-    const chosen =
-      input.timeline ??
-      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
-      timelines[0];
+    const chosen = input.timeline ?? (yield* defaultTimeline(input.workspaceRoot, timelines));
     if (chosen === undefined || !timelines.includes(chosen)) {
       return yield* new VideoProjectError({
         reason: `No timeline to check the export against. This project has: ${timelines.join(", ") || "none"}.`,
