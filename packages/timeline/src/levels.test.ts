@@ -28,6 +28,9 @@ describe("makeLevelMeter", () => {
     ]);
     expect([levels.roomTone, levels.speech]).toEqual([-100, -23]);
     expect([soundFloor(levels), quietCeiling(levels)]).toEqual([-35, -94]);
+    // A restaurant: the room is 10 dB under the voice, and its noise is not speech.
+    const noisy = { ...levels, roomTone: -30, speech: -20 };
+    expect([soundFloor(noisy), quietCeiling(noisy)]).toEqual([-24, -27]);
 
     // A decoder hands audio over in chunks that can split a sample in two.
     const chunked = makeLevelMeter();

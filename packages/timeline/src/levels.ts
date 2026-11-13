@@ -87,14 +87,16 @@ export const makeLevelMeter = () => {
 // it is within 12 dB of where speech sits, and never below -45 dBFS, which is room tone.
 const BELOW_SPEECH_DB = 12;
 const QUIETEST_SOUND_DBFS = -45;
+// In a loud room the noise sits within 12 dB of speech: sound has to stand clear of it too.
+const ABOVE_ROOM_DB = 6;
 
 /** A window at or above this is sound at speaking level. */
 export const soundFloor = (levels: AudioLevels): number =>
-  Math.max(levels.speech - BELOW_SPEECH_DB, QUIETEST_SOUND_DBFS);
+  Math.max(levels.speech - BELOW_SPEECH_DB, levels.roomTone + ABOVE_ROOM_DB, QUIETEST_SOUND_DBFS);
 
 /** A window at or below this is as quiet as the recording gets between words. */
 export const quietCeiling = (levels: AudioLevels): number =>
-  Math.min(levels.roomTone + 6, soundFloor(levels) - 6);
+  Math.min(levels.roomTone + ABOVE_ROOM_DB, soundFloor(levels) - 3);
 
 /**
  * The level a cut at `seconds` is heard at: the louder of the windows either side of that

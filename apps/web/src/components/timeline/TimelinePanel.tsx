@@ -419,10 +419,16 @@ export default function TimelinePanel(props: {
       input: { workspaceRoot: props.workspaceRoot, timeline: selectedPath, contents },
     });
     if (result._tag === "Success") {
+      // The first save of the footage timeline is made on a cut of its own, which opens.
+      const saved = result.value.timeline;
+      if (saved !== selectedPath) {
+        refreshTimelines();
+        setChosenPath(saved);
+      }
       file.refresh();
       // The timeline now differs from Premiere's save; the badge should say so.
       void sync({ quiet: true });
-      toastManager.add({ type: "success", title: "Timeline saved", description: selectedPath });
+      toastManager.add({ type: "success", title: "Timeline saved", description: saved });
       return true;
     }
     if (!isAtomCommandInterrupted(result)) {

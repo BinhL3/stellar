@@ -87,7 +87,9 @@ import {
   copyFootage,
   listFootage,
   FOOTAGE_DIRECTORY,
+  cutFromFootage,
   FOOTAGE_TIMELINE_PATH,
+  ROUGH_CUT_TIMELINE_PATH,
   writeFootageStringout,
 } from "@t3tools/timeline/footage";
 import { layoutTimeline } from "@t3tools/timeline/layout";
@@ -1686,18 +1688,68 @@ const make = Effect.gen(function* () {
     }
   });
 
+  // The footage timeline is rebuilt whenever footage changes, so an edit to it would be lost:
+  // the first one goes to a cut made from it, and later ones are pointed at the cuts.
+  const cutTarget = Effect.fn("VideoProjects.cutTarget")(function* (
+    workspaceRoot: string,
+    timelinePath: string,
+  ) {
+    if (timelinePath !== FOOTAGE_TIMELINE_PATH) return timelinePath;
+    const cuts = (yield* listTimelines(workspaceRoot)).filter(
+      (candidate) => candidate !== FOOTAGE_TIMELINE_PATH,
+    );
+    if (cuts.length === 0) return ROUGH_CUT_TIMELINE_PATH;
+    return yield* new VideoProjectError({
+      reason: `${FOOTAGE_TIMELINE_PATH} is rebuilt whenever footage changes, so an edit to it would be lost. Edit a cut instead: ${cuts.join(", ")}. Nothing was changed.`,
+    });
+  });
+  const MADE_CUT = `Made ${ROUGH_CUT_TIMELINE_PATH} from the footage timeline, which is rebuilt whenever footage changes. Work on ${ROUGH_CUT_TIMELINE_PATH} from here on.`;
+  /** Starts the cut's file and history from the footage as it was, before the first edit to it. */
+  const startCut = (workspaceRoot: string, footage: Timeline) =>
+    onHost(
+      commitTimelineText({
+        projectDir: workspaceRoot,
+        timelinePath: ROUGH_CUT_TIMELINE_PATH,
+        text: serializeTimeline(cutFromFootage(footage)),
+        by: "user",
+        label: "Started from the footage",
+      }),
+    ).pipe(Effect.mapError(historyError));
+
   const commitTimeline: VideoProjects["Service"]["commitTimeline"] = Effect.fn(
     "VideoProjects.commitTimeline",
   )(function* (input) {
     yield* requireTimeline(input.workspaceRoot, input.timeline);
+    const target = yield* cutTarget(input.workspaceRoot, input.timeline);
+    if (target === input.timeline) {
+      return yield* syncing.withPermits(1)(
+        onHost(
+          commitFromClient({
+            projectDir: input.workspaceRoot,
+            timelinePath: input.timeline,
+            contents: input.contents,
+          }),
+        ).pipe(Effect.mapError(historyError)),
+      );
+    }
+    const edited = yield* decodeJson(input.contents).pipe(
+      Effect.map((value) => value as Timeline),
+      Effect.mapError(
+        (cause) => new VideoProjectError({ reason: "What was sent is not a timeline.", cause }),
+      ),
+    );
+    const footage = yield* loadTimeline(input.workspaceRoot, input.timeline);
     return yield* syncing.withPermits(1)(
-      onHost(
-        commitFromClient({
-          projectDir: input.workspaceRoot,
-          timelinePath: input.timeline,
-          contents: input.contents,
-        }),
-      ).pipe(Effect.mapError(historyError)),
+      Effect.andThen(
+        startCut(input.workspaceRoot, footage),
+        onHost(
+          commitFromClient({
+            projectDir: input.workspaceRoot,
+            timelinePath: target,
+            contents: serializeTimeline(cutFromFootage(edited)),
+          }),
+        ).pipe(Effect.mapError(historyError)),
+      ),
     );
   });
 
@@ -1939,6 +1991,7 @@ const make = Effect.gen(function* () {
         reason: `${input.timeline} just changed: the user saved in Premiere and it was pulled in. None of your edits were applied. Read the timeline again and redo them against what is there now.`,
       });
     }
+    const target = yield* cutTarget(input.workspaceRoot, input.timeline);
     const timeline = yield* loadTimeline(input.workspaceRoot, input.timeline);
     const layout = layoutTimeline(timeline);
     const clipIds = new Set(layout.tracks.flatMap((track) => track.clips.map((clip) => clip.key)));
@@ -2043,28 +2096,34 @@ const make = Effect.gen(function* () {
         (reason) => `Not measured: ${reason}.`,
       ),
     ];
+    const madeCut = target !== input.timeline;
     yield* syncing.withPermits(1)(
-      onHost(
-        commitTimelineText({
-          projectDir: input.workspaceRoot,
-          timelinePath: input.timeline,
-          text: serializeTimeline(edited),
-          by,
-          label: input.by === "user" ? "Edited" : "Edited by an agent",
-          ...(review === undefined ? {} : { review }),
-        }),
-      ).pipe(Effect.mapError(historyError)),
+      Effect.andThen(
+        madeCut ? startCut(input.workspaceRoot, timeline) : Effect.void,
+        onHost(
+          commitTimelineText({
+            projectDir: input.workspaceRoot,
+            timelinePath: target,
+            text: serializeTimeline(madeCut ? cutFromFootage(edited) : edited),
+            by,
+            label: input.by === "user" ? "Edited" : "Edited by an agent",
+            ...(review === undefined ? {} : { review }),
+          }),
+        ).pipe(Effect.mapError(historyError)),
+      ),
     );
     const { result: after, view: synced } = yield* syncWithPremiere({
       workspaceRoot: input.workspaceRoot,
     });
     return {
       timelines: yield* listTimelines(input.workspaceRoot),
-      timeline: input.timeline,
+      timeline: target,
       premiere: synced.state,
       project: yield* describeProject(input.workspaceRoot, synced),
       // What the sync before the edit pulled or merged in, then what is pending with the edit.
-      changes: changesText({ ...before, pending: after.pending }),
+      changes: [madeCut ? MADE_CUT : "", changesText({ ...before, pending: after.pending })]
+        .filter((line) => line !== "")
+        .join("\n"),
       text: editableView(edited),
       ...(cuts.length === 0 ? {} : { cuts: cuts.join("\n") }),
     };

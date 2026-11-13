@@ -20,6 +20,8 @@ export const FOOTAGE_DIRECTORY = "Footage";
  * before any Premiere project exists. Generated: it is rewritten whenever footage changes.
  */
 export const FOOTAGE_TIMELINE_PATH = "timelines/Footage.otio";
+/** Where the first edit to the footage timeline goes: that timeline is rebuilt from the footage. */
+export const ROUGH_CUT_TIMELINE_PATH = "timelines/Rough cut.otio";
 
 const VIDEO_FILE = /\.(mov|mp4|m4v|mxf|avi|mkv|mts|m2ts)$/i;
 const STRINGOUT_RATE = 60;
@@ -111,6 +113,19 @@ export const footageStringout = (
         generated: "footage",
       },
     },
+  };
+};
+
+/** The footage timeline as a cut of its own, which a rebuild of the footage timeline leaves alone. */
+export const cutFromFootage = (timeline: Timeline): Timeline => {
+  const { generated: _, ...ours } = (timeline.metadata[TIMELINE_NAMESPACE] ?? {}) as Record<
+    string,
+    unknown
+  >;
+  return {
+    ...timeline,
+    name: "Rough cut",
+    metadata: { ...timeline.metadata, [TIMELINE_NAMESPACE]: ours },
   };
 };
 

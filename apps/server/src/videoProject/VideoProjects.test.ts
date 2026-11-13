@@ -522,7 +522,7 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
       parentFolder: root,
     });
     const mediaRoot = path.dirname(workspaceRoot);
-    const timeline = "timelines/Footage.otio";
+    const timeline = "timelines/Cut.otio";
     const file = path.join(workspaceRoot, timeline);
     yield* fs.writeFileString(
       file,
@@ -641,6 +641,72 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
   );
 });
 
+it.live("makes the first edit to the footage timeline on a cut of its own", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-cut-" });
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot } = yield* videoProjects.createFromIdea({
+      title: "First",
+      parentFolder: root,
+    });
+    const footage = "timelines/Footage.otio";
+    const footageText = serializeTimeline(
+      footageStringout(
+        [{ target: "Footage/a.MOV", duration: 2, width: 1080, height: 1920 }],
+        path.dirname(workspaceRoot),
+      ),
+    );
+    yield* fs.writeFileString(path.join(workspaceRoot, footage), footageText);
+
+    const edited = yield* videoProjects.editTimeline({
+      workspaceRoot,
+      timeline: footage,
+      summary: "Cut the first second.",
+      edits: [{ kind: "removeRange", start: 0, end: 60, ripple: true }],
+    });
+    const cutPath = "timelines/Rough cut.otio";
+    assert.strictEqual(edited.timeline, cutPath);
+    assert.include(edited.changes, "Made timelines/Rough cut.otio from the footage timeline");
+    // The footage timeline is as it was, and the cut can step back to the uncut footage.
+    assert.strictEqual(yield* fs.readFileString(path.join(workspaceRoot, footage)), footageText);
+    const cut = JSON.parse(yield* fs.readFileString(path.join(workspaceRoot, cutPath))) as Timeline;
+    assert.strictEqual(cut.name, "Rough cut");
+    assert.notProperty(cut.metadata["stellar"] as object, "generated");
+    assert.deepStrictEqual(
+      (yield* videoProjects.listVersions({ workspaceRoot, timeline: cutPath })).versions
+        .map((version) => version.label)
+        .toReversed(),
+      ["Started from the footage", "Edited by an agent"],
+    );
+
+    // With a cut there, an edit aimed at the footage timeline is sent to it, by an agent or a client.
+    const refused = yield* videoProjects
+      .editTimeline({
+        workspaceRoot,
+        timeline: footage,
+        summary: "Again.",
+        edits: [{ kind: "removeRange", start: 0, end: 10, ripple: true }],
+      })
+      .pipe(Effect.flip);
+    assert.include(refused.message, "Edit a cut instead: timelines/Rough cut.otio");
+    const refusedCommit = yield* videoProjects
+      .commitTimeline({ workspaceRoot, timeline: footage, contents: footageText })
+      .pipe(Effect.flip);
+    assert.include(refusedCommit.message, "Edit a cut instead");
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
+
 // Stands in for ffmpeg decoding audio, which CI doesn't have: a "recording" is JSON of its
 // length and the stretches that sound, played back as a tone at a tenth of full scale. A
 // recording that says "no decoder" is one this machine has no ffmpeg for.
@@ -707,7 +773,7 @@ it.live(
         parentFolder: root,
       });
       const mediaRoot = path.dirname(workspaceRoot);
-      const timeline = "timelines/Footage.otio";
+      const timeline = "timelines/Cut.otio";
       const file = path.join(workspaceRoot, timeline);
       yield* fs.writeFileString(
         file,
@@ -872,7 +938,7 @@ it.live("reads a timeline for an agent and applies its edits, refusing a bad one
       title: "Jollibee",
       parentFolder: root,
     });
-    const timeline = "timelines/Footage.otio";
+    const timeline = "timelines/Cut.otio";
     const file = path.join(workspaceRoot, timeline);
     yield* fs.writeFileString(
       file,
@@ -1506,7 +1572,7 @@ it.live("follows a short's run from an idea to posted, and takes posted back", (
       path.join(workspaceRoot, "proxies", "index.json"),
       JSON.stringify({ version: 1, media: { "Footage/raw/a.MOV": {} } }),
     );
-    const timeline = "timelines/Footage.otio";
+    const timeline = "timelines/Cut.otio";
     const timelineFile = path.join(workspaceRoot, timeline);
     yield* fs.writeFileString(
       timelineFile,
