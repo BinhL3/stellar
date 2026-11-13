@@ -473,7 +473,7 @@ export function ScriptPanel(props: {
       className="@container/script flex h-full min-h-0 min-w-0 flex-col bg-card text-xs"
     >
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 pr-1.5 pl-4">
-        <h2 className="text-sm font-semibold">Script</h2>
+        <h2 className="sr-only">Script</h2>
         {view !== null && view.beats.length > 0 ? (
           <span className="min-w-0 truncate text-2xs text-muted-foreground tabular-nums @max-[15rem]/script:hidden">
             {placed} of {view.beats.length} placed
