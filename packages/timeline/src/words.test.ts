@@ -52,6 +52,15 @@ describe("timelineWords", () => {
     ]);
   });
 
+  it("drops a removed word whose quiet lead-in the cut left on the clip before", () => {
+    // "subscribe" starts at frame 36; an edge moved onto quiet at 42 leaves six frames of it.
+    const cut = applyEdits(stringout, [{ kind: "removeRange", start: 42, end: 60, ripple: true }]);
+    expect(wordsText(timelineWords(cut, transcripts)).split("\n").slice(1, 3)).toEqual([
+      "A1 0-42 #1:0 a.MOV",
+      "1:Hãy@30",
+    ]);
+  });
+
   it("places words by a clip's speed, and lists none for a clip that plays backwards", () => {
     const warped = (speed: number) => ({
       ...stringout,

@@ -19,6 +19,7 @@ import {
   sourceSecondsOfFrame,
   type TimelineWord,
   type TranscriptWord,
+  WORD_LEAD_SECONDS,
   wordRange,
   type WordsView,
 } from "./words.ts";
@@ -53,7 +54,7 @@ export interface NothingToCut {
 const WORD_MARGIN_SECONDS = 0.02;
 /** An edge may reach this far into the word that stays, and this far into the one that goes. */
 const KEPT_SLACK_SECONDS = 0.05;
-const REMOVED_SLACK_SECONDS = 0.3;
+const REMOVED_SLACK_SECONDS = WORD_LEAD_SECONDS;
 /** Frames this close to the lowest level between two words are as good as it. */
 const NEAR_LOWEST_DB = 3;
 /** A pause trimmed by word keeps this much unless told otherwise. */

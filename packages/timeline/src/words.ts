@@ -68,6 +68,9 @@ export interface WordsView {
   readonly clips: ReadonlyArray<ClipWords>;
 }
 
+/** How far into a removed word a cut's edge may sit; `placeWordCut` reaches no further. */
+export const WORD_LEAD_SECONDS = 0.3;
+
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
 
 /**
@@ -120,9 +123,11 @@ export const timelineWords = (
       });
       continue;
     }
+    // A cut moved onto quiet can leave the lead-in of the word it removed, which isn't heard.
     const heard = transcripts.get(target)?.filter((word) => {
       const frame = frameAt(word.start);
-      return frame >= clipStart && frame < clipEnd;
+      const lead = Math.min(WORD_LEAD_SECONDS, Math.max(0, word.end - word.start) / 2);
+      return frame >= clipStart && frame < clipEnd && frameAt(word.start + lead) <= clipEnd;
     });
     const words = heard?.map((word, position): TimelineWord => {
       const startFrame = frameAt(word.start);
