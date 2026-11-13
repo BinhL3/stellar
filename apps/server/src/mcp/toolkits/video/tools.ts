@@ -66,9 +66,26 @@ const TimelineEditTool = Tool.make("video_timeline_edit", {
 
 const TimelineWordsTool = Tool.make("video_timeline_words", {
   description:
-    "Read what is said on a timeline, to cut by words: per audio clip, each transcribed word as `index:word@startFrame`. Cut with `video_timeline_edit` removeWords, which removes from a word's start to the next word's start. Numbers change after every edit, so read again before cutting more. Transcripts come from the project's `Audio/<clip>.words.json`; clips without one say so, and `video_transcribe` makes them.",
-  parameters: Schema.Struct({ timeline: Schema.optional(Schema.String) }),
-  success: VideoTimelineWords,
+    "Read what is said on a timeline, to cut by words: per audio clip, each transcribed word as `index:word@startFrame`. Cut with `video_timeline_edit` removeWords, which removes from a word's start to the next word's start. Numbers change after every edit, so read again before cutting more. Transcripts come from the project's `Audio/<clip>.words.json`; clips without one say so, and `video_transcribe` makes them. You can't hear audio, so `picture` draws a passage instead: waveform over spectrogram, each word at its start. Give `fromWord`/`toWord` or `start`/`end` frames (15 seconds at most); `cutFromWord`/`cutToWord` or `cutStart`/`cutEnd` add a row with that range removed and closed up, to check a cut doesn't clip a word or leave a breath before you make it. `text` is then a caption and `picture` the image's path: open it with your file or image tool.",
+  parameters: Schema.Struct({
+    timeline: Schema.optional(Schema.String),
+    picture: Schema.optional(
+      Schema.Struct({
+        fromWord: Schema.optional(Schema.Number),
+        toWord: Schema.optional(Schema.Number),
+        start: Schema.optional(Schema.Number),
+        end: Schema.optional(Schema.Number),
+        cutFromWord: Schema.optional(Schema.Number),
+        cutToWord: Schema.optional(Schema.Number),
+        cutStart: Schema.optional(Schema.Number),
+        cutEnd: Schema.optional(Schema.Number),
+      }),
+    ),
+  }),
+  success: Schema.Struct({
+    ...VideoTimelineWords.fields,
+    picture: Schema.optional(Schema.String),
+  }),
   failure: OrchestratorMcpFailure,
   failureMode: "return",
   dependencies,

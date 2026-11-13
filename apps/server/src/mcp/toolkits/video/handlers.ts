@@ -102,11 +102,15 @@ const handlers = {
     Effect.gen(function* () {
       const workspaceRoot = yield* callerWorkspaceRoot;
       const videoProjects = yield* VideoProjects.VideoProjects;
+      const on = input.timeline === undefined ? {} : { timeline: input.timeline };
+      if (input.picture !== undefined) {
+        const drawn = yield* videoProjects
+          .soundPicture({ workspaceRoot, ...on, request: input.picture })
+          .pipe(Effect.mapError(refused));
+        return { timeline: drawn.timeline, text: drawn.caption, picture: drawn.picture };
+      }
       return yield* videoProjects
-        .readWords({
-          workspaceRoot,
-          ...(input.timeline === undefined ? {} : { timeline: input.timeline }),
-        })
+        .readWords({ workspaceRoot, ...on })
         .pipe(Effect.mapError(refused));
     }),
   ),

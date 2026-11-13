@@ -321,6 +321,12 @@ Built from the past threads: it targets where time and failures actually went, a
   proxy build or a saved voice-over take, and on `video_transcribe`, it runs the host's
   transcriber (the transcribe command in settings, else `stt` on the PATH) over footage and
   takes that have none, reporting to `transcripts.json` in the project folder.
+- **Sound pictures: built.** No harness passes audio to a model, so `video_timeline_words`
+  with `picture` draws a passage instead (`packages/timeline/src/soundPicture.ts`): waveform
+  over spectrogram with the words at their frames, and a second row with a proposed cut taken
+  out, made by applying the same ripple removal the edit would. One clip is drawn at a time,
+  the one with a transcript, so speech stays readable under music. Not yet run by an agent in
+  a real thread or through `evals/mcp-tool-use`.
 - **The script as project data: built.** The Google Doc stays the script's source of truth;
   the project keeps a snapshot (`script.md`, with beat ids in `script.json`). `video_script`
   and `videoProjects.readScript` split it into beats (`packages/timeline/src/script.ts`) and
