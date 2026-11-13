@@ -56,6 +56,7 @@ import { CarouselToolkit } from "../../apps/server/src/mcp/toolkits/carousel/too
 import { DeviceToolkit } from "../../apps/server/src/mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environment/tools.ts";
 import { HtmlToolkit } from "../../apps/server/src/mcp/toolkits/html/tools.ts";
+import { LearningsToolkit } from "../../apps/server/src/mcp/toolkits/learnings/tools.ts";
 import { OrchestratorToolkit } from "../../apps/server/src/mcp/toolkits/orchestrator/tools.ts";
 import { PreviewToolkit } from "../../apps/server/src/mcp/toolkits/preview/tools.ts";
 import { PreviewControlsToolkit } from "../../apps/server/src/mcp/toolkits/previewControls/tools.ts";
@@ -437,6 +438,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   WorktreeToolkit,
   VideoToolkit,
   CarouselToolkit,
+  LearningsToolkit,
   PullRequestsToolkit,
   PreviewToolkit,
   DeviceToolkit,

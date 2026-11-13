@@ -39,6 +39,7 @@ import {
 import { briefRoute, gradeDevice, shellInvocations } from "./device-grading.ts";
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
 import { CarouselToolkit } from "../../apps/server/src/mcp/toolkits/carousel/tools.ts";
+import { LearningsToolkit } from "../../apps/server/src/mcp/toolkits/learnings/tools.ts";
 import { VideoToolkit } from "../../apps/server/src/mcp/toolkits/video/tools.ts";
 
 it("grades Codex shell and subagent calls with the shared rules", () => {
@@ -962,7 +963,9 @@ it("builds the video and carousel cases, which name only tools this checkout has
   assert.equal(new Set(cases.map((c) => c.id)).size, cases.length);
   const base = buildBase(template, { model: "claude-sonnet-5-5", keepUserInstructions: false });
   const known = new Set(
-    [VideoToolkit, CarouselToolkit].flatMap((toolkit) => Object.keys(toolkit.tools)),
+    [VideoToolkit, CarouselToolkit, LearningsToolkit].flatMap((toolkit) =>
+      Object.keys(toolkit.tools),
+    ),
   );
   for (const testCase of cases) {
     assert.include(
@@ -976,7 +979,7 @@ it("builds the video and carousel cases, which name only tools this checkout has
       ...notCalls,
       ...order,
       ...Object.keys(testCase.setup.mocks ?? {}),
-    ].filter((tool) => /^(video|carousel)_/.test(tool));
+    ].filter((tool) => /^(video|carousel|house_rule)_/.test(tool));
     assert.isNotEmpty(named, testCase.id);
     // A renamed tool would leave a case that can only fail, or a notCalls that can only pass.
     for (const tool of named) assert.isTrue(known.has(tool), `${testCase.id}: ${tool}`);
