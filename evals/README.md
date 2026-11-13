@@ -11,6 +11,7 @@ Write or run an eval when a change affects what a model sees or does: agent inst
 | [pr-content](pr-content/)       | Whether PR generation describes the diff when project instructions try to redirect it.               |
 | [voice-cleanup](voice-cleanup/) | Whether optional dictation cleanup edits only the spoken text and preserves its meaning.             |
 | [test-signal](test-signal/)     | Whether a cheap model running the test-signal check flags low-signal tests.                          |
+| [video-cuts](video-cuts/)       | What a cut removed, its agreement with a reference, edges inside words, and pauses at joins.         |
 
 ## Run an eval
 
@@ -19,6 +20,8 @@ Write or run an eval when a change affects what a model sees or does: agent inst
 3. From `evals/`, run `pnpm <eval> --out runs/<name>`. `runs/` is gitignored.
 
 Each eval's README lists its models, flags, and cost. Start with one case and one sample to check the setup.
+
+`video-cuts` is the exception: it scores a finished edit by code and replays stored tool calls, so it calls no model and needs no key. Its cases hold real footage data and live outside the repository, in the directory `STELLAR_EVAL_DATA` names.
 
 Evals call paid models, so CI does not run them. CI typechecks this package and runs the graders' unit tests.
 

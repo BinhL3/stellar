@@ -110,6 +110,38 @@ Commands built at run time, external script files and full shell/interpreter sem
 
 This API replay measures routing and recovery decisions. Screenshots return product text and metadata without rendered image blocks, and Codex code cells have no `image` helper, so a cell that calls it fails with `image is not defined`. The shell remains simulated, children are not executed, and `priorTurns` is synthetic context rather than native resume or compaction. It does not test launcher execution, binding, pruning, actual device state, transport failures or resource cleanup, and it models agent-device's session check rather than running it. DEL-02 checks managed recording start/stop and the final filename; it does not inspect video bytes, required flow, transforms, codec or size. Screenshots and final text do not establish delivered artifacts or honesty. Keep local real-harness results separate; their scores and costs are not API-replay results. Offline validation costs $0. Record fresh per-model baseline and candidate costs before using device-case scores as release evidence.
 
+## Video and carousel cases
+
+`cases/video.ndjson` and `cases/carousel.ndjson` check the first tool an agent reaches for in an editing thread, and the arguments code can check. They are authored guards for what the tool descriptions and Stellar's Video and Carousel instructions ask for, not captured failures, and they have not been run on a model yet: record a baseline before using them to judge a text change. Projects, words and photos are Acme data; timeline, word and carousel text in the mocks was printed by `packages/timeline` from synthetic input.
+
+| Case                                     | Kind    | What it checks                                                                                                            |
+| ---------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| video-cut-second-take-by-words           | guard   | A take is cut with `video_timeline_words` then `removeWords` on its word numbers; no typed `removeRange`, no other take.  |
+| video-fillers-cut-in-one-call            | guard   | Two word cuts go in one `video_timeline_edit` call, numbered as the words were read.                                      |
+| video-no-transcript-transcribes-first    | guard   | With no transcript the agent calls `video_transcribe` and makes no range or split cut.                                    |
+| video-export-check-uses-render-check     | guard   | "Is the export ok?" runs `video_render_check`, not an export, and the final answer reports the black frames.              |
+| video-existing-sequence-uses-push        | guard   | Edits for a sequence already in Premiere go through `video_premiere_push`, never `video_premiere_export`.                 |
+| video-user-marker-resolved-not-removed   | guard   | A user's marker is set `resolved` after its request is done, not removed.                                                 |
+| video-posted-records-links               | guard   | "It's up" with a link calls `video_posted` with `posted: true` and that link.                                             |
+| video-control-code-task-no-video-tools   | control | A code rename that mentions video calls no video or carousel tool.                                                        |
+| carousel-from-photos-uses-carousel-start | guard   | A carousel from photos starts with `carousel_start` and its title and folder, not a video project or a footage import.    |
+| carousel-thread-reads-edits-then-looks   | guard   | In a carousel project: `carousel_read`, then `carousel_edit` with the slide, then `carousel_look`; no video tools.        |
+| carousel-photo-imported-before-use       | guard   | A photo outside the project is imported with `carousel_photos` before `carousel_edit` uses the `src` the import returned. |
+| carousel-export-not-video-export         | guard   | "Export it" calls `carousel_export`, and the final answer names the folder and the missing alt text.                      |
+
+Expectations match partially, so an argument a tool gains later (a summary on an edit, say) does not fail a case. `run.test.ts` checks that every `video_*` and `carousel_*` name in these cases is a tool in this checkout: after a rename, fix the case.
+
+Tool results are one fixed mock per tool. A second `video_timeline_words` after an edit returns the first read's numbers, and a carousel read never shows the edit. The cases grade the choice and the first call's arguments, not a finished edit: [video-cuts](../video-cuts/) scores edits. No Premiere tools or Google connector exist in the harness capture, and the shell simulator can't show an image, so applying a push plan, the catalog row and opening a contact sheet are not graded.
+
+From `evals/`:
+
+```sh
+pnpm mcp-tool-use --dry-run --cases mcp-tool-use/cases/video.ndjson --cases mcp-tool-use/cases/carousel.ndjson
+pnpm mcp-tool-use --cases mcp-tool-use/cases/video.ndjson --cases mcp-tool-use/cases/carousel.ndjson --samples 2 --out runs/editor
+```
+
+The dry run prints the request body each case would send, one JSON line per case, and costs $0. The second command bills 24 to 36 agent runs (12 cases, 2 samples and a 3rd when they disagree), each up to 8 or 10 model calls, plus the shell simulator. No cost has been measured; at the per-sample cost of the non-device suite it would be about $1 to $2 on Sonnet.
+
 ## Threads vs tasks cases
 
 `cases/threads-vs-tasks.ndjson` covers explicit thread requests, delegated and background work, lifecycle operations, child permissions, and ordinary code requests using words like "thread" and "task". The native-subagent case is Claude-only. All scenarios use authored Acme data.

@@ -51,6 +51,8 @@ import { buildCodexAdditionalContext } from "../../apps/server/src/provider/Code
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
 import { withInlineContext } from "../../apps/server/src/orchestration-v2/ContextHandoffDelivery.ts";
 import { AttachmentToolkit } from "../../apps/server/src/mcp/toolkits/attachment/tools.ts";
+import { carouselGuide } from "../../apps/server/src/mcp/toolkits/carousel/handlers.ts";
+import { CarouselToolkit } from "../../apps/server/src/mcp/toolkits/carousel/tools.ts";
 import { DeviceToolkit } from "../../apps/server/src/mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environment/tools.ts";
 import { HtmlToolkit } from "../../apps/server/src/mcp/toolkits/html/tools.ts";
@@ -434,6 +436,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   PreviewControlsToolkit,
   WorktreeToolkit,
   VideoToolkit,
+  CarouselToolkit,
   PullRequestsToolkit,
   PreviewToolkit,
   DeviceToolkit,
@@ -1327,6 +1330,9 @@ const withProductFields = (name: string, value: unknown, child: boolean): unknow
     case "link_pull_request":
     case "link_pull_requests":
       return child ? { ...value, next: CHILD_PULL_REQUEST_REPORT_NEXT } : value;
+    // Every carousel read carries T3's guide, sized for the carousel's ratio.
+    case "carousel_read":
+      return value.guide === undefined ? { ...value, guide: carouselGuide("4:5") } : value;
     default:
       return value;
   }

@@ -1,0 +1,21 @@
+[
+  { "w": "um", "start": 0.4, "end": 0.6 },
+  { "w": "this", "start": 0.9, "end": 1.1 },
+  { "w": "is", "start": 1.1, "end": 1.25 },
+  { "w": "the", "start": 1.25, "end": 1.4 },
+  { "w": "hook", "start": 1.4, "end": 1.8 },
+  { "w": "this", "start": 2.9, "end": 3.1 },
+  { "w": "is", "start": 3.1, "end": 3.25 },
+  { "w": "the", "start": 3.25, "end": 3.4 },
+  { "w": "hook", "start": 3.4, "end": 3.85 },
+  { "w": "that", "start": 3.85, "end": 4.05 },
+  { "w": "works", "start": 4.05, "end": 4.5 },
+  { "w": "and", "start": 6.5, "end": 6.7 },
+  { "w": "uh", "start": 6.7, "end": 6.95 },
+  { "w": "here", "start": 7.2, "end": 7.4 },
+  { "w": "is", "start": 7.4, "end": 7.55 },
+  { "w": "why", "start": 7.55, "end": 7.85 },
+  { "w": "it", "start": 7.85, "end": 7.95 },
+  { "w": "matters", "start": 7.95, "end": 8.5 },
+  { "w": "thanks", "start": 9.5, "end": 10 }
+]

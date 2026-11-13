@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "source": {
+    "kind": "hand-written"
+  },
+  "startedAt": "2026-01-01T12:00:00.000Z",
+  "calls": [
+    {
+      "tool": "video_timeline_read",
+      "at": "2026-01-01T12:00:04.000Z",
+      "input": {}
+    },
+    {
+      "tool": "video_timeline_words",
+      "at": "2026-01-01T12:00:09.000Z",
+      "input": {}
+    },
+    {
+      "tool": "video_timeline_edit",
+      "at": "2026-01-01T12:00:21.000Z",
+      "input": {
+        "timeline": "timelines/main.otio",
+        "edits": [
+          {
+            "kind": "removeWords",
+            "fromWord": 1,
+            "toWord": 5,
+            "ripple": true
+          },
+          {
+            "kind": "removeWords",
+            "fromWord": 13,
+            "toWord": 13,
+            "ripple": true
+          },
+          {
+            "kind": "removeWords",
+            "fromWord": 19,
+            "toWord": 19
+          },
+          {
+            "kind": "addMarker",
+            "frame": 0,
+            "name": "Cut",
+            "note": "Kept the second take of the hook."
+          }
+        ]
+      }
+    }
+  ]
+}

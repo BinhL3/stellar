@@ -32,7 +32,7 @@ const callerWorkspaceRoot = Effect.gen(function* () {
  * How to work on a carousel, given with every read. It rides on the tool result so only
  * carousel threads pay for it; the standing instructions carry one line that points here.
  */
-const carouselGuide = (ratio: Parameters<typeof slideSize>[0]) => {
+export const carouselGuide = (ratio: Parameters<typeof slideSize>[0]) => {
   const { width, height } = slideSize(ratio);
   const { safe, grid } = slideGuides(ratio);
   return [
