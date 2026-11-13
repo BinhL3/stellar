@@ -292,6 +292,7 @@ function createTextGeneration(
     generateReviewGuide: () => Effect.succeed({ stops: [] }),
     generateTranscriptionPostProcessing: () =>
       Effect.succeed({ transcription: "processed transcript" }),
+    generateLearningCheck: () => Effect.succeed({ rule: "", contradicts: "" }),
     ...overrides,
   };
 
@@ -343,6 +344,7 @@ function createTextGeneration(
     generateReviewGuide: (input) => implementation.generateReviewGuide(input),
     generateTranscriptionPostProcessing: (input) =>
       implementation.generateTranscriptionPostProcessing(input),
+    generateLearningCheck: (input) => implementation.generateLearningCheck(input),
   };
 }
 

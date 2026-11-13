@@ -12,6 +12,7 @@ import {
   type OrchestrationV2TurnItem,
   isCompactionCommandMessage,
   parseGoalCommand,
+  type ProjectId,
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -28,6 +29,7 @@ import * as Schema from "effect/Schema";
 import * as ServerConfig from "../config.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
+import * as Learnings from "../learnings/Learnings.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -140,6 +142,7 @@ export const layer: Layer.Layer<
   | ServerSettings.ServerSettingsService
   | GitWorkflowService.GitWorkflowService
   | ProjectService.ProjectService
+  | Learnings.Learnings
   | ProviderAuthService.ProviderAuthService
   | ProjectionStore.ProjectionStoreV2
   | ProviderSessionManager.ProviderSessionManagerV2
@@ -156,8 +159,20 @@ export const layer: Layer.Layer<
     const path = yield* Path.Path;
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
     const projects = yield* ProjectService.ProjectService;
+    const learnings = yield* Learnings.Learnings;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+    const houseRulesFor = (projectId: ProjectId) =>
+      projects.getById(projectId).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.succeed(""),
+            onSome: (project) =>
+              learnings.instructions({ projectId, workspaceRoot: project.workspaceRoot }),
+          }),
+        ),
+        Effect.orElseSucceed(() => ""),
+      );
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
@@ -870,6 +885,8 @@ export const layer: Layer.Layer<
         restartCancelledWork.length === 0
           ? ""
           : restartCancelledBackgroundWorkNote(restartCancelledWork);
+      // House rules ride on every prompt, so one removed in Settings is gone from the next turn.
+      const houseRules = goalCommand ? "" : yield* houseRulesFor(projection.thread.projectId);
       const tokenCap = yield* handoffTokenCapConfig.pipe(
         Effect.orElseSucceed(() => DEFAULT_HANDOFF_TOKEN_CAP),
       );
@@ -1600,7 +1617,12 @@ export const layer: Layer.Layer<
             sideChatHandoff === undefined || compact || goalCommand
               ? ""
               : sideChatHandoff.summaryText;
-          const context = [delivery.context, sideChatContext, restartNote]
+          const context = [
+            delivery.context,
+            sideChatContext,
+            restartNote,
+            compact ? "" : houseRules,
+          ]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
@@ -1668,6 +1690,7 @@ export const layer: Layer.Layer<
         retryHandoff.length === 0 &&
         sideChatHandoff === undefined &&
         restartNote === "" &&
+        houseRules === "" &&
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);

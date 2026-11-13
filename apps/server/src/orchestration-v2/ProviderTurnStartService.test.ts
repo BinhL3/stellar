@@ -38,7 +38,8 @@ import * as ServerConfig from "../config.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import { layerRealGit } from "./ProviderTurnStartService.testkit.ts";
+import { layerNoHouseRules, layerRealGit } from "./ProviderTurnStartService.testkit.ts";
+import * as Learnings from "../learnings/Learnings.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -161,6 +162,7 @@ function startWithMissingWorktree(
           getById: () =>
             Effect.succeedSome({ workspaceRoot: "/tmp/provider-turn-start-project" } as never),
         }),
+        layerNoHouseRules,
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
           getThreadRecords: () => {
             projectionReadCount += 1;
@@ -274,6 +276,8 @@ function makeLocalCommandHarness(input: {
   readonly workspaceRoot?: string;
   readonly gitWorkflow?: GitWorkflow.GitWorkflowService["Service"];
   readonly fileSystem?: FileSystem.FileSystem;
+  /** What the approved house rules say for this project. */
+  readonly houseRules?: string;
   readonly previousNativeSession?: boolean;
   readonly previousMessages?: ReadonlyArray<string>;
   readonly logoutFailure?: string;
@@ -958,6 +962,11 @@ function makeLocalCommandHarness(input: {
               workspaceRoot: input.workspaceRoot ?? "/tmp/native-account-project",
             } as never),
         }),
+        input.houseRules === undefined
+          ? layerNoHouseRules
+          : Layer.mock(Learnings.Learnings)({
+              instructions: () => Effect.succeed(input.houseRules ?? ""),
+            }),
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
           getThreadRecords,
           getTurnStartContext,
@@ -1697,6 +1706,23 @@ effectIt.effect("fails the run without a retry when the provider needs sign-in",
           message: "Failed to open antigravity provider session new-provider-session.",
         },
       },
+    ]);
+  }),
+);
+
+effectIt.effect("tells the provider the approved house rules beside the user's message", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Tighten the intro",
+      // A delivered side chat adds no context of its own, so the rules are all that is inline.
+      sideChat: { contextRun: "delivered" },
+      houseRules: "House rules:\n- Keep the pause before a punchline.",
+    });
+
+    yield* harness.start;
+
+    expect(harness.startTurn.mock.calls.map(([turn]) => turn.message.text)).toEqual([
+      withInlineContext("House rules:\n- Keep the pause before a punchline.", "Tighten the intro"),
     ]);
   }),
 );

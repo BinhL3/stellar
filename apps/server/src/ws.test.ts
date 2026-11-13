@@ -67,6 +67,8 @@ import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as VideoProjects from "./videoProject/VideoProjects.ts";
 import * as CarouselProjects from "./carousel/CarouselProjects.ts";
+import * as LearningCheck from "./learnings/LearningCheck.ts";
+import * as Learnings from "./learnings/Learnings.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ModelManifest from "./provider/ModelManifest.ts";
@@ -840,6 +842,8 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
   Layer.mock(VideoProjects.VideoProjects)({}),
   Layer.mock(CarouselProjects.CarouselProjects)({}),
+  Layer.mock(Learnings.Learnings)({}),
+  Layer.mock(LearningCheck.LearningCheck)({ notice: () => Effect.void }),
   Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
   Layer.mock(WorkspaceFileSystem.WorkspaceFileSystem)({}),
   Layer.mock(WorktreeSetupTracker.WorktreeSetupTracker)({}),

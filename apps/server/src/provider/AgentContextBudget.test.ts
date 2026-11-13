@@ -1,5 +1,6 @@
 import { VideoProjects } from "../videoProject/VideoProjects.ts";
 import { CarouselProjects } from "../carousel/CarouselProjects.ts";
+import { Learnings } from "../learnings/Learnings.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -64,6 +65,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(PreviewAutomationBroker)({}),
   Layer.mock(VideoProjects)({}),
   Layer.mock(CarouselProjects)({}),
+  Layer.mock(Learnings)({}),
   Layer.mock(PreviewBrowser)({}),
   Layer.mock(PreviewManager)({}),
   Layer.mock(ProjectCloneTracker)({}),

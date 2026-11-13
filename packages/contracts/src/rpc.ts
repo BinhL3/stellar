@@ -307,6 +307,12 @@ import {
   CarouselWatchState,
 } from "./carousel.ts";
 import {
+  HouseRuleRemoveInput,
+  LearningApproveInput,
+  LearningDismissInput,
+  LearningsState,
+} from "./learnings.ts";
+import {
   TerminalAttachInput,
   TerminalObserveInput,
   TerminalAttachStreamEvent,
@@ -497,6 +503,11 @@ export const WS_METHODS = {
   carouselWatch: "carousel.watch",
   carouselSubmitRender: "carousel.submitRender",
   carouselExport: "carousel.export",
+
+  learningsWatch: "learnings.watch",
+  learningsApprove: "learnings.approve",
+  learningsDismiss: "learnings.dismiss",
+  learningsRemoveRule: "learnings.removeRule",
 
   shellOpenInEditor: "shell.openInEditor",
 
@@ -1619,6 +1630,33 @@ const WsCarouselSubmitRenderRpc = Rpc.make(WS_METHODS.carouselSubmitRender, {
   error: CarouselRpcError,
 });
 
+const LearningsRpcError = Schema.Union([
+  OrchestrationDispatchCommandError,
+  EnvironmentAuthorizationError,
+]);
+
+const WsLearningsWatchRpc = Rpc.make(WS_METHODS.learningsWatch, {
+  payload: Schema.Struct({}),
+  success: LearningsState,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+const WsLearningsApproveRpc = Rpc.make(WS_METHODS.learningsApprove, {
+  payload: LearningApproveInput,
+  error: LearningsRpcError,
+});
+
+const WsLearningsDismissRpc = Rpc.make(WS_METHODS.learningsDismiss, {
+  payload: LearningDismissInput,
+  error: LearningsRpcError,
+});
+
+const WsLearningsRemoveRuleRpc = Rpc.make(WS_METHODS.learningsRemoveRule, {
+  payload: HouseRuleRemoveInput,
+  error: LearningsRpcError,
+});
+
 const WsCarouselExportRpc = Rpc.make(WS_METHODS.carouselExport, {
   payload: CarouselExportInput,
   success: CarouselExportResult,
@@ -2424,6 +2462,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsCarouselWatchRpc,
   WsCarouselSubmitRenderRpc,
   WsCarouselExportRpc,
+  WsLearningsWatchRpc,
+  WsLearningsApproveRpc,
+  WsLearningsDismissRpc,
+  WsLearningsRemoveRuleRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

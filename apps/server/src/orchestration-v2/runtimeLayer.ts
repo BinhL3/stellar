@@ -19,6 +19,8 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as VideoProjects from "../videoProject/VideoProjects.ts";
 import * as CarouselProjects from "../carousel/CarouselProjects.ts";
+import * as LearningCheck from "../learnings/LearningCheck.ts";
+import * as Learnings from "../learnings/Learnings.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
@@ -175,6 +177,7 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerProviderAuthServiceProvided,
       layerRunExecutionServiceProvided,
       layerRuntimePolicyProvided,
+      Learnings.layer,
     ),
   ),
 );
@@ -379,6 +382,17 @@ export const layerProduction = Layer.mergeAll(
   layerManagedProjectFoldersProvided,
   VideoProjects.layer.pipe(Layer.provide(layerProjectService)),
   CarouselProjects.layer.pipe(Layer.provide(layerProjectService)),
+  Learnings.layer,
+  LearningCheck.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Learnings.layer,
+        layerProjectService,
+        layerThreadManagementProvided,
+        TextGeneration.layer,
+      ),
+    ),
+  ),
   layerThreadLaunchProvided,
   layerScheduledTaskProvided,
   layerScratchThreadPromotionProvided,

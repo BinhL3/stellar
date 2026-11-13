@@ -207,6 +207,13 @@ taught us on every write. Today these rules live in `premiere-automation.md`:
 
 App quirks (Premiere's item order, Edits' 60 fps conform) live in each adapter's code and tests.
 
+**Taste is the exception: house rules.** What the toolkit can check is an invariant in code. What
+only the user can judge ("keep the pause before a punchline") is a house rule: one sentence the
+user approved, told to every turn in a video or carousel project. They are kept in one list under
+T3 home, each optionally scoped to a project, because taste follows the editor across projects and
+a file in each project folder would have to be approved again per short. Stellar reads the user's
+messages for new ones in a side run outside the turn; agents may propose one, never approve one.
+
 ### 4. Adapters: push is a rebuild, pull is a turn, every push writes a parity report
 
 - **Push** builds the whole sequence in one import as a new version, for example an FCP XML imported

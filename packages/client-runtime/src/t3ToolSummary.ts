@@ -387,6 +387,9 @@ export function summarizeT3ToolCalls(
     case "carousel-start":
       label = phrase("Started", "start", `a carousel project ${times}`);
       break;
+    case "house-rule-propose":
+      label = phrase("Proposed", "propose", `a house rule ${times}`);
+      break;
     case "project-list":
       label = phrase("Listed", "list", `projects ${times}`);
       break;
