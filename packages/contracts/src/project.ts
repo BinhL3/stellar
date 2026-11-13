@@ -903,6 +903,8 @@ export const VideoProjectSyncResult = Schema.Struct({
   pending: Schema.Array(Schema.String),
   /** Edits made here that a merge had to drop because Premiere changed the same thing. */
   conflicts: Schema.Array(Schema.String),
+  /** The timeline paths that follow a Premiere sequence, which a push reaches. */
+  linked: Schema.optional(Schema.Array(Schema.String)),
 });
 export type VideoProjectSyncResult = typeof VideoProjectSyncResult.Type;
 

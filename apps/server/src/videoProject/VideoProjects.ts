@@ -1226,6 +1226,14 @@ const make = Effect.gen(function* () {
     };
   });
 
+  /** The timeline paths the project's Premiere link follows; none when nothing is linked. */
+  const linkedTimelines = (workspaceRoot: string) =>
+    fileSystem.readFileString(path.join(workspaceRoot, PREMIERE_LINK_PATH)).pipe(
+      Effect.flatMap(decodeJson),
+      Effect.map((value) => Object.keys((value as { timelines?: object }).timelines ?? {})),
+      Effect.orElseSucceed((): Array<string> => []),
+    );
+
   const syncWithPremiere = Effect.fn("VideoProjects.syncWithPremiere")(function* (
     input: VideoProjectSyncInput,
   ) {
@@ -1253,6 +1261,7 @@ const make = Effect.gen(function* () {
       updated: result.updated,
       kept: result.kept,
       premiereRunning: yield* premiereRunning,
+      linked: yield* linkedTimelines(input.workspaceRoot),
       changes: [
         ...result.sequences.map(sequenceSentence),
         ...sentencesOf(result.changes, (entry) => diffSentences(entry.diff)),
@@ -1398,10 +1407,7 @@ const make = Effect.gen(function* () {
    * push reaches, else the first cut, else the footage timeline.
    */
   const defaultTimeline = (workspaceRoot: string, timelines: ReadonlyArray<string>) =>
-    fileSystem.readFileString(path.join(workspaceRoot, PREMIERE_LINK_PATH)).pipe(
-      Effect.flatMap(decodeJson),
-      Effect.map((value) => Object.keys((value as { timelines?: object }).timelines ?? {})),
-      Effect.orElseSucceed((): Array<string> => []),
+    linkedTimelines(workspaceRoot).pipe(
       Effect.map(
         (linked) =>
           timelines.find((candidate) => linked.includes(candidate)) ??

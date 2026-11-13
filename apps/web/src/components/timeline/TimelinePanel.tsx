@@ -229,11 +229,15 @@ export default function TimelinePanel(props: {
   );
   const [pulling, setPulling] = useState(false);
   const [chosenPath, setChosenPath] = useState<string | null>(null);
+  const [link, setLink] = useState<VideoProjectSyncResult | null>(null);
   const selectedPath =
     chosenPath !== null && timelinePaths.includes(chosenPath)
       ? chosenPath
-      : // A pulled sequence comes before the generated footage timeline.
-        (timelinePaths.find((path) => path !== FOOTAGE_TIMELINE_PATH) ?? timelinePaths[0] ?? null);
+      : // The cut Premiere follows comes first, then any cut, then the generated footage timeline.
+        (link?.linked?.find((path) => timelinePaths.includes(path)) ??
+        timelinePaths.find((path) => path !== FOOTAGE_TIMELINE_PATH) ??
+        timelinePaths[0] ??
+        null);
   const file = useProjectFileQuery(
     props.environmentId,
     props.workspaceRoot,
@@ -283,7 +287,6 @@ export default function TimelinePanel(props: {
     }
   };
   const syncProject = useAtomCommand(projectEnvironment.syncVideoProject, { reportFailure: false });
-  const [link, setLink] = useState<VideoProjectSyncResult | null>(null);
   const [syncing, setSyncing] = useState(false);
   // Pending edits belong to the text they were made on, so a pull that lands under them would
   // drop them. Coming back into focus doesn't pull while there are any; "Sync now" still does.
