@@ -67,14 +67,29 @@ const TimelineEditTool = Tool.make("video_timeline_edit", {
 
 const TimelineWordsTool = Tool.make("video_timeline_words", {
   description:
-    'Read what is said on a timeline, to cut by words: per audio clip, each transcribed word as `index:word@startFrame`. Between words, `(0.82s quiet)` is a gap of 0.4 s or more and what the audio holds there; `(1.70s, 0.60s sound @410-446)` has sound at speaking level that no word explains, at those frames, so it is not only a pause. Cut with `video_timeline_edit`: removeWords removes a run of words, trimPause trims the pause after a word. Numbers change after every edit, so read again before cutting more. `action: "joins"` checks your cuts instead: every join as heard, `J track @frame (time) #out|#in: last words [level] | [level] first words · ok`, flagging a word clipped while it sounds, words said twice across the join and its pause, then `P` lines for pauses inside clips of `pauseOver` seconds or more (0.75 when omitted). Read it after cutting and fix what is flagged. Long results come in pages: `from` is the first word, or the first joins line, to read. Transcripts come from the project\'s `Audio/<clip>.words.json`; clips without one say so, and `video_transcribe` makes them.',
+    "Read what is said on a timeline, to cut by words: per audio clip, each transcribed word as `index:word@startFrame`. Between words, `(0.82s quiet)` is a gap of 0.4 s or more and what the audio holds there; `(1.70s, 0.60s sound @410-446)` has sound at speaking level that no word explains, at those frames, so it is not only a pause. Cut with `video_timeline_edit`: removeWords removes a run of words, trimPause trims the pause after a word. Numbers change after every edit, so read again before cutting more. Transcripts come from the project's `Audio/<clip>.words.json`; clips without one say so, and `video_transcribe` makes them. `action: \"joins\"` checks your cuts instead: every join as heard, `J track @frame (time) #out|#in: last words [level] | [level] first words · ok`, flagging a word clipped while it sounds, words said twice across the join and its pause, then `P` lines for pauses inside clips of `pauseOver` seconds or more (0.75 when omitted). Read it after cutting and fix what is flagged. Long results come in pages: `from` is the first word, or the first joins line, to read. You can't hear audio, so `picture` draws a passage instead: waveform over spectrogram, each word at its start. Give `fromWord`/`toWord` or `start`/`end` frames (15 seconds at most); `cutFromWord`/`cutToWord` or `cutStart`/`cutEnd` add a row with that range removed and closed up, a word cut where removeWords would land it, to check a cut doesn't clip a word or leave a breath before you make it. `text` is then a caption and `picture` the image's path: open it with your file or image tool.",
   parameters: Schema.Struct({
     timeline: Schema.optional(Schema.String),
     action: VideoTimelineWordsInput.fields.action,
     from: VideoTimelineWordsInput.fields.from,
     pauseOver: VideoTimelineWordsInput.fields.pauseOver,
+    picture: Schema.optional(
+      Schema.Struct({
+        fromWord: Schema.optional(Schema.Number),
+        toWord: Schema.optional(Schema.Number),
+        start: Schema.optional(Schema.Number),
+        end: Schema.optional(Schema.Number),
+        cutFromWord: Schema.optional(Schema.Number),
+        cutToWord: Schema.optional(Schema.Number),
+        cutStart: Schema.optional(Schema.Number),
+        cutEnd: Schema.optional(Schema.Number),
+      }),
+    ),
   }),
-  success: VideoTimelineWords,
+  success: Schema.Struct({
+    ...VideoTimelineWords.fields,
+    picture: Schema.optional(Schema.String),
+  }),
   failure: OrchestratorMcpFailure,
   failureMode: "return",
   dependencies,

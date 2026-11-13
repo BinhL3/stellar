@@ -116,6 +116,7 @@ import {
   sliceByBeats,
   takesOnTimeline,
 } from "@t3tools/timeline/voiceOver";
+import type { SoundPictureRequest } from "@t3tools/timeline/soundPicture";
 import { timelineWords, type TranscriptWord, wordsText } from "@t3tools/timeline/words";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -143,6 +144,7 @@ import {
   writePosted,
 } from "./RenderCheck.ts";
 import { ensureLevels, NO_FFMPEG } from "./AudioLevels.ts";
+import { drawSoundPicture } from "./SoundPicture.ts";
 import {
   decodeTranscript,
   findTranscript,
@@ -518,6 +520,19 @@ export class VideoProjects extends Context.Service<
     readonly readWords: (
       input: VideoTimelineWordsInput,
     ) => Effect.Effect<VideoTimelineWords, VideoProjectError>;
+    /**
+     * Draws a passage's sound for an agent that can't hear it: waveform over spectrogram with
+     * the words at their frames, and with a cut, the passage again as the cut would leave it.
+     * Returns the image's path in the project folder's `render/sound/` and a caption.
+     */
+    readonly soundPicture: (input: {
+      readonly workspaceRoot: string;
+      readonly timeline?: string | undefined;
+      readonly request: SoundPictureRequest;
+    }) => Effect.Effect<
+      { readonly timeline: string; readonly picture: string; readonly caption: string },
+      VideoProjectError
+    >;
     /**
      * Starts the host's transcriber on the footage and voice-over takes that have no word-timed
      * transcript, in the background, and returns where that stands. A request made while a run
@@ -1496,6 +1511,32 @@ const make = Effect.gen(function* () {
       };
     },
   );
+
+  const soundPicture: VideoProjects["Service"]["soundPicture"] = Effect.fn(
+    "VideoProjects.soundPicture",
+  )(function* (input) {
+    // Merged first, as readWords is, so the word numbers here are the ones it gives.
+    yield* syncForAgent(input.workspaceRoot);
+    const timelines = yield* listTimelines(input.workspaceRoot);
+    const chosen =
+      input.timeline ??
+      timelines.find((candidate) => candidate !== FOOTAGE_TIMELINE_PATH) ??
+      timelines[0];
+    if (chosen === undefined) {
+      return yield* new VideoProjectError({ reason: "This project has no timeline to read." });
+    }
+    const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
+    const { transcripts } = yield* loadTranscripts(input.workspaceRoot, timeline);
+    const drawn = yield* onHost(
+      drawSoundPicture({
+        projectDir: input.workspaceRoot,
+        timeline,
+        transcripts,
+        request: input.request,
+      }),
+    ).pipe(Effect.mapError((cause) => new VideoProjectError({ reason: cause.message, cause })));
+    return { timeline: chosen, ...drawn };
+  });
 
   const scriptView = Effect.fn("VideoProjects.scriptView")(function* (
     workspaceRoot: string,
@@ -2671,6 +2712,7 @@ const make = Effect.gen(function* () {
     saveVoiceOver,
     readTimeline,
     readWords,
+    soundPicture,
     readScript,
     saveScript,
     transcribe,

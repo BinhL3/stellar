@@ -349,6 +349,12 @@ Built from the past threads: it targets where time and failures actually went, a
   word for is flagged by the join audit but not refused. Not checked yet: any of this against
   real speech (only synthetic audio so far), and the tool text in `evals/mcp-tool-use`.
 
+- **Sound pictures: built.** No harness passes audio to a model, so `video_timeline_words`
+  with `picture` draws a passage instead (`packages/timeline/src/soundPicture.ts`): waveform
+  over spectrogram with the words at their frames, and a second row with a proposed cut taken
+  out, made by applying the same ripple removal the edit would. One clip is drawn at a time,
+  the one with a transcript, so speech stays readable under music. Not yet run by an agent in
+  a real thread or through `evals/mcp-tool-use`.
 - **The script as project data: built.** The Google Doc stays the script's source of truth;
   the project keeps a snapshot (`script.md`, with beat ids in `script.json`). `video_script`
   and `videoProjects.readScript` split it into beats (`packages/timeline/src/script.ts`) and

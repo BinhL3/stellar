@@ -111,6 +111,10 @@
       "types": "./src/voiceOver.ts",
       "import": "./src/voiceOver.ts"
     },
+    "./soundPicture": {
+      "types": "./src/soundPicture.ts",
+      "import": "./src/soundPicture.ts"
+    },
     "./speed": {
       "types": "./src/speed.ts",
       "import": "./src/speed.ts"
