@@ -24,7 +24,10 @@ import {
   type VideoTimelineExportResult,
   type VideoTimelineReadInput,
   type VideoTimelineRestoreInput,
+  type VideoTimelineEdits,
   type VideoTimelineRestoreResult,
+  type VideoTimelineReviewEditInput,
+  type VideoTimelineReviewEditResult,
   type VideoTimelineCommitInput,
   type VideoTimelineVersionReadInput,
   type VideoTimelineVersions,
@@ -158,9 +161,13 @@ import { encodeTake, readTakeIndex, TAKE_FOLDER, writeTakeIndex } from "./VoiceO
 import {
   commitFromClient,
   commitTimelineText,
+  editsLine,
+  editsText,
+  listTimelineEdits,
   listTimelineVersions,
   readTimelineVersion,
   restoreTimelineVersion,
+  reviewTimelineEdit,
   versionsText,
 } from "./TimelineHistory.ts";
 
@@ -511,8 +518,23 @@ export class VideoProjects extends Context.Service<
      * on the latest, so what the user did in Premiere since is never discarded.
      */
     readonly restoreVersion: (
-      input: VideoTimelineRestoreInput & { readonly by?: "user" | "agent" },
+      input: VideoTimelineRestoreInput & {
+        readonly by?: "user" | "agent";
+        readonly review?: { readonly summary: string; readonly check?: string };
+      },
     ) => Effect.Effect<VideoTimelineRestoreResult, VideoProjectError>;
+    /** The agent edits that carry a summary, newest first, with what the user decided on each. */
+    readonly listEdits: (
+      input: VideoTimelineVersionsInput,
+    ) => Effect.Effect<VideoTimelineEdits, VideoProjectError>;
+    /**
+     * The user's decision on one edit: keep it, take just it out or put it back, or go back to
+     * the version before it. Taking one edit out never disturbs a later one: when they touch
+     * the same thing nothing changes and `blocked` says why. Premiere's latest save is merged first.
+     */
+    readonly reviewEdit: (
+      input: VideoTimelineReviewEditInput,
+    ) => Effect.Effect<VideoTimelineReviewEditResult, VideoProjectError>;
     /**
      * The words spoken on a timeline, numbered and placed in frames, from the transcripts
      * `transcribe` or the user's own pipeline wrote under `Audio`.
@@ -1721,10 +1743,56 @@ const make = Effect.gen(function* () {
           ...(input.version === undefined ? {} : { version: input.version }),
           ...(input.step === undefined ? {} : { step: input.step }),
           by: input.by ?? "user",
+          ...(input.review === undefined ? {} : { review: input.review }),
         }),
       ).pipe(Effect.mapError(historyError)),
     );
     return restored;
+  });
+
+  const listEdits: VideoProjects["Service"]["listEdits"] = Effect.fn("VideoProjects.listEdits")(
+    function* (input) {
+      yield* requireTimeline(input.workspaceRoot, input.timeline);
+      return yield* syncing.withPermits(1)(
+        onHost(listTimelineEdits(input.workspaceRoot, input.timeline)).pipe(
+          Effect.mapError(historyError),
+        ),
+      );
+    },
+  );
+
+  const reviewEdit: VideoProjects["Service"]["reviewEdit"] = Effect.fn("VideoProjects.reviewEdit")(
+    function* (input) {
+      yield* requireTimeline(input.workspaceRoot, input.timeline);
+      if (input.action !== "keep" && input.action !== "reopen") {
+        // Merged first, as a restore is: the change is carried onto Premiere's latest save.
+        const { result: before } = yield* syncForAgent(input.workspaceRoot);
+        if (before.unmerged.includes(input.timeline)) {
+          return yield* new VideoProjectError({
+            reason: `${input.timeline} was edited here and in Premiere, and they can't be merged: ${NO_BASE} Nothing was changed. Choose a version in the Premiere badge first.`,
+          });
+        }
+      }
+      return yield* syncing.withPermits(1)(
+        onHost(
+          reviewTimelineEdit({
+            projectDir: input.workspaceRoot,
+            timelinePath: input.timeline,
+            edit: input.edit,
+            action: input.action,
+          }),
+        ).pipe(Effect.mapError(historyError)),
+      );
+    },
+  );
+
+  /** What the user decided on the agent's edits, as the last line of a read; nothing with no edits. */
+  const reviewedLine = Effect.fn("VideoProjects.reviewedLine")(function* (
+    workspaceRoot: string,
+    timeline: string,
+  ) {
+    const line = editsLine(yield* listEdits({ workspaceRoot, timeline }));
+    return line === null ? null : [line];
   });
 
   const readTimeline: VideoProjects["Service"]["readTimeline"] = Effect.fn(
@@ -1749,13 +1817,15 @@ const make = Effect.gen(function* () {
     }
     if (input.version !== undefined) {
       // A past version, or the list of them, in place of the timeline as it is now.
-      const history = input.version === "list" ? null : input.version;
+      const history = input.version === "list" || input.version === "edits" ? null : input.version;
       const text =
-        history === null
-          ? versionsText(
-              yield* listVersions({ workspaceRoot: input.workspaceRoot, timeline: chosen }),
-            )
-          : null;
+        input.version === "edits"
+          ? editsText(yield* listEdits({ workspaceRoot: input.workspaceRoot, timeline: chosen }))
+          : history === null
+            ? versionsText(
+                yield* listVersions({ workspaceRoot: input.workspaceRoot, timeline: chosen }),
+              )
+            : null;
       const past =
         history === null
           ? null
@@ -1801,7 +1871,11 @@ const make = Effect.gen(function* () {
       premiere: synced.state,
       project: yield* describeProject(input.workspaceRoot, synced),
       changes: changesText(result),
-      text: [editableView(timeline), ...warnings].join("\n"),
+      text: [
+        editableView(timeline),
+        ...warnings,
+        ...((yield* reviewedLine(input.workspaceRoot, chosen)) ?? []),
+      ].join("\n"),
     };
   });
 
@@ -1814,6 +1888,9 @@ const make = Effect.gen(function* () {
         reason: `${input.timeline} was edited here and in Premiere, and they can't be merged: ${NO_BASE} Nothing was changed. Ask the user to choose a version in Stellar.`,
       });
     }
+    const summary = (input.summary?.trim() ?? "").slice(0, 500);
+    const check = (input.check?.trim() ?? "").slice(0, 300);
+    const review = summary === "" ? undefined : { summary, ...(check === "" ? {} : { check }) };
     // A restore names no clip or frame, so a pull just now doesn't outdate it.
     const [only] = input.edits;
     if (only?.kind === "restoreVersion" && input.edits.length === 1) {
@@ -1828,6 +1905,7 @@ const make = Effect.gen(function* () {
         timeline: input.timeline,
         version,
         by: input.by ?? "agent",
+        ...(review === undefined ? {} : { review }),
       });
       const { result: after, view: synced } = yield* syncWithPremiere({
         workspaceRoot: input.workspaceRoot,
@@ -1973,6 +2051,7 @@ const make = Effect.gen(function* () {
           text: serializeTimeline(edited),
           by,
           label: input.by === "user" ? "Edited" : "Edited by an agent",
+          ...(review === undefined ? {} : { review }),
         }),
       ).pipe(Effect.mapError(historyError)),
     );
@@ -2732,6 +2811,8 @@ const make = Effect.gen(function* () {
     listVersions,
     readVersion,
     restoreVersion,
+    listEdits,
+    reviewEdit,
     inspectPremiere,
     createFromPremiere,
     createFromIdea,

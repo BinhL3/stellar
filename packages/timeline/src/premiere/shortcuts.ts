@@ -61,6 +61,8 @@ export const TIMELINE_ACTIONS = {
   addMarker: ["cmd.set.marker", "cmd.set.marker.unnumbered"],
   nextMarker: ["cmd.marker.gotomarker.next", "cmd.marker.gotosequencemarker.next"],
   previousMarker: ["cmd.marker.gotomarker.previous", "cmd.marker.gotosequencemarker.previous"],
+  // Ours: Premiere has no command for it, so no layout binds it.
+  listenToCut: [],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 export type TimelineAction = keyof typeof TIMELINE_ACTIONS;

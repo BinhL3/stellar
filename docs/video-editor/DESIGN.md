@@ -884,7 +884,8 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 27. "Timeline saved" is true of the `.otio` and nothing else, and the badge says so. The only
     thing downstream that reads a commit is the render check, which goes stale when the
     timeline's text changes.
-28. Markers, script-line ticks and version history exist on web and desktop; what they lack:
+28. Markers, script-line ticks, version history and edit review exist on web and desktop; what
+    they lack:
     - Markers are OTIO's own, on the stack (sequence) or on a clip (in its media time). Only a
       marker's id, start and type were seen in a real `.prproj`; its name, comment, length and
       colour are read by the field names Premiere's marker object uses, unconfirmed until a
@@ -901,6 +902,16 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
       current tracks. Undo and redo across commits each write a new version. Restoring a
       version made on an earlier Premiere save re-applies its edits on the latest save; one
       made before the project was linked is restored as text.
+    - An agent's `video_timeline_edit` call carries a `summary`, which makes its version a
+      numbered edit (`E<n>`) in the Edits panel, with an optional `check` for the user and the
+      user's decision (kept, undone), all kept on the version in the history index. Only that
+      tool makes one; an agent's voice-over placement does not. Taking one edit out re-applies
+      the changes made since on the version before it, so it is refused, with the version
+      before offered instead, when they touch the same clips or Premiere's save was pulled in
+      since. A restore or undo step made from History does not mark the edits it took out. An
+      edit's place is the footage at its join, found again in the timeline as it is now, and
+      its removed stretch is the first one when a call made several cuts. Hearing what was
+      removed shows the version before it in the Monitor, read-only.
     - Agent suggestions are markers; there are no suggestion cards.
 29. `TimelineViewer.tsx` is one 2,100-line component under `components/files/`.
 

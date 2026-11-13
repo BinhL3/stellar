@@ -179,6 +179,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.videoProjectsListVersions]: "orchestration",
   [WS_METHODS.videoProjectsReadVersion]: "orchestration",
   [WS_METHODS.videoProjectsRestoreVersion]: "orchestration",
+  [WS_METHODS.videoProjectsListEdits]: "orchestration",
+  [WS_METHODS.videoProjectsReviewEdit]: "orchestration",
   [WS_METHODS.carouselCreate]: "orchestration",
   [WS_METHODS.carouselEdit]: "orchestration",
   [WS_METHODS.carouselImportPhotos]: "orchestration",

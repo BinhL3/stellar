@@ -781,6 +781,7 @@ it.live(
             { kind: "addMarker", frame: 10, name: "note" },
             { kind: "removeRange", start: 72, end: 150, ripple: true },
           ],
+          summary: "Cut the false start.",
         })
         .pipe(Effect.flip);
       assert.strictEqual(
@@ -788,6 +789,13 @@ it.live(
         `Edit 2 (removeRange): it would end #${a?.key} (a.MOV, A1) inside word 2 "um" while it sounds: -23 dBFS at the edge, where this recording's speech sits at -23 and its room tone at -100. The nearest quiet is 9 frames (0.15s earlier) at -100 dBFS. Cut by word instead (removeWords, or trimPause with afterWord), which puts the edge on measured quiet, or move the edge to the quiet point. Nothing was changed.`,
       );
       assert.strictEqual(yield* fs.readFileString(file), before);
+      // A refused call is no edit to review and no version.
+      assert.deepStrictEqual(
+        (yield* videoProjects.listEdits({ workspaceRoot, timeline })).edits,
+        [],
+      );
+      const versionsBefore = (yield* videoProjects.listVersions({ workspaceRoot, timeline }))
+        .versions.length;
 
       // A clip that can't be measured is not refused, and its word cut says it was not measured.
       const unmeasured = yield* videoProjects.editTimeline({
@@ -805,6 +813,7 @@ it.live(
           { kind: "trimPause", afterWord: 4 },
           { kind: "trimPause", afterWord: 1, leave: 1 },
         ],
+        summary: "Cut the um and the long pause.",
       });
       assert.deepStrictEqual(cut.cuts?.split("\n"), [
         "word 2: frames 60-87, start at -100 dBFS, end moved 0.05s earlier to -100 dBFS",
@@ -820,6 +829,17 @@ it.live(
         "# Levels in dBFS: a.MOV speech -23, room tone -100",
         "# Not measured: ffmpeg is not installed on this machine, so audio levels can't be measured.",
       ]);
+
+      // Review listens to what really went: the word cut where it was moved to, not its timings.
+      const reviewed = yield* videoProjects.listEdits({ workspaceRoot, timeline });
+      assert.deepStrictEqual(
+        reviewed.edits.map((edit) => [edit.number, edit.removed]),
+        [[1, { start: 60, end: 87 }]],
+      );
+      assert.strictEqual(
+        (yield* videoProjects.listVersions({ workspaceRoot, timeline })).versions.length,
+        versionsBefore + 2,
+      );
 
       // A person cutting in Stellar hears their own cut and is not refused.
       yield* videoProjects.editTimeline({

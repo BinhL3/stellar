@@ -5,7 +5,14 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "~/lib/storage";
 
-export const TIMELINE_PANEL_IDS = ["monitor", "timeline", "script", "markers", "history"] as const;
+export const TIMELINE_PANEL_IDS = [
+  "monitor",
+  "timeline",
+  "script",
+  "markers",
+  "edits",
+  "history",
+] as const;
 export type TimelinePanelId = (typeof TIMELINE_PANEL_IDS)[number];
 
 export const TIMELINE_PANEL_TITLES: Record<TimelinePanelId, string> = {
@@ -13,6 +20,7 @@ export const TIMELINE_PANEL_TITLES: Record<TimelinePanelId, string> = {
   timeline: "Timeline",
   script: "Script",
   markers: "Markers",
+  edits: "Edits",
   history: "History",
 };
 
@@ -48,8 +56,9 @@ export const timelinePanelPlacement = (
     // Lists to scan now and then: a tab beside the other side panels, so opening one never
     // takes room from the monitor or the tracks.
     case "markers":
+    case "edits":
     case "history": {
-      const beside = (["script", "markers", "history"] as const).find(
+      const beside = (["script", "markers", "edits", "history"] as const).find(
         (other) => other !== id && open.includes(other),
       );
       return beside === undefined

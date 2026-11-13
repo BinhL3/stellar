@@ -8,6 +8,8 @@ interface TimelinePlayer {
     readonly subscribe: (listener: () => void) => () => void;
   };
   readonly seek: (frame: number) => void;
+  /** Plays from one frame to another and stops there. */
+  readonly play: (from: number, to: number) => void;
   readonly rate: number;
 }
 

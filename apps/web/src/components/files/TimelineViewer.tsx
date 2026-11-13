@@ -58,11 +58,13 @@ import { useTimelineLayoutStore } from "~/components/timeline/timelineLayoutStor
 import { TimelinePlayerContext } from "~/components/timeline/timelinePlayer";
 import { MonitorAudio } from "~/components/timeline/MonitorAudio";
 import { type PreviewMedia, TimelinePreview } from "~/components/timeline/TimelinePreview";
+import { listenToCut } from "~/components/timeline/timelineEditsStore";
 import { TimelineWorkspace } from "~/components/timeline/TimelineWorkspace";
 import { Button } from "~/components/ui/button";
 import { Kbd } from "~/components/ui/kbd";
 import {
   ACTION_LABELS,
+  actionsFor,
   comboFromEvent,
   comboLabel,
   combosFor,
@@ -375,6 +377,8 @@ export default function TimelineViewer(props: {
     readonly projectKey: string;
     /** The Script panel's content; it can `useTimelinePlayer`. */
     readonly script: ReactNode;
+    /** The Edits panel's content; it can `useTimelinePlayer`. */
+    readonly edits: ReactNode;
     readonly history: ReactNode;
   };
   /** Script lines shown as notches on the ruler, and what picking one does besides seeking. */
@@ -1091,6 +1095,8 @@ export default function TimelineViewer(props: {
       case "maximize":
         engine?.requestFullscreen();
         return true;
+      case "listenToCut":
+        return listenToCut();
     }
   };
 
@@ -1107,9 +1113,8 @@ export default function TimelineViewer(props: {
       return;
     }
     const combo = comboFromEvent(event);
-    const action = combo === null ? undefined : shortcuts.keymap[combo];
-    if (action === undefined || !playable) return;
-    if (runAction(action)) event.preventDefault();
+    if (combo === null || !playable) return;
+    if (actionsFor(shortcuts.keymap, combo).some(runAction)) event.preventDefault();
   };
 
   const previewOnly = !timelineVisible;
@@ -1719,13 +1724,21 @@ export default function TimelineViewer(props: {
   );
   if (props.workspace === undefined) return tracksPanel;
   return (
-    <TimelinePlayerContext value={{ playhead: playheadStore, seek, rate }}>
+    <TimelinePlayerContext
+      value={{
+        playhead: playheadStore,
+        seek,
+        rate,
+        play: (from, to) => playFrom(Math.max(0, from), Math.min(layout.durationFrames, to)),
+      }}
+    >
       <TimelineWorkspace
         projectKey={props.workspace.projectKey}
         panels={{
           monitor,
           timeline: tracksPanel,
           script: props.workspace.script,
+          edits: props.workspace.edits,
           history: props.workspace.history,
           markers: (
             <MarkersPanel

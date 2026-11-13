@@ -23,6 +23,10 @@
       "types": "./src/diff.ts",
       "import": "./src/diff.ts"
     },
+    "./editReview": {
+      "types": "./src/editReview.ts",
+      "import": "./src/editReview.ts"
+    },
     "./edits": {
       "types": "./src/edits.ts",
       "import": "./src/edits.ts"
