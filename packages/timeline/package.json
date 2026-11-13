@@ -35,9 +35,17 @@
       "types": "./src/frameTimes.ts",
       "import": "./src/frameTimes.ts"
     },
+    "./joins": {
+      "types": "./src/joins.ts",
+      "import": "./src/joins.ts"
+    },
     "./layout": {
       "types": "./src/layout.ts",
       "import": "./src/layout.ts"
+    },
+    "./levels": {
+      "types": "./src/levels.ts",
+      "import": "./src/levels.ts"
     },
     "./markers": {
       "types": "./src/markers.ts",

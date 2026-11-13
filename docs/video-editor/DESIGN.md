@@ -195,7 +195,8 @@ taught us on every write. Today these rules live in `premiere-automation.md`:
 **Typed items beyond plain clips:**
 
 - **Words.** Each source's transcript (per-word times, kept retakes and fillers) is timeline data,
-  so agents can cut by words (`cut words 112–131`) and get frame-exact ranges.
+  so agents can cut by words (`cut words 112–131`) and get frame-exact ranges, with each edge put
+  on the measured quiet between words rather than on the transcript's timing.
 - **Generated clips.** A clip whose source is a recipe: the generator script, its parameters, and the
   last render. Revising it re-renders and relinks in place, so the clip's id and timing don't change.
   Generators can be in any language; most are Python today.
@@ -315,12 +316,39 @@ Built from the past threads: it targets where time and failures actually went, a
   save; Stellar's server cannot drive Premiere itself, and the next read's sync is the check.
   No plan has been applied to a real Premiere yet. The baton and native re-attach are not built. The tool text has not been through
   `evals/mcp-tool-use` yet.
-- **Cutting by words: built.** `video_timeline_words` numbers the words heard on a timeline and
-  the `removeWords` edit cuts a run of them. It reads `Audio/<clip>.words.json` files, which a
-  project's own pipeline may write and which Stellar makes for the rest: after an import, a
-  proxy build or a saved voice-over take, and on `video_transcribe`, it runs the host's
-  transcriber (the transcribe command in settings, else `stt` on the PATH) over footage and
-  takes that have none, reporting to `transcripts.json` in the project folder.
+- **Cutting by words, on measured quiet: built.** `video_timeline_words` numbers the words heard
+  on a timeline, and the `removeWords` edit cuts a run of them and `trimPause` the pause after
+  one. Transcripts are `Audio/<clip>.words.json` files, which a project's own pipeline may write
+  and which Stellar makes for the rest: after an import, a proxy build or a saved voice-over
+  take, and on `video_transcribe`, it runs the host's transcriber (the transcribe command in
+  settings, else `stt` on the PATH) over footage and takes that have none, reporting to
+  `transcripts.json` in the project folder. Word timings say when a word was recognised, not
+  when the recording is quiet, so each source with a transcript also gets a level track
+  (`<clip>.levels.json` beside it: RMS dBFS per 10 ms, made once with ffmpeg when the transcript
+  is made or on first need, and made again when the file or the measurement's version changes).
+  From its spread Stellar reads where that recording's room tone and speech sit, and every rule
+  is relative to those two levels (`packages/timeline/src/levels.ts`, `joins.ts`):
+  - An edge named by words goes to the whole frame nearest the word boundary that is as quiet as
+    the gap between the two words gets, mapped through the clip's speed. The edit's `cuts`
+    reports each cut: the frames, the level at each edge, how far an edge moved, and when two
+    words run together with no quiet between them.
+  - A pause is trimmed from the measured quiet, not the word timings, and a pause that holds
+    sound at speaking level no word explains is refused as a pause.
+  - An agent's edit, of any kind, that leaves a clip starting or ending inside a word while it
+    sounds is refused whole, naming the word and the nearest quiet frame. It is judged on the
+    result (the audible clip edges after the edits that weren't there before), so a split is
+    free until one of its pieces goes. A person's own edits are never refused, and a clip
+    with no transcript or no levels can't be judged and passes.
+  - `video_timeline_words` says what sounds in each gap of 0.4 s or more, and its `joins` action
+    reads every join as heard: the words either side, the level at each edge, a clipped word,
+    words said twice across the join, and pauses left longer than a threshold.
+
+  Without ffmpeg, or for footage on a drive that is away, nothing is measured: cuts fall back to
+  word timings and every result says so. Edges land on timeline frames; they don't use a
+  variable-rate clip's frame table yet (hole 7). An edge through sound the transcript has no
+  word for is flagged by the join audit but not refused. Not checked yet: any of this against
+  real speech (only synthetic audio so far), and the tool text in `evals/mcp-tool-use`.
+
 - **The script as project data: built.** The Google Doc stays the script's source of truth;
   the project keeps a snapshot (`script.md`, with beat ids in `script.json`). `video_script`
   and `videoProjects.readScript` split it into beats (`packages/timeline/src/script.ts`) and
@@ -726,8 +754,9 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
    stay untied, and staleness goes by size and modified time, which a drive moved between
    machines can shift. Conforming always targets 59.94 whatever the sequence, never checks
    free space, and off a Mac falls back to slow software HEVC.
-8. Transcripts aren't timeline data. `*.words.json` sits in `Audio/` and nothing links it to
-   clips, so "cut by words" and beat alignment have nothing to stand on.
+8. Transcripts and levels are found by file name, not recorded on the clip: a clip's words are
+   whatever `<name>.words.json` an `Audio` folder near its media holds, so two files with one
+   name share a transcript, and a clip with two audio streams is measured on its first.
 9. A machine without ffmpeg or ffprobe builds no proxies. The build checks for them first and
    the badge says which is missing; a file that fails names its reason there too. Nothing
    installs them or checks before a project is created.

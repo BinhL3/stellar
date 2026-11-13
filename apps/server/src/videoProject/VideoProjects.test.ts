@@ -559,6 +559,8 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
       "A1 0-120 #id a.MOV",
       "1:Hãy@30 2:subscribe@36 3:cho@60 4:kênh@90",
       "A1 120-180 #id b.MOV (no transcript)",
+      // The footage itself isn't there, so nothing says where its words are quiet.
+      "# Not measured: Footage/a.MOV is not on this machine.",
     ]);
 
     // The script is project data: each beat keeps an id and is placed where its words are said.
@@ -626,6 +628,7 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
       "A1 54-84 #id a.MOV",
       "2:kênh@54",
       "A1 84-144 #id b.MOV (no transcript)",
+      "# Not measured: Footage/a.MOV is not on this machine.",
     ]);
   }).pipe(
     Effect.provide(
@@ -637,6 +640,206 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
     Effect.scoped,
   );
 });
+
+// Stands in for ffmpeg decoding audio, which CI doesn't have: a "recording" is JSON of its
+// length and the stretches that sound, played back as a tone at a tenth of full scale. A
+// recording that says "no decoder" is one this machine has no ffmpeg for.
+const fakeDecoder = (decoded: Array<string>) =>
+  Layer.effect(
+    ChildProcessSpawner.ChildProcessSpawner,
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const real = yield* ChildProcessSpawner.ChildProcessSpawner;
+      return ChildProcessSpawner.make((command) =>
+        Effect.gen(function* () {
+          if (!ChildProcess.isStandardCommand(command)) return yield* real.spawn(command);
+          const args = command.args.map(String);
+          if (command.command !== "ffmpeg" || !args.includes("s16le")) {
+            return yield* real.spawn(command);
+          }
+          const media = args[args.indexOf("-i") + 1] ?? "";
+          const spec = yield* fs.readFileString(media).pipe(Effect.orDie);
+          if (spec === "no decoder") {
+            return yield* real.spawn(ChildProcess.make("/nonexistent/stellar-test-ffmpeg", []));
+          }
+          decoded.push(media);
+          const { seconds, loud } = JSON.parse(spec) as {
+            seconds: number;
+            loud: ReadonlyArray<readonly [number, number]>;
+          };
+          const pcm = new Uint8Array(seconds * 16000 * 2);
+          const samples = new DataView(pcm.buffer);
+          for (let i = 0; i < pcm.length / 2; i++) {
+            const at = i / 16000;
+            const sounding = loud.some(([from, to]) => at >= from && at < to);
+            samples.setInt16(i * 2, sounding ? Math.sin(at * 2764.6) * 3276 : 0, true);
+          }
+          return ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(1),
+            exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+            isRunning: Effect.succeed(false),
+            kill: () => Effect.void,
+            unref: Effect.succeed(Effect.void),
+            stdin: Sink.drain,
+            stdout: Stream.make(pcm),
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+          });
+        }),
+      );
+    }),
+  ).pipe(Layer.provide(NodeServices.layer));
+
+it.live(
+  "puts word cuts on measured quiet and refuses an agent's cut inside a sounding word",
+  () => {
+    const created: Array<string> = [];
+    const decoded: Array<string> = [];
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-levels-" });
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const { workspaceRoot } = yield* videoProjects.createFromIdea({
+        title: "Levels",
+        parentFolder: root,
+      });
+      const mediaRoot = path.dirname(workspaceRoot);
+      const timeline = "timelines/Footage.otio";
+      const file = path.join(workspaceRoot, timeline);
+      yield* fs.writeFileString(
+        file,
+        serializeTimeline(
+          footageStringout(
+            [
+              { target: "Footage/a.MOV", duration: 4, width: 1080, height: 1920 },
+              { target: "Footage/b.MOV", duration: 1, width: 1080, height: 1920 },
+            ],
+            mediaRoot,
+          ),
+        ),
+      );
+      // "um" is timed 60 ms before it sounds, and only a 30 ms dip at 1.44 s parts it from "we".
+      yield* fs.writeFileString(
+        path.join(mediaRoot, "Footage", "a.MOV"),
+        JSON.stringify({
+          seconds: 4,
+          loud: [
+            [0.5, 0.8],
+            [1.06, 1.44],
+            [1.47, 2.1],
+            [3.3, 3.6],
+          ],
+        }),
+      );
+      yield* fs.writeFileString(path.join(mediaRoot, "Footage", "b.MOV"), "no decoder");
+      yield* fs.writeFileString(
+        path.join(mediaRoot, "Audio", "a.words.json"),
+        JSON.stringify([
+          { w: "So", start: 0.5, end: 0.8 },
+          { w: "um", start: 1, end: 1.3 },
+          { w: "we", start: 1.5, end: 1.8 },
+          { w: "go", start: 1.8, end: 2.1 },
+          { w: "now", start: 3.3, end: 3.6 },
+        ]),
+      );
+      yield* fs.writeFileString(
+        path.join(mediaRoot, "Audio", "b.words.json"),
+        JSON.stringify([{ w: "hey", start: 0.2, end: 0.8 }]),
+      );
+      const lines = (text: string) =>
+        text
+          .split("\n")
+          .filter((line) => !line.startsWith("# Footage"))
+          .map((line) => line.replace(/#\d+:\d+(~\d+)*/g, "#id"));
+
+      const read = yield* videoProjects.readWords({ workspaceRoot });
+      assert.deepStrictEqual(lines(read.text), [
+        "A1 0-240 #id a.MOV",
+        "1:So@30 2:um@60 3:we@90 4:go@108 (1.20s quiet) 5:now@198",
+        "A1 240-300 #id b.MOV",
+        "6:hey@252",
+        "# Not measured: ffmpeg is not installed on this machine, so audio levels can't be measured.",
+      ]);
+      // Measured once and kept beside the transcript; the second read decodes nothing.
+      yield* videoProjects.readWords({ workspaceRoot });
+      assert.deepStrictEqual(decoded, [path.join(mediaRoot, "Footage", "a.MOV")]);
+      assert.isTrue(yield* fs.exists(path.join(mediaRoot, "Audio", "a.levels.json")));
+
+      const [a, b] = layoutTimeline(
+        JSON.parse(yield* fs.readFileString(file)) as Timeline,
+      ).tracks.flatMap((track) => (track.kind === "Audio" ? track.clips : []));
+      const before = yield* fs.readFileString(file);
+      // Frame 72 is 1.2 s into a.MOV, in the middle of "um".
+      const refused = yield* videoProjects
+        .editTimeline({
+          workspaceRoot,
+          timeline,
+          edits: [
+            { kind: "addMarker", frame: 10, name: "note" },
+            { kind: "removeRange", start: 72, end: 150, ripple: true },
+          ],
+        })
+        .pipe(Effect.flip);
+      assert.strictEqual(
+        refused.message,
+        `Edit 2 (removeRange): it would end #${a?.key} (a.MOV, A1) inside word 2 "um" while it sounds: -23 dBFS at the edge, where this recording's speech sits at -23 and its room tone at -100. The nearest quiet is 9 frames (0.15s earlier) at -100 dBFS. Cut by word instead (removeWords, or trimPause with afterWord), which puts the edge on measured quiet, or move the edge to the quiet point. Nothing was changed.`,
+      );
+      assert.strictEqual(yield* fs.readFileString(file), before);
+
+      // A clip that can't be measured is not refused, and its word cut says it was not measured.
+      const unmeasured = yield* videoProjects.editTimeline({
+        workspaceRoot,
+        timeline,
+        edits: [{ kind: "trim", clipId: b?.key ?? "", edge: "end", frame: 270 }],
+      });
+      assert.isUndefined(unmeasured.cuts);
+
+      const cut = yield* videoProjects.editTimeline({
+        workspaceRoot,
+        timeline,
+        edits: [
+          { kind: "removeWords", fromWord: 2, toWord: 2, ripple: true },
+          { kind: "trimPause", afterWord: 4 },
+          { kind: "trimPause", afterWord: 1, leave: 1 },
+        ],
+      });
+      assert.deepStrictEqual(cut.cuts?.split("\n"), [
+        "word 2: frames 60-87, start at -100 dBFS, end moved 0.05s earlier to -100 dBFS",
+        "the pause after 4:go: 1.20s of quiet (at most -100 dBFS), removed frames 135-192, 0.25s left",
+        "the pause after 1:So: 0.25s of quiet, already about 1.00s; nothing removed",
+        "Not measured: ffmpeg is not installed on this machine, so audio levels can't be measured.",
+      ]);
+      const joins = yield* videoProjects.readWords({ workspaceRoot, action: "joins" });
+      assert.deepStrictEqual(lines(joins.text).slice(2), [
+        "J A1 @60 (1.00s) #id|#id: 1:So [-100 dBFS] | [-100 dBFS] 2:we 3:go · ok",
+        "J A1 @108 (1.80s) #id|#id: 2:we 3:go [-100 dBFS] | [-100 dBFS] 4:now · ok",
+        "J A1 @156 (2.60s) #id|#id: 4:now [-100 dBFS] | [unmeasured] 5:hey · ok",
+        "# Levels in dBFS: a.MOV speech -23, room tone -100",
+        "# Not measured: ffmpeg is not installed on this machine, so audio levels can't be measured.",
+      ]);
+
+      // A person cutting in Stellar hears their own cut and is not refused.
+      yield* videoProjects.editTimeline({
+        workspaceRoot,
+        timeline,
+        by: "user",
+        edits: [{ kind: "removeRange", start: 36, end: 40, ripple: false }],
+      });
+    }).pipe(
+      Effect.provide(
+        VideoProjects.layer.pipe(
+          Layer.provideMerge(withProjects(created)),
+          Layer.provideMerge(fakeDecoder(decoded)),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        ),
+      ),
+      Effect.scoped,
+    );
+  },
+);
 
 it.live("reads a timeline for an agent and applies its edits, refusing a bad one whole", () => {
   const created: Array<string> = [];

@@ -12,7 +12,14 @@ const said = (speech: string): WordsView => {
       .split(/\s+/)
       .map((word) => {
         index += 1;
-        return { index, word, startFrame: (index - 1) * 10, endFrame: index * 10 };
+        return {
+          index,
+          word,
+          startFrame: (index - 1) * 10,
+          endFrame: index * 10,
+          start: (index - 1) / 6,
+          end: index / 6,
+        };
       });
     return {
       track: "A1",
@@ -21,6 +28,7 @@ const said = (speech: string): WordsView => {
       startFrame: (words[0]?.startFrame ?? 0) as number,
       endFrame: (words.at(-1)?.endFrame ?? 0) as number,
       words,
+      source: null,
     };
   });
   return { name: "Cut", rate: 60, count: index, clips };

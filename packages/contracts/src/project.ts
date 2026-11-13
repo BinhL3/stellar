@@ -652,6 +652,7 @@ export const VideoTimelineEdit = Schema.Struct({
     "split",
     "removeRange",
     "removeWords",
+    "trimPause",
     "setEnabled",
     "setText",
     "addMarker",
@@ -672,6 +673,9 @@ export const VideoTimelineEdit = Schema.Struct({
   /** Word numbers from the timeline's words view, inclusive. */
   fromWord: Schema.optional(Schema.Number),
   toWord: Schema.optional(Schema.Number),
+  /** `trimPause`: the word the pause follows, and the seconds of it to keep. */
+  afterWord: Schema.optional(Schema.Number),
+  leave: Schema.optional(Schema.Number),
   enabled: Schema.optional(Schema.Boolean),
   text: Schema.optional(Schema.String),
   /** Markers: `markerId` from the timeline's marker lines; `duration` in frames. */
@@ -868,12 +872,33 @@ export const VideoTimelineView = Schema.Struct({
   changes: Schema.String,
   /** One line per clip: track, start-end in frames, #clipId, name. */
   text: Schema.String,
+  /**
+   * After an edit that cut by words: a line per cut saying the frames removed, the level
+   * measured at each edge in dBFS, and how far an edge was moved onto quiet, in seconds.
+   */
+  cuts: Schema.optional(Schema.String),
 });
 export type VideoTimelineView = typeof VideoTimelineView.Type;
 
+export const VideoTimelineWordsInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** A path from `timelines`; omitted, the project's main timeline. */
+  timeline: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+  /** `joins` reads every join and long pause as heard instead of the words. */
+  action: Schema.optional(Schema.Literals(["words", "joins"])),
+  /** The first word, or the first audit line, of the page to read. */
+  from: Schema.optional(Schema.Number),
+  /** `joins`: pauses of this many seconds or more are listed. */
+  pauseOver: Schema.optional(Schema.Number),
+});
+export type VideoTimelineWordsInput = typeof VideoTimelineWordsInput.Type;
+
 export const VideoTimelineWords = Schema.Struct({
   timeline: Schema.String,
-  /** A line per audio clip, then its numbered words as `index:word@startFrame`. */
+  /**
+   * `words`: a line per audio clip, then its numbered words as `index:word@startFrame`.
+   * `joins`: a line per join or long pause, with levels in dBFS and lengths in seconds.
+   */
   text: Schema.String,
 });
 export type VideoTimelineWords = typeof VideoTimelineWords.Type;

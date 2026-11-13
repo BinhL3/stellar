@@ -106,6 +106,9 @@ const handlers = {
         .readWords({
           workspaceRoot,
           ...(input.timeline === undefined ? {} : { timeline: input.timeline }),
+          ...(input.action === undefined ? {} : { action: input.action }),
+          ...(input.from === undefined ? {} : { from: input.from }),
+          ...(input.pauseOver === undefined ? {} : { pauseOver: input.pauseOver }),
         })
         .pipe(Effect.mapError(refused));
     }),

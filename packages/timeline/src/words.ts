@@ -5,6 +5,7 @@
  *   A1 0-120 #1:0 IMG_8139.MOV
  *   1:Hãy@34 2:subscribe@38 3:cho@67
  */
+import { type AudioLevels, gapSound } from "./levels.ts";
 import { layoutTimeline } from "./layout.ts";
 import type { Timeline } from "./otio.ts";
 import { offsetAtSourceSeconds, sourceSecondsAt, timeScalarOf } from "./speed.ts";
@@ -23,7 +24,28 @@ export interface TimelineWord {
   readonly startFrame: number;
   /** Where the next word in the clip starts, so cutting a word takes the pause after it too. */
   readonly endFrame: number;
+  /** The word's own timing, in seconds of its source. */
+  readonly start: number;
+  readonly end: number;
 }
+
+/** How a clip's frames map to its source, so an edge can be measured where it lands. */
+export interface ClipSource {
+  readonly target: string;
+  /** The clip's first frame, unrounded, and the source second heard there. */
+  readonly startFrame: number;
+  readonly startSeconds: number;
+  /** Source seconds per timeline second; never negative here. */
+  readonly scalar: number;
+}
+
+/** The source second a clip plays at a timeline frame. */
+export const sourceSecondsOfFrame = (source: ClipSource, frame: number, rate: number): number =>
+  source.startSeconds + ((frame - source.startFrame) / rate) * source.scalar;
+
+/** The timeline frame, unrounded, at which a clip plays a source second. */
+export const frameOfSourceSeconds = (source: ClipSource, seconds: number, rate: number): number =>
+  source.startFrame + ((seconds - source.startSeconds) / source.scalar) * rate;
 
 export interface ClipWords {
   readonly track: string;
@@ -35,6 +57,8 @@ export interface ClipWords {
   readonly words: ReadonlyArray<TimelineWord> | null;
   /** Why a clip with a transcript lists no words, such as "plays in reverse". */
   readonly unplaced?: string;
+  /** Null when the clip plays backwards. */
+  readonly source: ClipSource | null;
 }
 
 export interface WordsView {
@@ -92,6 +116,7 @@ export const timelineWords = (
         endFrame: clipEnd,
         words: null,
         unplaced: "plays in reverse",
+        source: null,
       });
       continue;
     }
@@ -108,6 +133,8 @@ export const timelineWords = (
         startFrame,
         endFrame:
           next === undefined ? clamp(frameAt(word.end), startFrame, clipEnd) : frameAt(next.start),
+        start: word.start,
+        end: word.end,
       };
     });
     count += words?.length ?? 0;
@@ -118,35 +145,100 @@ export const timelineWords = (
       startFrame: clipStart,
       endFrame: clipEnd,
       words: words ?? null,
+      source: { target, startFrame: item.startFrame, startSeconds: sourceStart, scalar },
     });
   }
   return { name: timeline.name, rate: layout.rate, count, clips };
 };
 
 const LINE_WIDTH = 100;
+/** A gap between two words is described from this length; adapted from Scarlet (Forward-Future, MIT). */
+export const GAP_SECONDS = 0.4;
+/** Words in one page of the text, so a long timeline is read in parts. */
+export const WORDS_PAGE = 1500;
 
-/** The words as an agent reads them: a line per clip, then its words as `index:word@startFrame`. */
-export const wordsText = (view: WordsView): string => {
+/** What a gap of `GAP_SECONDS` or more between two words of a clip holds, as one token. */
+export const gapToken = (
+  clip: ClipWords,
+  before: TimelineWord,
+  after: TimelineWord,
+  rate: number,
+  levels: ReadonlyMap<string, AudioLevels>,
+): string | null => {
+  if (clip.source === null) return null;
+  const heard = (after.start - before.end) / clip.source.scalar;
+  if (heard < GAP_SECONDS) return null;
+  const measured = levels.get(clip.source.target);
+  const sound =
+    measured === undefined
+      ? undefined
+      : gapSound(measured, { start: before.end, end: after.start });
+  if (sound === undefined) return `(${heard.toFixed(2)}s unmeasured)`;
+  if (sound.runs.length === 0) return `(${heard.toFixed(2)}s quiet)`;
+  const { source } = clip;
+  const runs = sound.runs.map(
+    (run) =>
+      `${Math.round(frameOfSourceSeconds(source, run.start, rate))}-${Math.round(frameOfSourceSeconds(source, run.end, rate))}`,
+  );
+  return `(${heard.toFixed(2)}s, ${(sound.seconds / source.scalar).toFixed(2)}s sound @${runs.join(",")})`;
+};
+
+/**
+ * The words as an agent reads them: a line per clip, then its words as `index:word@startFrame`,
+ * with what each gap of `GAP_SECONDS` or more holds. `fromWord` and `limit` page it.
+ */
+export const wordsText = (
+  view: WordsView,
+  options: {
+    readonly levels?: ReadonlyMap<string, AudioLevels>;
+    readonly fromWord?: number;
+    readonly limit?: number;
+  } = {},
+): string => {
+  const levels = options.levels ?? new Map<string, AudioLevels>();
+  const first = Math.max(1, Math.floor(options.fromWord ?? 1));
+  const last = first + Math.max(1, Math.floor(options.limit ?? WORDS_PAGE)) - 1;
   const lines = [
-    `# ${view.name} · ${view.count} words · frames @${view.rate} · track start-end #clipId name, then index:word@startFrame`,
+    `# ${view.name} · ${view.count} words · frames @${view.rate} · track start-end #clipId name, then index:word@startFrame; (seconds) is a gap of ${GAP_SECONDS}s or more and what sounds in it`,
   ];
+  let passed = 0;
   for (const clip of view.clips) {
     const header = `${clip.track} ${clip.startFrame}-${clip.endFrame} #${clip.clipId} ${clip.name}`;
+    const here = passed + 1 >= first && passed < last;
     if (clip.words === null) {
-      lines.push(`${header} (${clip.unplaced ?? "no transcript"})`);
+      if (here) lines.push(`${header} (${clip.unplaced ?? "no transcript"})`);
       continue;
     }
-    lines.push(clip.words.length === 0 ? `${header} (no words)` : header);
+    passed += clip.words.length;
+    if (clip.words.length === 0) {
+      if (here) lines.push(`${header} (no words)`);
+      continue;
+    }
+    if (!clip.words.some((word) => word.index >= first && word.index <= last)) continue;
+    lines.push(header);
     let line = "";
-    for (const word of clip.words) {
-      const entry = `${word.index}:${word.word}@${word.startFrame}`;
+    const add = (entry: string) => {
       if (line !== "" && line.length + 1 + entry.length > LINE_WIDTH) {
         lines.push(line);
         line = "";
       }
       line = line === "" ? entry : `${line} ${entry}`;
+    };
+    for (const [position, word] of clip.words.entries()) {
+      if (word.index < first || word.index > last) continue;
+      const previous = clip.words[position - 1];
+      const gap = previous === undefined ? null : gapToken(clip, previous, word, view.rate, levels);
+      if (gap !== null) add(gap);
+      add(`${word.index}:${word.word}@${word.startFrame}`);
     }
     if (line !== "") lines.push(line);
+  }
+  if (first > 1 || last < view.count) {
+    lines.push(
+      last < view.count
+        ? `# words ${first}-${last} of ${view.count}; read on with from ${last + 1}`
+        : `# words ${first}-${view.count} of ${view.count}`,
+    );
   }
   return lines.join("\n");
 };

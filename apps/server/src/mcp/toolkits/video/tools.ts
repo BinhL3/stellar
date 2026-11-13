@@ -8,6 +8,7 @@ import {
   VideoTimelineExportResult,
   VideoTimelineView,
   VideoTimelineWords,
+  VideoTimelineWordsInput,
   VideoTranscribeInput,
   VideoTranscriptStatus,
 } from "@t3tools/contracts";
@@ -48,7 +49,7 @@ const TimelineReadTool = Tool.make("video_timeline_read", {
 
 const TimelineEditTool = Tool.make("video_timeline_edit", {
   description:
-    "Edit a timeline in Stellar. `edits` run in order, in whole frames, naming clips by `#clipId` from `video_timeline_read`: move (clipId, toTrack, startFrame; `magnetic` closes the gap and pushes clips instead of overwriting), trim (clipId, edge, frame), delete, rippleDelete, split (frame, tracks), removeRange (start, end, ripple), removeWords (fromWord, toWord, ripple), setEnabled, setText, addMarker (frame, name, note; optional duration in frames, color, and clipId to pin it to that clip's picture), setMarker (markerId; any of frame, duration, name, note, color, resolved), removeMarker (markerId). Leave a marker to flag a frame for the user; when you have dealt with a user's marker, set `resolved` true and say what you did in `note` rather than removing it. restoreVersion (version, from `video_timeline_read` with `version: \"list\"`) brings a version back as a new version and must be the only edit in its call; what the user changed in Premiere since stays. A split's later piece is `<clipId>~<frame>`. removeWords takes word numbers from `video_timeline_words` as they were before this call, so one call can hold several word cuts; put them before other edits. One bad edit refuses the whole call. Edits change Stellar's timeline only; `video_premiere_push` plans how to make them in the Premiere sequence it came from, and `video_premiere_export` sends a first cut as a new sequence.",
+    "Edit a timeline in Stellar. `edits` run in order, in whole frames, naming clips by `#clipId` from `video_timeline_read`: move (clipId, toTrack, startFrame; `magnetic` closes the gap and pushes clips instead of overwriting), trim (clipId, edge, frame), delete, rippleDelete, split (frame, tracks), removeRange (start, end, ripple), removeWords (fromWord, toWord, ripple), trimPause (afterWord; `leave` seconds to keep, 0.25 when omitted; closes up unless `ripple` is false), setEnabled, setText, addMarker (frame, name, note; optional duration in frames, color, and clipId to pin it to that clip's picture), setMarker (markerId; any of frame, duration, name, note, color, resolved), removeMarker (markerId). Leave a marker to flag a frame for the user; when you have dealt with a user's marker, set `resolved` true and say what you did in `note` rather than removing it. restoreVersion (version, from `video_timeline_read` with `version: \"list\"`) brings a version back as a new version and must be the only edit in its call; what the user changed in Premiere since stays. A split's later piece is `<clipId>~<frame>`. Cut speech by word, not by frame: removeWords and trimPause take word numbers from `video_timeline_words` as they were before this call, so one call can hold several; put them before other edits. Stellar measures the audio and puts each of their edges on the quietest point between the words, and `cuts` reports every one: the frames removed, the level at each edge in dBFS, and how far it moved. An edit that would start or end a clip inside a word while it sounds is refused, naming the word and the nearest quiet point: redo it by word or at that point. One bad edit refuses the whole call. Edits change Stellar's timeline only; `video_premiere_push` plans how to make them in the Premiere sequence it came from, and `video_premiere_export` sends a first cut as a new sequence.",
   parameters: Schema.Struct({
     timeline: Schema.String,
     edits: Schema.Array(VideoTimelineEdit),
@@ -66,8 +67,13 @@ const TimelineEditTool = Tool.make("video_timeline_edit", {
 
 const TimelineWordsTool = Tool.make("video_timeline_words", {
   description:
-    "Read what is said on a timeline, to cut by words: per audio clip, each transcribed word as `index:word@startFrame`. Cut with `video_timeline_edit` removeWords, which removes from a word's start to the next word's start. Numbers change after every edit, so read again before cutting more. Transcripts come from the project's `Audio/<clip>.words.json`; clips without one say so, and `video_transcribe` makes them.",
-  parameters: Schema.Struct({ timeline: Schema.optional(Schema.String) }),
+    'Read what is said on a timeline, to cut by words: per audio clip, each transcribed word as `index:word@startFrame`. Between words, `(0.82s quiet)` is a gap of 0.4 s or more and what the audio holds there; `(1.70s, 0.60s sound @410-446)` has sound at speaking level that no word explains, at those frames, so it is not only a pause. Cut with `video_timeline_edit`: removeWords removes a run of words, trimPause trims the pause after a word. Numbers change after every edit, so read again before cutting more. `action: "joins"` checks your cuts instead: every join as heard, `J track @frame (time) #out|#in: last words [level] | [level] first words · ok`, flagging a word clipped while it sounds, words said twice across the join and its pause, then `P` lines for pauses inside clips of `pauseOver` seconds or more (0.75 when omitted). Read it after cutting and fix what is flagged. Long results come in pages: `from` is the first word, or the first joins line, to read. Transcripts come from the project\'s `Audio/<clip>.words.json`; clips without one say so, and `video_transcribe` makes them.',
+  parameters: Schema.Struct({
+    timeline: Schema.optional(Schema.String),
+    action: VideoTimelineWordsInput.fields.action,
+    from: VideoTimelineWordsInput.fields.from,
+    pauseOver: VideoTimelineWordsInput.fields.pauseOver,
+  }),
   success: VideoTimelineWords,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
