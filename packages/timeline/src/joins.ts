@@ -66,6 +66,8 @@ export const LONG_PAUSE_SECONDS = 0.75;
 /** A second saying counts as a repeat when it starts within this of the first, as heard. */
 const REPEAT_WITHIN_SECONDS = 3;
 const NEAREST_QUIET_REACH_SECONDS = 0.75;
+/** A piece of a clip this short beside a word cut is a flash of picture, not something kept. */
+const SLIVER_SECONDS = 0.1;
 /** Joins and pauses in one page of the audit. */
 export const AUDIT_PAGE = 60;
 
@@ -215,40 +217,53 @@ export const placeWordCut = (
       edges: [],
     };
   }
+  // A few frames of a clip left before its first word or after its last would flash by on
+  // screen: the cut takes them with the word.
+  const sliver = Math.round(SLIVER_SECONDS * rate);
+  const fromClipStart = before === undefined && start.frame - head.clip.startFrame <= sliver;
+  const toClipEnd = after === undefined && tail.clip.endFrame - end.frame <= sliver;
+  const startFrame = fromClipStart ? head.clip.startFrame : start.frame;
+  const endFrame = toClipEnd ? tail.clip.endFrame : end.frame;
   const notes = [
-    edgeNote(
-      "start",
-      start,
-      range.start,
-      rate,
-      startLevels,
-      before === undefined
-        ? `before "${first.word}"`
-        : `between "${before.word}" and "${first.word}"`,
-    ),
-    edgeNote(
-      "end",
-      end,
-      range.end,
-      rate,
-      endLevels,
-      after === undefined ? `after "${last.word}"` : `between "${last.word}" and "${after.word}"`,
-    ),
+    fromClipStart
+      ? "start at its clip's start"
+      : edgeNote(
+          "start",
+          start,
+          range.start,
+          rate,
+          startLevels,
+          before === undefined
+            ? `before "${first.word}"`
+            : `between "${before.word}" and "${first.word}"`,
+        ),
+    toClipEnd
+      ? "end at its clip's end"
+      : edgeNote(
+          "end",
+          end,
+          range.end,
+          rate,
+          endLevels,
+          after === undefined
+            ? `after "${last.word}"`
+            : `between "${last.word}" and "${after.word}"`,
+        ),
   ];
   return {
-    start: start.frame,
-    end: end.frame,
-    note: `${label}: frames ${start.frame}-${end.frame}, ${notes.join(", ")}`,
+    start: startFrame,
+    end: endFrame,
+    note: `${label}: frames ${startFrame}-${endFrame}, ${notes.join(", ")}`,
     edges: [
       {
         target: head.clip.source.target,
         side: "end",
-        seconds: sourceSecondsOfFrame(head.clip.source, start.frame, rate),
+        seconds: sourceSecondsOfFrame(head.clip.source, startFrame, rate),
       },
       {
         target: tail.clip.source.target,
         side: "start",
-        seconds: sourceSecondsOfFrame(tail.clip.source, end.frame, rate),
+        seconds: sourceSecondsOfFrame(tail.clip.source, endFrame, rate),
       },
     ],
   };

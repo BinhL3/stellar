@@ -88,6 +88,26 @@ describe("placeWordCut", () => {
     );
   });
 
+  it("takes the few frames before a clip's first word with it, not leaving a sliver", () => {
+    // "Hey" opens the clip already sounding; the first quiet frame is three frames in.
+    const opening = [
+      { w: "Hey", start: 0, end: 0.3 },
+      { w: "you", start: 0.6, end: 0.9 },
+    ];
+    const cut = placeWordCut(
+      timelineWords(stringout, new Map([[TARGET, opening]])),
+      measured([
+        [0, 0.04],
+        [0.1, 0.3],
+        [0.6, 0.9],
+      ]),
+      1,
+      1,
+    );
+    expect(cut).toMatchObject({ start: 0 });
+    expect(typeof cut === "string" ? cut : cut.note).toContain("start at its clip's start");
+  });
+
   it("keeps the word timings, and says it did, for a clip with no levels", () => {
     expect(placeWordCut(view, new Map(), 2, 2)).toMatchObject({
       start: 60,
