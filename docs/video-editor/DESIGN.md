@@ -759,22 +759,27 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 
 **From script to import**
 
-1. A project started from an idea is only folders. The script, intake and preflight steps
-   still have no surfaces in it (hole 2), and the Premiere link is made by hand from the
-   Timeline tab rather than when the agent saves the rough cut.
+1. A project started from an idea has one timeline that is rebuilt from the footage, so its
+   first edit, by an agent or in the Timeline tab, makes `timelines/Rough cut.otio` and later
+   edits aimed at the footage timeline are sent to a cut. A second cut from the footage has no
+   way to be started. The Premiere link is made when a sequence is pulled, not when the agent
+   exports the rough cut, so an exported and pulled cut leaves the unlinked rough cut beside
+   the linked one; reads and the picker default to the linked one.
 2. Of Decision 7's surfaces only the preflight strip is built, and not as drawn: it sits in the
    Timeline tab and lists the run's steps (script, footage, previews, transcripts, Premiere link
    and sync, render check, posted) from project data. It checks no drive, free space, connector
    sign-in or MCP health, and has no Continue anyway. The intake card, job rows, hook card
    and catalog pill are unbuilt. Posted is recorded in the project; the catalog row
    is moved by an agent through the Google connector, and nothing confirms that it was.
-3. Agents can't reach any of it. Creating, linking and syncing a video project are UI-only, and
-   the `timeline` toolkit doesn't exist. Agents edit Premiere through its own MCP, so the
-   `.otio` is a mirror of Premiere today, not the thing agents edit.
-4. The script exists only in Google Docs. That needs the connector signed in, a built-in
-   browser (desktop only), and an undecided way to watch the doc (open questions 9 and 10).
-5. Intake is a dialog the person opens. An agent can't run it or post it as a card, and it
-   never removes the originals from Downloads.
+3. Agents reach the project through the `video_*` tools and edit the `.otio`, but no real
+   agent turn has used them yet: they are proven by tests, by the service run on real clips,
+   and by tool-choice cases that have not been run on a model.
+4. The script's snapshot is in the project (`Stellar/script.md`), but Stellar doesn't fetch
+   the Google Doc: an agent reads it through the connector and saves it, or the user pastes
+   it. Nothing watches the doc for changes (open questions 9 and 10).
+5. Intake is a dialog the person opens, or `video_footage` for an agent, which must show the
+   scan and get approval in chat: there is no card. The scan lists every recent photo and
+   video in Downloads, whatever it is, and the originals are never removed from there.
 6. New sequences aren't discovered. Each `vN+1` needs the new-project dialog again, and the
    timeline picker doesn't say which version is the latest.
 7. Frame tables exist but the timeline doesn't cut by them. Source ranges in the `.otio` are
@@ -796,20 +801,24 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 
 **Sync with Premiere**
 
-11. It is one way. Commits made in the Timeline tab never reach Premiere: push, the baton and
-    the parity report are unbuilt. A conflict offers one side or the other, never a merge.
+11. Stellar plans a push and does not make it. `video_premiere_push` lists the steps and an
+    agent applies them with its Premiere tools, then saves; applied by hand on a scratch
+    project, the plan left Premiere matching the timeline. Stellar executing the steps, the
+    baton and the parity report are unbuilt. A push that was applied and saved reads as in
+    sync in the tab without a merge being asked for.
 12. Only saved state is seen. Unsaved work in Premiere is invisible, and nothing asks Premiere
     to save.
-13. Sync runs when a web or desktop client opens the tab, regains focus or commits. An agent
-    turn, a phone, or a server with no client open never triggers it, so an agent can read a
-    stale `.otio`.
+13. Sync runs when a web or desktop client opens the tab, regains focus or commits, and
+    before every agent read or edit. A phone, or a server with no client and no agent turn,
+    never triggers it.
 14. A pull or merge rewrites the whole file, and each is a version in the timeline's history
     (`timelines/.history/`) with what it changed, as is the text it replaced. What changed is
     listed, not drawn on the tracks (step 7's dashed diff), and the user's hand pass is not a
     turn in the thread. In the tab a conflict waits for the user to choose Merge or Premiere's
     version, while an agent's read merges by itself. Sync and merge hold off while there are
     uncommitted edits.
-15. A sequence deleted or renamed in Premiere silently stops updating its timeline.
+15. A sequence deleted or renamed in Premiere is said once, in the sync that notices. A
+    deleted sequence's timeline stays as it was and no longer updates.
 16. A read that lands while Premiere is writing shows as Offline until the next sync.
 17. The pull doesn't read linked audio and video, nested sequences, or time remapping with
     keyframes. Reverse is read on a guess (a negative speed or a backwards flag): no project
