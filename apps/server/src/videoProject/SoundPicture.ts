@@ -5,6 +5,7 @@
  */
 import { applyEdits } from "@t3tools/timeline/edits";
 import { layoutTimeline } from "@t3tools/timeline/layout";
+import type { AudioLevels } from "@t3tools/timeline/levels";
 import type { Timeline } from "@t3tools/timeline/otio";
 import {
   passagePieces,
@@ -58,12 +59,16 @@ const wordsLine = (view: WordsView, range: { readonly start: number; readonly en
 
 /**
  * Pictures a passage of `timeline` and returns the image's path with a caption. With a cut, a
- * second row shows the timeline as a ripple removal of those frames would leave it.
+ * second row shows the timeline as a ripple removal of those frames would leave it; a cut named
+ * by words is those `removeWords` would take, on the quiet `levels` measured.
  */
 export const drawSoundPicture = Effect.fn("VideoProjects.drawSoundPicture")(function* (input: {
   readonly projectDir: string;
   readonly timeline: Timeline;
   readonly transcripts: ReadonlyMap<string, ReadonlyArray<TranscriptWord>>;
+  readonly levels: ReadonlyMap<string, AudioLevels>;
+  /** Why any source has no levels, for the caption of a cut placed without them. */
+  readonly unmeasured: ReadonlyArray<string>;
   readonly request: SoundPictureRequest;
 }) {
   const fs = yield* FileSystem.FileSystem;
@@ -71,11 +76,11 @@ export const drawSoundPicture = Effect.fn("VideoProjects.drawSoundPicture")(func
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const { rate, durationFrames } = layoutTimeline(input.timeline);
   const view = timelineWords(input.timeline, input.transcripts);
-  const passage = soundPicturePassage(view, durationFrames, input.request);
+  const passage = soundPicturePassage(view, durationFrames, input.request, input.levels);
   if (typeof passage === "string") {
     return yield* new SoundPictureError({ reason: `No picture: ${passage}.` });
   }
-  const { range, cut } = passage;
+  const { range, cut, cutNote } = passage;
   const spoken = (target: string) => input.transcripts.has(target);
   const seconds = (frames: number) => (frames / rate).toFixed(2);
   const allWords = (words: WordsView) => words.clips.flatMap((clip) => clip.words ?? []);
@@ -234,6 +239,12 @@ export const drawSoundPicture = Effect.fn("VideoProjects.drawSoundPicture")(func
       ? []
       : [
           `Lower row: the same passage with frames ${cut.start}-${cut.end} removed and closed up, at the same scale.`,
+          ...(cutNote === null
+            ? []
+            : [
+                `removeWords would cut ${cutNote}.`,
+                ...input.unmeasured.map((reason) => `Not measured: ${reason}.`),
+              ]),
         ]),
     ...(input.transcripts.size === 0 ? ["No transcript here, so no words are drawn."] : []),
     ...(silent.length === 0 ? [] : [`Drawn as silence: ${silent.join(", ")}.`]),

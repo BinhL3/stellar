@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { applyEdits } from "./edits.ts";
 import { footageStringout } from "./footage.ts";
+import { placeWordCut } from "./joins.ts";
+import { levelsOf } from "./levels.ts";
 import type { Timeline } from "./otio.ts";
 import {
   passagePieces,
@@ -113,15 +115,40 @@ describe("soundPicturePassage", () => {
     expect(soundPicturePassage(view, 180, { fromWord: 2, toWord: 3 })).toEqual({
       range: { start: 6, end: 120 },
       cut: null,
+      cutNote: null,
     });
     // A cut of word 3 (frames 60-90) is shown with 1.5 s either side, inside the timeline.
     expect(soundPicturePassage(view, 180, { cutFromWord: 3 })).toEqual({
       range: { start: 0, end: 180 },
       cut: { start: 60, end: 90 },
+      cutNote: "word 3: frames 60-90, start not measured, end not measured",
     });
     expect(
       soundPicturePassage(view, 180, { start: 30, end: 100, cutStart: 90, cutEnd: 130 }),
-    ).toEqual({ range: { start: 30, end: 100 }, cut: { start: 90, end: 100 } });
+    ).toEqual({ range: { start: 30, end: 100 }, cut: { start: 90, end: 100 }, cutNote: null });
+  });
+
+  it("pictures a word cut where removeWords would land it on measured quiet", () => {
+    // "cho" is timed from 1.0 s (frame 60) but sounds from 0.97: the quiet before it ends there.
+    const levels = new Map([
+      [
+        "Footage/a.MOV",
+        levelsOf(
+          Array.from({ length: 200 }, (_, i) =>
+            (i >= 50 && i < 92) || (i >= 97 && i < 142) || (i >= 155 && i < 190) ? -20 : -60,
+          ),
+          0.01,
+        ),
+      ],
+    ]);
+    const placed = placeWordCut(view, levels, 3, 3);
+    if (typeof placed === "string") throw new Error(placed);
+    expect(placed).toMatchObject({ start: 57, end: 90 });
+    expect(soundPicturePassage(view, 180, { cutFromWord: 3 }, levels)).toEqual({
+      range: { start: 0, end: 180 },
+      cut: { start: 57, end: 90 },
+      cutNote: placed.note,
+    });
   });
 
   it("says why a passage can't be pictured", () => {
@@ -202,6 +229,8 @@ describe("soundPictureLayout", () => {
           word: "word",
           startFrame,
           endFrame: startFrame + 2,
+          start: startFrame / 60,
+          end: (startFrame + 2) / 60,
         })),
       },
     ]);

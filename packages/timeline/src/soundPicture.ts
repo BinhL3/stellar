@@ -3,7 +3,9 @@
  * spectrogram, words at their frames, and optionally the passage again with a range removed.
  * Layout and the ffmpeg graph that draws it. Adapted from Scarlet, Forward-Future, MIT.
  */
+import { placeWordCut } from "./joins.ts";
 import { layoutTimeline } from "./layout.ts";
+import type { AudioLevels } from "./levels.ts";
 import type { Timeline } from "./otio.ts";
 import { sourceSecondsAt, timeScalarOf } from "./speed.ts";
 import { type TimelineWord, wordRange, type WordsView } from "./words.ts";
@@ -47,14 +49,18 @@ const WORD_CONTEXT_SECONDS = 0.5;
 const CUT_CONTEXT_SECONDS = 1.5;
 
 /**
- * The frames a request pictures and the frames it would cut, or why it can't be drawn. Words
- * resolve as `removeWords` does: from a word's start to the next word's start.
+ * The frames a request pictures and the frames it would cut, or why it can't be drawn. A cut
+ * named by words is placed as `removeWords` places it, on the quiet `levels` measured, and
+ * `cutNote` says where; without levels it is the word timings.
  */
 export const soundPicturePassage = (
   view: WordsView,
   durationFrames: number,
   request: SoundPictureRequest,
-): { readonly range: FrameRange; readonly cut: FrameRange | null } | string => {
+  levels: ReadonlyMap<string, AudioLevels> = new Map(),
+):
+  | { readonly range: FrameRange; readonly cut: FrameRange | null; readonly cutNote: string | null }
+  | string => {
   const frames = (start: number | undefined, end: number | undefined, what: string) => {
     if (start === undefined && end === undefined) return null;
     if (start === undefined || end === undefined) return `${what} needs both a start and an end`;
@@ -66,10 +72,18 @@ export const soundPicturePassage = (
   };
   const words = (from: number | undefined, to: number | undefined) =>
     from === undefined && to === undefined ? null : wordRange(view, from ?? to!, to ?? from!);
+  const { cutFromWord, cutToWord } = request;
+  const placed =
+    cutFromWord === undefined && cutToWord === undefined
+      ? null
+      : placeWordCut(view, levels, cutFromWord ?? cutToWord!, cutToWord ?? cutFromWord!);
+  if (typeof placed === "string") return placed;
   const cut =
-    words(request.cutFromWord, request.cutToWord) ??
-    frames(request.cutStart, request.cutEnd, "the cut");
+    placed === null
+      ? frames(request.cutStart, request.cutEnd, "the cut")
+      : { start: placed.start, end: placed.end };
   if (typeof cut === "string") return cut;
+  const cutNote = placed?.note ?? null;
   const asked = frames(request.start, request.end, "the passage");
   if (typeof asked === "string") return asked;
   const spoken = words(request.fromWord, request.toWord);
@@ -96,7 +110,7 @@ export const soundPicturePassage = (
   if (seconds > SOUND_PICTURE_MAX_SECONDS) {
     return `a sound picture holds at most ${SOUND_PICTURE_MAX_SECONDS} seconds (${Math.round(SOUND_PICTURE_MAX_SECONDS * view.rate)} frames here) and frames ${range.start}-${range.end} are ${seconds.toFixed(1)}; picture a shorter passage`;
   }
-  if (cut === null) return { range, cut: null };
+  if (cut === null) return { range, cut: null, cutNote };
   const inside = { start: Math.max(cut.start, range.start), end: Math.min(cut.end, range.end) };
   if (inside.end <= inside.start) {
     return `the cut (frames ${cut.start}-${cut.end}) is outside the passage (frames ${range.start}-${range.end})`;
@@ -104,7 +118,7 @@ export const soundPicturePassage = (
   if (inside.end - inside.start >= range.end - range.start) {
     return "the cut takes the whole passage; picture more around it";
   }
-  return { range, cut: inside };
+  return { range, cut: inside, cutNote };
 };
 
 /** A stretch of a passage that plays one source without a break, or nothing (`target` null). */

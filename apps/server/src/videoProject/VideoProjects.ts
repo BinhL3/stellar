@@ -1526,12 +1526,23 @@ const make = Effect.gen(function* () {
       return yield* new VideoProjectError({ reason: "This project has no timeline to read." });
     }
     const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
-    const { transcripts } = yield* loadTranscripts(input.workspaceRoot, timeline);
+    const wordCut =
+      input.request.cutFromWord !== undefined || input.request.cutToWord !== undefined;
+    // Only a cut named by words is placed on measured quiet, so only it needs the levels.
+    const sound = wordCut
+      ? yield* loadSound(input.workspaceRoot, timeline)
+      : {
+          ...(yield* loadTranscripts(input.workspaceRoot, timeline)),
+          levels: new Map<string, AudioLevels>(),
+          unmeasured: [],
+        };
     const drawn = yield* onHost(
       drawSoundPicture({
         projectDir: input.workspaceRoot,
         timeline,
-        transcripts,
+        transcripts: sound.transcripts,
+        levels: sound.levels,
+        unmeasured: sound.unmeasured,
         request: input.request,
       }),
     ).pipe(Effect.mapError((cause) => new VideoProjectError({ reason: cause.message, cause })));

@@ -352,7 +352,8 @@ Built from the past threads: it targets where time and failures actually went, a
 - **Sound pictures: built.** No harness passes audio to a model, so `video_timeline_words`
   with `picture` draws a passage instead (`packages/timeline/src/soundPicture.ts`): waveform
   over spectrogram with the words at their frames, and a second row with a proposed cut taken
-  out, made by applying the same ripple removal the edit would. One clip is drawn at a time,
+  out. A cut named by words is placed by the code `removeWords` uses, on the same measured
+  quiet (word timings when nothing is measured), and the caption says where it landed. One clip is drawn at a time,
   the one with a transcript, so speech stays readable under music. Not yet run by an agent in
   a real thread or through `evals/mcp-tool-use`.
 - **The script as project data: built.** The Google Doc stays the script's source of truth;
