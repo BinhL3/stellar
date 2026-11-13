@@ -658,6 +658,66 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
   );
 });
 
+it.live("refuses an agent's edit when the user saved while its sound was being measured", () => {
+  const created: Array<string> = [];
+  let saveDuringDecode: Effect.Effect<void> = Effect.void;
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-race-" });
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot } = yield* videoProjects.createFromIdea({
+      title: "Race",
+      parentFolder: root,
+    });
+    const mediaRoot = path.dirname(workspaceRoot);
+    const timeline = "timelines/Cut.otio";
+    const file = path.join(workspaceRoot, timeline);
+    const text = serializeTimeline(
+      footageStringout(
+        [{ target: "Footage/a.MOV", duration: 4, width: 1080, height: 1920 }],
+        mediaRoot,
+      ),
+    );
+    yield* fs.writeFileString(file, text);
+    yield* fs.writeFileString(
+      path.join(mediaRoot, "Footage", "a.MOV"),
+      JSON.stringify({ seconds: 4, loud: [[0.5, 0.8]] }),
+    );
+    yield* fs.writeFileString(
+      path.join(mediaRoot, "Audio", "a.words.json"),
+      JSON.stringify([{ w: "So", start: 0.5, end: 0.8 }]),
+    );
+    // The user's save lands while ffmpeg is still decoding for the agent's edit.
+    const saved = `${text}\n`;
+    saveDuringDecode = fs.writeFileString(file, saved).pipe(Effect.orDie);
+    const refused = yield* videoProjects
+      .editTimeline({
+        workspaceRoot,
+        timeline,
+        summary: "Cut the tail.",
+        edits: [{ kind: "removeRange", start: 120, end: 180, ripple: true }],
+      })
+      .pipe(Effect.flip);
+    assert.include(refused.message, "changed while this edit was being worked out");
+    assert.strictEqual(yield* fs.readFileString(file), saved);
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(
+          fakeDecoder(
+            [],
+            Effect.suspend(() => saveDuringDecode),
+          ),
+        ),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
+
 it.live("makes the first edit to the footage timeline on a cut of its own", () => {
   const created: Array<string> = [];
   return Effect.gen(function* () {
@@ -727,7 +787,7 @@ it.live("makes the first edit to the footage timeline on a cut of its own", () =
 // Stands in for ffmpeg decoding audio, which CI doesn't have: a "recording" is JSON of its
 // length and the stretches that sound, played back as a tone at a tenth of full scale. A
 // recording that says "no decoder" is one this machine has no ffmpeg for.
-const fakeDecoder = (decoded: Array<string>) =>
+const fakeDecoder = (decoded: Array<string>, onDecode: Effect.Effect<void> = Effect.void) =>
   Layer.effect(
     ChildProcessSpawner.ChildProcessSpawner,
     Effect.gen(function* () {
@@ -746,6 +806,7 @@ const fakeDecoder = (decoded: Array<string>) =>
             return yield* real.spawn(ChildProcess.make("/nonexistent/stellar-test-ffmpeg", []));
           }
           decoded.push(media);
+          yield* onDecode;
           const { seconds, loud } = JSON.parse(spec) as {
             seconds: number;
             loud: ReadonlyArray<readonly [number, number]>;

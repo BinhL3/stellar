@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { LEVEL_SAMPLE_RATE, makeLevelMeter, quietCeiling, soundFloor } from "./levels.ts";
+import { LEVEL_SAMPLE_RATE, levelsOf, makeLevelMeter, quietCeiling, soundFloor } from "./levels.ts";
 
 /** Signed 16-bit mono: a 440 Hz tone at `amplitude` wherever `loud` says, silence elsewhere. */
 const pcm = (seconds: number, amplitude: number, loud: (at: number) => boolean) => {
@@ -28,6 +28,12 @@ describe("makeLevelMeter", () => {
     ]);
     expect([levels.roomTone, levels.speech]).toEqual([-100, -23]);
     expect([soundFloor(levels), quietCeiling(levels)]).toEqual([-35, -94]);
+    // One word in a long wait: its level is still the speech level, not the room's.
+    const sparse = levelsOf(
+      [...Array.from({ length: 95 }, () => -60), -20, -20, -21, -20, -20],
+      0.01,
+    );
+    expect([sparse.roomTone, sparse.speech]).toEqual([-60, -20]);
     // A restaurant: the room is 10 dB under the voice, and its noise is not speech.
     const noisy = { ...levels, roomTone: -30, speech: -20 };
     expect([soundFloor(noisy), quietCeiling(noisy)]).toEqual([-24, -27]);

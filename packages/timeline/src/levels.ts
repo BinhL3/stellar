@@ -23,6 +23,9 @@ export interface AudioLevels {
   readonly speech: number;
 }
 
+// In a loud room the noise sits within 12 dB of speech: sound has to stand clear of it too.
+const ABOVE_ROOM_DB = 6;
+
 const percentile = (counts: ReadonlyArray<number>, total: number, fraction: number) => {
   let seen = 0;
   for (let i = 0; i < counts.length; i++) {
@@ -39,11 +42,18 @@ export const levelsOf = (db: ReadonlyArray<number>, step: number): AudioLevels =
     const slot = Math.min(Math.max(Math.round(value), SILENT_DBFS), 0) - SILENT_DBFS;
     counts[slot] = (counts[slot] ?? 0) + 1;
   }
+  const roomTone = percentile(counts, db.length, 0.1);
+  // Read off the windows that stand clear of the room, so a clip that is mostly waiting still
+  // reports where its few words sit.
+  const loud = counts.map((count, slot) =>
+    slot + SILENT_DBFS >= roomTone + ABOVE_ROOM_DB ? count : 0,
+  );
+  const loudTotal = loud.reduce((sum, count) => sum + count, 0);
   return {
     step,
     db,
-    roomTone: percentile(counts, db.length, 0.1),
-    speech: percentile(counts, db.length, 0.85),
+    roomTone,
+    speech: loudTotal === 0 ? roomTone : percentile(loud, loudTotal, 0.85),
   };
 };
 
@@ -87,8 +97,6 @@ export const makeLevelMeter = () => {
 // it is within 12 dB of where speech sits, and never below -45 dBFS, which is room tone.
 const BELOW_SPEECH_DB = 12;
 const QUIETEST_SOUND_DBFS = -45;
-// In a loud room the noise sits within 12 dB of speech: sound has to stand clear of it too.
-const ABOVE_ROOM_DB = 6;
 
 /** A window at or above this is sound at speaking level. */
 export const soundFloor = (levels: AudioLevels): number =>

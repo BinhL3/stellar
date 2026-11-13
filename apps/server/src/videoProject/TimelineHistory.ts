@@ -17,6 +17,7 @@ import { serializeTimeline, type Timeline } from "@t3tools/timeline/otio";
 import { pulledHash, readBase } from "@t3tools/timeline/premiereSync";
 import {
   decideEdits,
+  settleEditsAt,
   hashOfText,
   historySteps,
   readHistory,
@@ -276,6 +277,13 @@ export const restoreTimelineVersion = Effect.fn("TimelineHistory.restore")(funct
         : {}),
     ...(input.review === undefined ? {} : { review: input.review }),
   });
+  // The Edits panel and agents read each edit's state off the history: it follows the timeline.
+  yield* settleEditsAt({
+    projectDir,
+    timelinePath,
+    targetId: target.id,
+    recordedId: recorded.id,
+  }).pipe(Effect.mapError(failed(`Could not update the edits of ${timelinePath}.`)));
   return {
     ...viewOf(timelinePath, yield* readHistory(projectDir, timelinePath)),
     restored: publicVersion(target),

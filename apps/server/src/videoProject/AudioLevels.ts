@@ -107,6 +107,11 @@ export const ensureLevels = Effect.fn("VideoProjects.ensureLevels")(function* (i
       : `ffmpeg could not read the audio of ${input.target}: ${errors.trim().split("\n").at(-1) ?? `exit ${exitCode}`}`;
   }).pipe(
     Effect.scoped,
+    // A drive that stalls mid-read must not hold every later read and edit behind this one.
+    Effect.timeoutOption("5 minutes"),
+    Effect.map(
+      Option.getOrElse(() => `measuring the audio of ${input.target} took more than 5 minutes`),
+    ),
     // The spawn itself failing is the tool not being there.
     Effect.orElseSucceed(() => NO_FFMPEG),
   );

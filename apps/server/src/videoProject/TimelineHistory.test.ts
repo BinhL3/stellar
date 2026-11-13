@@ -15,7 +15,12 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { commitTimelineText, listTimelineEdits, reviewTimelineEdit } from "./TimelineHistory.ts";
+import {
+  commitTimelineText,
+  listTimelineEdits,
+  restoreTimelineVersion,
+  reviewTimelineEdit,
+} from "./TimelineHistory.ts";
 
 const clip = (id: string): Clip => ({
   OTIO_SCHEMA: "Clip.2",
@@ -130,6 +135,17 @@ describe("reviewTimelineEdit", () => {
       assert.deepStrictEqual(yield* spans, ["a 0-100", "b 100-170"]);
       const head = (yield* readHistory(projectDir, timelinePath)).versions.at(-1);
       assert.deepStrictEqual([head?.by, head?.label], ["user", "Undid E1: Cut the false start"]);
+      // A plain history step moves the timeline, and each edit's state follows it: stepping
+      // back over the undo brings E1's cut back, and stepping forward takes it out again.
+      const step = (direction: "undo" | "redo") =>
+        Effect.andThen(
+          restoreTimelineVersion({ projectDir, timelinePath, step: direction, by: "user" }),
+          listTimelineEdits(projectDir, timelinePath),
+        );
+      assert.deepStrictEqual(states(yield* step("undo")), ["E2 open", "E1 open"]);
+      assert.deepStrictEqual(yield* spans, ["a 0-20", "a 20-80", "b 80-150"]);
+      assert.deepStrictEqual(states(yield* step("redo")), ["E2 open", "E1 undone"]);
+      assert.deepStrictEqual(yield* spans, ["a 0-100", "b 100-170"]);
       // An undone edit can't be kept, only put back.
       assert.include((yield* review(1, "keep")).blocked ?? "", "Put it back first");
       const redone = yield* review(1, "redo");
@@ -151,6 +167,8 @@ describe("reviewTimelineEdit", () => {
       const restored = yield* review(1, "restoreBefore");
       assert.deepStrictEqual(states(restored), ["E3 undone", "E2 undone", "E1 undone"]);
       assert.deepStrictEqual(yield* spans, ["a 0-100", "b 100-200"]);
+      // Stepping back from that restore brings all three back.
+      assert.deepStrictEqual(states(yield* step("undo")), ["E3 open", "E2 open", "E1 open"]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

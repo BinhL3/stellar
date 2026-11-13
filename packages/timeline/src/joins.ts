@@ -440,7 +440,21 @@ export const clippedEdges = (
   levels: Levels,
   placed: ReadonlyArray<SourceEdge>,
 ): Array<ClippedEdge> => {
-  const known = [...heardEdges(before), ...placed];
+  // Every edge a clip already had counts, heard or not: a piece razored out of a clip that
+  // still played straight through has edges the user made, and removing it makes none.
+  const had = before.clips.flatMap((clip) =>
+    clip.source === null
+      ? []
+      : [
+          { target: clip.source.target, side: "start" as const, seconds: clip.source.startSeconds },
+          {
+            target: clip.source.target,
+            side: "end" as const,
+            seconds: endSeconds(clip as Sourced, before.rate),
+          },
+        ],
+  );
+  const known = [...had, ...placed];
   const numbered = new Map<string, number>();
   for (const clip of before.clips) {
     for (const word of clip.words ?? []) {

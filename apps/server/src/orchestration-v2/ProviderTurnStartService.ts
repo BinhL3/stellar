@@ -886,7 +886,11 @@ export const layer: Layer.Layer<
           ? ""
           : restartCancelledBackgroundWorkNote(restartCancelledWork);
       // House rules ride on every prompt, so one removed in Settings is gone from the next turn.
-      const houseRules = goalCommand ? "" : yield* houseRulesFor(projection.thread.projectId);
+      // A provider reads a slash command off the start of the prompt, so it goes without them.
+      const houseRules =
+        goalCommand || userText.trimStart().startsWith("/")
+          ? ""
+          : yield* houseRulesFor(projection.thread.projectId);
       const tokenCap = yield* handoffTokenCapConfig.pipe(
         Effect.orElseSucceed(() => DEFAULT_HANDOFF_TOKEN_CAP),
       );

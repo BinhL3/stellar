@@ -2003,6 +2003,10 @@ const make = Effect.gen(function* () {
     }
     const target = yield* cutTarget(input.workspaceRoot, input.timeline);
     const timeline = yield* loadTimeline(input.workspaceRoot, input.timeline);
+    const timelineFile = path.join(input.workspaceRoot, input.timeline);
+    const textAtRead = yield* fileSystem
+      .readFileString(timelineFile)
+      .pipe(Effect.orElseSucceed(() => null));
     const layout = layoutTimeline(timeline);
     const clipIds = new Set(layout.tracks.flatMap((track) => track.clips.map((clip) => clip.key)));
     const trackNames = new Set(layout.tracks.map((track) => track.name));
@@ -2107,9 +2111,21 @@ const make = Effect.gen(function* () {
       ),
     ];
     const madeCut = target !== input.timeline;
+    // Measuring the sound can take a while, and the user may have saved in the meantime: what
+    // was worked out here is from the timeline as it was read, so it must still be that.
+    const unchanged = Effect.gen(function* () {
+      const now = yield* fileSystem
+        .readFileString(timelineFile)
+        .pipe(Effect.orElseSucceed(() => null));
+      if (now !== textAtRead) {
+        return yield* new VideoProjectError({
+          reason: `${input.timeline} changed while this edit was being worked out: the user saved it. None of your edits were applied. Read the timeline again and redo them against what is there now.`,
+        });
+      }
+    });
     yield* syncing.withPermits(1)(
       Effect.andThen(
-        madeCut ? startCut(input.workspaceRoot, timeline) : Effect.void,
+        Effect.andThen(unchanged, madeCut ? startCut(input.workspaceRoot, timeline) : Effect.void),
         onHost(
           commitTimelineText({
             projectDir: input.workspaceRoot,

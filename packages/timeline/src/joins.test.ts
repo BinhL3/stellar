@@ -218,6 +218,23 @@ describe("clippedEdges", () => {
         [],
       ),
     ).toEqual([]);
+    // Nor is the edge of a piece the user razored out mid-word, once the piece between goes.
+    const razored = applyEdits(stringout, [
+      { kind: "split", frame: 72 },
+      { kind: "split", frame: 100 },
+    ]);
+    expect(
+      clippedEdges(
+        timelineWords(razored, transcripts),
+        timelineWords(
+          applyEdits(razored, [{ kind: "removeRange", start: 72, end: 100, ripple: true }]),
+          transcripts,
+        ),
+        transcripts,
+        levels,
+        [],
+      ),
+    ).toEqual([]);
   });
 });
 

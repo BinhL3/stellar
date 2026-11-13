@@ -59,6 +59,8 @@ const TimelineVersion = Schema.Struct({
   /** Set on a version an undo made: the version redo goes back to. */
   redo: Schema.optional(Schema.String),
   edit: Schema.optional(VersionEdit),
+  /** The numbered edits that were taken out when this was the timeline, so a step back to it knows. */
+  undone: Schema.optional(Schema.Array(Schema.Number)),
 });
 export type TimelineVersion = typeof TimelineVersion.Type;
 
@@ -271,6 +273,7 @@ export const recordVersion = Effect.fn("timeline.recordVersion")(function* (inpu
       base: history.base,
       parent: steps === undefined ? (head?.id ?? null) : steps.parent,
       ...(steps?.redo === undefined ? {} : { redo: steps.redo }),
+      undone: undoneIn(versions),
       ...(review === undefined
         ? {}
         : {
@@ -330,6 +333,46 @@ export const recordVersion = Effect.fn("timeline.recordVersion")(function* (inpu
 });
 
 /** Records what the user decided about edits; `null` puts one back to undecided. */
+const undoneIn = (versions: ReadonlyArray<TimelineVersion>) =>
+  versions.flatMap((version) => (version.edit?.decision === "undone" ? [version.edit.number] : []));
+
+/** The newest version is the timeline now, so it carries the edits that are out of it now. */
+const stampHead = (versions: ReadonlyArray<TimelineVersion>): Array<TimelineVersion> =>
+  versions.map((version, index) =>
+    index === versions.length - 1 ? { ...version, undone: undoneIn(versions) } : version,
+  );
+
+/**
+ * After the timeline went back to version `targetId` (an undo, a redo, a restore): an edit is
+ * out of it when it was out of that version or was made after it, and back in otherwise. An
+ * edit that comes back is to be looked at again unless it was kept.
+ */
+export const settleEditsAt = Effect.fn("timeline.settleEditsAt")(function* (input: {
+  readonly projectDir: string;
+  readonly timelinePath: string;
+  readonly targetId: string;
+  /** The version the step itself recorded, whose own numbered edit is in the timeline. */
+  readonly recordedId: string;
+}) {
+  const files = yield* paths(input.projectDir, input.timelinePath);
+  const history = yield* readHistory(input.projectDir, input.timelinePath);
+  const at = history.versions.findIndex((version) => version.id === input.targetId);
+  if (at < 0) return history;
+  const out = new Set(history.versions[at]?.undone ?? []);
+  for (const version of history.versions.slice(at + 1)) {
+    if (version.edit !== undefined && version.id !== input.recordedId) out.add(version.edit.number);
+  }
+  const versions = history.versions.map((version) => {
+    if (version.edit === undefined) return version;
+    const { decision, ...edit } = version.edit;
+    if (out.has(edit.number)) return { ...version, edit: { ...edit, decision: "undone" as const } };
+    return decision === "kept" ? version : { ...version, edit };
+  });
+  const settled = { ...history, versions: stampHead(versions) };
+  yield* writeIndex(files.index, settled);
+  return settled;
+});
+
 export const decideEdits = Effect.fn("timeline.decideEdits")(function* (input: {
   readonly projectDir: string;
   readonly timelinePath: string;
@@ -346,7 +389,7 @@ export const decideEdits = Effect.fn("timeline.decideEdits")(function* (input: {
       edit: input.decision === null ? edit : { ...edit, decision: input.decision },
     };
   });
-  const decided = { ...history, versions };
+  const decided = { ...history, versions: stampHead(versions) };
   yield* writeIndex(files.index, decided);
   return decided;
 });

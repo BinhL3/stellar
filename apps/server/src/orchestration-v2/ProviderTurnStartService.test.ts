@@ -278,6 +278,8 @@ function makeLocalCommandHarness(input: {
   readonly fileSystem?: FileSystem.FileSystem;
   /** What the approved house rules say for this project. */
   readonly houseRules?: string;
+  /** The text is a slash command Stellar doesn't handle itself, so the provider gets it. */
+  readonly providerCommand?: boolean;
   readonly previousNativeSession?: boolean;
   readonly previousMessages?: ReadonlyArray<string>;
   readonly logoutFailure?: string;
@@ -860,7 +862,7 @@ function makeLocalCommandHarness(input: {
   );
   const tryHandlePromptCommand = vi.fn(() =>
     input.logoutFailure === undefined
-      ? Effect.succeed(true)
+      ? Effect.succeed(input.providerCommand !== true)
       : Effect.fail(
           new ProviderSetupError({
             instanceId: oldInstanceId,
@@ -1723,6 +1725,23 @@ effectIt.effect("tells the provider the approved house rules beside the user's m
 
     expect(harness.startTurn.mock.calls.map(([turn]) => turn.message.text)).toEqual([
       withInlineContext("House rules:\n- Keep the pause before a punchline.", "Tighten the intro"),
+    ]);
+  }),
+);
+
+effectIt.effect("sends a slash command without the house rules in front of it", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "/short-edit the hook",
+      providerCommand: true,
+      sideChat: { contextRun: "delivered" },
+      houseRules: "House rules:\n- Keep the pause before a punchline.",
+    });
+
+    yield* harness.start;
+
+    expect(harness.startTurn.mock.calls.map(([turn]) => turn.message.text)).toEqual([
+      "/short-edit the hook",
     ]);
   }),
 );
