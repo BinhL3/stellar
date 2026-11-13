@@ -185,14 +185,16 @@ apply it in the target's insertion order; QE inserts at the top, so a Premiere s
   silently.
 - **The model decides.** Which take stays, what to cut and when to stop are its calls, made from
   what Stellar measured.
-- **Taste lives in the user's skills and house rules**, which they edit. Stellar's code and
-  instructions carry no opinion about pacing or style.
+- **Taste lives in the user's skills and house rules** (below), which they edit. Stellar's code
+  and instructions carry no opinion about pacing or style.
 - **Tool mechanics live in tool descriptions**: what a tool takes, returns and refuses.
 - **An instruction is added only for a failure we observed**, with an eval case that fails without
   it. When the evals show a newer model passes without the instruction, remove it.
 
 `evals/mcp-tool-use` checks tool choice and arguments in fake video and carousel threads;
-`evals/video-cuts` scores a finished cut by code and replays stored edit calls for free.
+`evals/video-cuts` scores a finished cut by code and replays stored edit calls for free, placing
+word cuts with the server's own code. No model baseline is recorded for the video and carousel
+cases yet.
 
 The invariants the toolkit enforces today (these rules came from `premiere-automation.md`):
 
@@ -224,12 +226,12 @@ The invariants the toolkit enforces today (these rules came from `premiere-autom
 
 App quirks (Premiere's item order, Edits' 60 fps conform) live in each adapter's code and tests.
 
-**Taste is the exception: house rules.** What the toolkit can check is an invariant in code. What
-only the user can judge ("keep the pause before a punchline") is a house rule: one sentence the
-user approved, told to every turn in a video or carousel project. They are kept in one list under
-T3 home, each optionally scoped to a project, because taste follows the editor across projects and
-a file in each project folder would have to be approved again per short. Stellar reads the user's
-messages for new ones in a side run outside the turn; agents may propose one, never approve one.
+**House rules.** What only the user can judge ("keep the pause before a punchline") is a house
+rule: one sentence the user approved, told to every turn in a video or carousel project. They are
+kept in one list under T3 home, each optionally scoped to a project, because taste follows the
+editor across projects and a file in each project folder would have to be approved again per
+short. Stellar reads the user's messages for new ones in a side run outside the turn; agents may
+propose one (`house_rule_propose`), never approve one.
 
 ### 4. Adapters: push is a rebuild, pull is a turn, every push writes a parity report
 
@@ -337,8 +339,7 @@ Built from the past threads: it targets where time and failures actually went, a
   returns an ordered plan (`packages/timeline/src/premiere/pushPlan.ts`) that the agent applies
   to the live sequence with its Premiere tools, touching only what differs from Premiere's last
   save; Stellar's server cannot drive Premiere itself, and the next read's sync is the check.
-  No plan has been applied to a real Premiere yet. The baton and native re-attach are not built. `evals/mcp-tool-use` has
-  tool-choice cases for this text, with no model baseline recorded yet.
+  No plan has been applied to a real Premiere yet. The baton and native re-attach are not built.
 - **Cutting by words, on measured quiet: built.** `video_timeline_words` numbers the words heard
   on a timeline, and the `removeWords` edit cuts a run of them and `trimPause` the pause after
   one. Transcripts are `Audio/<clip>.words.json` files, which a project's own pipeline may write
@@ -366,19 +367,19 @@ Built from the past threads: it targets where time and failures actually went, a
     reads every join as heard: the words either side, the level at each edge, a clipped word,
     words said twice across the join, and pauses left longer than a threshold.
 
-  Without ffmpeg, or for footage on a drive that is away, nothing is measured: cuts fall back to
-  word timings and every result says so. Edges land on timeline frames; they don't use a
+  Without ffmpeg, or for footage on a drive that is away, nothing is measured: word cuts fall
+  back to word timings, a pause can't be trimmed by word, and every result says so. Edges land on timeline frames; they don't use a
   variable-rate clip's frame table yet (hole 7). An edge through sound the transcript has no
   word for is flagged by the join audit but not refused. Not checked yet: any of this against
-  real speech (only synthetic audio so far), and the tool text in `evals/mcp-tool-use`.
+  real speech (only synthetic audio so far).
 
 - **Sound pictures: built.** No harness passes audio to a model, so `video_timeline_words`
   with `picture` draws a passage instead (`packages/timeline/src/soundPicture.ts`): waveform
   over spectrogram with the words at their frames, and a second row with a proposed cut taken
   out. A cut named by words is placed by the code `removeWords` uses, on the same measured
-  quiet (word timings when nothing is measured), and the caption says where it landed. One clip is drawn at a time,
-  the one with a transcript, so speech stays readable under music. Not yet run by an agent in
-  a real thread or through `evals/mcp-tool-use`.
+  quiet (word timings when nothing is measured), and the caption says where it landed. One clip
+  is drawn at a time, the one with a transcript, so speech stays readable under music. Not yet
+  run by an agent in a real thread.
 - **The script as project data: built.** The Google Doc stays the script's source of truth;
   the project keeps a snapshot (`script.md`, with beat ids in `script.json`). `video_script`
   and `videoProjects.readScript` split it into beats (`packages/timeline/src/script.ts`) and
@@ -932,8 +933,10 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
       the changes made since on the version before it, so it is refused, with the version
       before offered instead, when they touch the same clips or Premiere's save was pulled in
       since. A restore or undo step made from History does not mark the edits it took out. An
-      edit's place is the footage at its join, found again in the timeline as it is now, and
-      its removed stretch is the first one when a call made several cuts. Hearing what was
+      edit's place is the footage at its join, found again in the timeline as it is now. Its
+      removed stretch is read from the two versions, so it is where a word cut or pause trim
+      really landed, and the first one when a call made several cuts. A refused call writes no
+      version, so it is no edit. Hearing what was
       removed shows the version before it in the Monitor, read-only.
     - Agent suggestions are markers; there are no suggestion cards.
 29. `TimelineViewer.tsx` is one 2,100-line component under `components/files/`.
