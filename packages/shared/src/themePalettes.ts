@@ -420,11 +420,22 @@ export const STUDIO_THEME: ThemeDefinition = {
   variants: { dark: editorPalette("dark", "#252525", "#303030", "#3b3b3b", "#555555", "#dedede") },
 };
 
+// Two inks on paper: near-black indigo with mint by night, cream with teal by day. After
+// Borealis by Adolanium (MIT).
+const BOREALIS_THEME: ThemeDefinition = {
+  id: "borealis",
+  label: "Borealis",
+  appearance: "light",
+  colors: editorPalette("light", "#f2eee4", "#faf7f0", "#e7e1d3", "#d8d0bf", "#0a7b6c"),
+  variants: { dark: editorPalette("dark", "#08080d", "#111019", "#17161f", "#24222f", "#6ff0c4") },
+};
+
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   STELLAR_THEME,
   NIGHT_EDIT_THEME,
   DARKROOM_THEME,
   STUDIO_THEME,
+  BOREALIS_THEME,
 ];
 
 export function getThemeColorsForAppearance(
