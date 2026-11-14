@@ -67,6 +67,7 @@ import {
 } from "../../apps/server/src/mcp/toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.ts";
 import { VideoToolkit } from "../../apps/server/src/mcp/toolkits/video/tools.ts";
+import { recipeText } from "../../apps/server/src/videoProject/recipes/VideoRecipes.ts";
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
 import {
   CLAUDE_PROVIDER,
@@ -1275,6 +1276,8 @@ export const t3Default = (
         title: null,
         loading: false,
       };
+    case "video_recipe":
+      return { text: recipeText(typeof input.name === "string" ? input.name : undefined) ?? "" };
     default:
       return { ok: true };
   }

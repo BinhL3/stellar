@@ -369,6 +369,9 @@ export function summarizeT3ToolCalls(
     case "video-posted":
       label = phrase("Recorded", "record", `the short as posted ${times}`);
       break;
+    case "video-recipe":
+      label = phrase("Read", "read", `an edit recipe ${times}`);
+      break;
     case "carousel-read":
       label = phrase("Read", "read", `the carousel ${times}`);
       break;
