@@ -1,18 +1,21 @@
 # Appearance and themes
 
-Stellar is dark on every device. It does not follow your system's light or dark setting, and
-every theme is a dark palette.
+Each theme is either light or dark, and the theme you pick decides which: there is no separate
+light or dark setting, and Stellar does not follow your system's. Window chrome, menus and native
+controls follow the theme too.
 
-On web and desktop, open **Settings → Appearance** to choose a theme. Drive-In is the default;
-Stellar, Night Edit, Darkroom, and Studio are also built in. Appearance preferences are saved
-separately on each device or browser.
+On web and desktop, open **Settings → Appearance** to choose a theme. Drive-In is the default.
+Stellar, Night Edit, Darkroom, and Studio are the other dark themes; Long Biên, Sakura, Shore, and
+Train Street are light. Appearance preferences are saved separately on each device or browser.
 
 ## Backdrop
 
 Each built-in theme has its own scene behind new threads, empty screens and the pairing page,
 drawn in that theme's colors: a drive-in for Drive-In, a planet's edge for Stellar, a city for
-Night Edit, dunes for Darkroom and a soundstage for Studio. A custom or imported theme gets a
-ringed planet in its own colors. Behind a conversation the scene fades back so text stays easy to
+Night Edit, dunes for Darkroom and a soundstage for Studio. The light themes print theirs in dark
+inks on pale paper: Hanoi's Long Biên bridge mirrored in the river at dawn, cherry boughs for
+Sakura, surf on a beach for Shore, and a railway past shophouse doors for Train Street. A custom or
+imported theme gets a ringed planet in its own colors. Behind a conversation the scene fades back so text stays easy to
 read.
 
 **Settings → Appearance → Backdrop** chooses how the scene is printed: dithered dots, halftone
@@ -66,8 +69,8 @@ On web and desktop, choose **Create theme** to adjust a palette, or import a Ste
 theme. The theme editor's color picker lets you select an area of the app to find the color to
 change. Export your theme as JSON to share it.
 
-Only dark themes import. A light VS Code theme is refused, and an extension's light variants are
-left out. A Stellar theme file saved with both a light and a dark palette keeps its dark one.
+A theme with a light canvas is a light theme, whether you made it or imported it. A Stellar theme
+file saved with both a light and a dark palette keeps its dark one.
 
 ## Environment themes
 
@@ -115,10 +118,10 @@ For an integration that generates a palette, this shorter format also works:
 }
 ```
 
-Supply hex colors for a dark `canvas` and an `accent`. Stellar generates the rest. The optional
-`colors` overrides use the names in the theme editor's advanced view. A file marked
-`"appearance": "light"` is published only if it also has a `variants.dark` palette, which is the
-one clients use.
+Supply hex colors for a `canvas` and an `accent`; a light canvas makes a light theme. Stellar
+generates the rest. The optional `colors` overrides use the names in the theme editor's advanced
+view. A file marked `"appearance": "light"` that also has a `variants.dark` palette publishes that
+dark palette.
 
 Write updates to a temporary file and rename it into place so clients never read a partial theme.
 Invalid files are not published.

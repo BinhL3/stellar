@@ -5,22 +5,30 @@ import {
   applyThemePalette,
   CUSTOM_THEMES_STORAGE_KEY,
   DEFAULT_THEME_ID,
+  getActiveThemeDefinition,
+  getThemePreviewAppearance,
   invalidateCustomThemes,
   canonicalThemePreference,
   isKnownThemePreference,
   LEGACY_THEME_HALVES_STORAGE_KEY,
   legacyDarkThemeHalf,
+  subscribeToThemePreview,
   THEME_PREVIEW_ID,
+  themeAppearance,
+  themeColorToHex,
+  type ThemeAppearance,
   ThemePreference,
 } from "../themePalette";
 
 type Theme = ThemePreference;
-// `resolvedTheme` is always "dark". It stays for the components that still thread it to
-// syntax highlighting and file icons.
-type ThemeSnapshot = { theme: Theme; resolvedTheme: "dark" };
+/** `resolvedTheme` is the active theme's appearance, for syntax highlighting and file icons. */
+type ThemeSnapshot = { theme: Theme; resolvedTheme: ThemeAppearance };
 
 const STORAGE_KEY = "t3code:theme";
 const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = { theme: DEFAULT_THEME_ID, resolvedTheme: "dark" };
+
+const resolveAppearance = (theme: Theme): ThemeAppearance =>
+  themeAppearance(getActiveThemeDefinition(theme));
 
 const THEME_COLOR_META_NAME = "theme-color";
 const DYNAMIC_THEME_COLOR_SELECTOR = `meta[name="${THEME_COLOR_META_NAME}"][data-dynamic-theme-color="true"]`;
@@ -193,10 +201,9 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
     document.documentElement.classList.add("no-transitions");
   }
   applyThemePalette(theme);
-  // Tailwind's `dark:` variant keys off this class, so it is always present.
-  document.documentElement.classList.add("dark");
   lastAppliedTheme = theme;
   syncBrowserChromeTheme();
+  syncDesktopWindowAppearance(theme);
   if (suppressTransitions) {
     // Force a reflow so the no-transitions class takes effect before removal
     void document.documentElement.offsetHeight;
@@ -204,6 +211,25 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
       document.documentElement.classList.remove("no-transitions");
     });
   }
+}
+
+let lastDesktopAppearance: string | null = null;
+
+/** The desktop shell paints its window and native controls to match, and starts the next launch on them. */
+function syncDesktopWindowAppearance(theme: Theme) {
+  const bridge = window.desktopBridge;
+  if (!bridge || typeof bridge.setWindowAppearance !== "function") return;
+  const definition = getActiveThemeDefinition(theme);
+  const background = themeColorToHex(definition.colors.chrome)?.slice(0, 7);
+  if (!background) return;
+  const appearance = themeAppearance(definition);
+  const key = `${appearance}|${background}`;
+  if (key === lastDesktopAppearance) return;
+  lastDesktopAppearance = key;
+  bridge.setWindowAppearance({ appearance, background }).catch((cause: unknown) => {
+    if (lastDesktopAppearance === key) lastDesktopAppearance = null;
+    console.error("Failed to sync the theme to the desktop shell.", safeErrorLogAttributes(cause));
+  });
 }
 
 if (typeof document !== "undefined" && typeof window !== "undefined") {
@@ -216,8 +242,11 @@ function getSnapshot(): ThemeSnapshot {
   if (!snapshotStale && lastSnapshot) return lastSnapshot;
   snapshotStale = false;
   const theme = getStored();
-  if (lastSnapshot?.theme === theme) return lastSnapshot;
-  lastSnapshot = { theme, resolvedTheme: "dark" };
+  const resolvedTheme = resolveAppearance(theme);
+  if (lastSnapshot?.theme === theme && lastSnapshot.resolvedTheme === resolvedTheme) {
+    return lastSnapshot;
+  }
+  lastSnapshot = { theme, resolvedTheme };
   return lastSnapshot;
 }
 
@@ -258,8 +287,16 @@ export function getThemeSnapshot(): ThemeSnapshot {
   return getSnapshot();
 }
 
-/** Always "dark"; see `ThemeSnapshot`. */
-export const RENDERED_APPEARANCE = "dark" as const;
+/** The appearance on screen, including a theme editor draft shown in place of the theme. */
+export function useRenderedAppearance(): ThemeAppearance {
+  const { resolvedTheme } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const previewAppearance = useSyncExternalStore(
+    subscribeToThemePreview,
+    getThemePreviewAppearance,
+    () => null,
+  );
+  return previewAppearance ?? resolvedTheme;
+}
 
 export function setTheme(next: Theme): boolean {
   if (typeof window === "undefined") return false;

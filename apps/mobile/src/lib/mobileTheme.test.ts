@@ -11,12 +11,14 @@ import {
   readGeneratedMobileThemeVariables,
 } from "./mobileTheme.test-support";
 import { getMobileThemeRuntimeVariables } from "./mobileThemeVariables";
+import { getMobileUniwindThemeName } from "./mobileThemeRuntime";
 
 import {
   createMobileThemePatch,
   createMobileThemeVariables,
   DEFAULT_MOBILE_THEME_ID,
   flattenThemeColor,
+  getMobileThemeAppearance,
   getMobileThemeVariables,
   resolveMobileThemeId,
   themeColorWithAlpha,
@@ -77,7 +79,10 @@ describe("mobile themes", () => {
     expect(variables["--color-thread-hover"]).toBe(themeColorToNativeColor(colors.sidebarRowHover));
     expect(variables["--color-card"]).toBe(themeColorToNativeColor(colors.surface));
     expect(variables["--color-composer-surface"]).toBe(
-      themeColorWithAlpha(variables["--color-grouped-card"], 0.9),
+      themeColorWithAlpha(
+        variables["--color-grouped-card"],
+        getMobileThemeAppearance(themeId) === "dark" ? 0.9 : 0.94,
+      ),
     );
     expect(variables["--color-thread-selected"]).toBe(
       themeColorToNativeColor(colors.sidebarRowActive),
@@ -145,9 +150,7 @@ describe("mobile themes", () => {
   });
 
   it.each(MOBILE_THEME_IDS)("separates %s filled groups from their sheets", (themeId) => {
-    const generated = readGeneratedMobileThemeVariables(
-      themeId === DEFAULT_MOBILE_THEME_ID ? "dark" : `${themeId}-dark`,
-    );
+    const generated = readGeneratedMobileThemeVariables(getMobileUniwindThemeName(themeId));
     expect(generated).toEqual(getMobileThemeVariables(themeId));
     for (const platform of ["ios", "android"]) {
       const variables = getMobileThemeRuntimeVariables(themeId, platform);
@@ -177,7 +180,9 @@ describe("mobile themes", () => {
             `${role} on Android header`,
           ).toBeGreaterThanOrEqual(4.5);
         }
-        for (const surface of [variables["--color-screen"], header]) {
+        // Only a dark page swallows the card's shadow, so only there must the fill lift it.
+        const lifted = getMobileThemeAppearance(themeId) === "dark";
+        for (const surface of lifted ? [variables["--color-screen"], header] : []) {
           expect(
             contrastRatio(group, surface),
             `dark grouped surface on Android ${surface}`,

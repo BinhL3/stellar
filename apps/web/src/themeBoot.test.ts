@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import indexHtml from "../index.html?raw";
-import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
+import { BUILT_IN_THEMES, themeAppearance } from "@t3tools/shared/themePalettes";
 
 import { readThemePreference } from "./hooks/useTheme";
 import {
@@ -28,6 +28,7 @@ type BootResult = {
   backgroundColor: string;
   bootVariables: Record<string, string>;
   metaContent: string | null;
+  dark: boolean;
 };
 
 function runBootScript(options: {
@@ -41,7 +42,13 @@ function runBootScript(options: {
       this.content = value;
     },
   };
+  let dark = true;
   const documentElement = {
+    classList: {
+      toggle: (name: string, force: boolean) => {
+        if (name === "dark") dark = force;
+      },
+    },
     dataset: {} as Record<string, string | undefined>,
     style: {
       backgroundColor: "",
@@ -77,6 +84,7 @@ function runBootScript(options: {
     backgroundColor: documentElement.style.backgroundColor,
     bootVariables,
     metaContent: meta.content,
+    dark,
   };
 }
 
@@ -153,7 +161,7 @@ describe("index.html boot script", () => {
     {
       name: "a light-only custom theme",
       storage: { [THEME_STORAGE_KEY]: "paper", [CUSTOM_THEMES_STORAGE_KEY]: CUSTOM_THEMES },
-      themeId: DEFAULT_THEME_ID,
+      themeId: "paper",
     },
     {
       name: "a dark custom theme",
@@ -198,6 +206,15 @@ describe("index.html boot script", () => {
     expect(boot.bootVariables["--boot-background"]).toBe(
       AURORA_LIGHT_WITH_DARK_VARIANT.variants.dark.canvas,
     );
+    expect(boot.dark).toBe(true);
+  });
+
+  it("paints a stored light-only theme light", () => {
+    const boot = runBootScript({
+      storage: { [THEME_STORAGE_KEY]: "paper", [CUSTOM_THEMES_STORAGE_KEY]: CUSTOM_THEMES },
+    });
+    expect(boot.bootVariables["--boot-background"]).toBe(PAPER_LIGHT_ONLY.colors.canvas);
+    expect(boot.dark).toBe(false);
   });
 
   it("accepts exponent-form OKLCH before the runtime mounts", () => {
@@ -232,6 +249,7 @@ describe("index.html boot script", () => {
       expect(boot.bootVariables["--boot-accent"]).toBe(theme.colors.accent);
       expect(boot.backgroundColor).toBe(theme.colors.chrome);
       expect(boot.metaContent).toBe(theme.colors.chrome);
+      expect(boot.dark).toBe(themeAppearance(theme) === "dark");
     }
   });
 
@@ -264,7 +282,7 @@ describe("index.html boot script", () => {
     expect(boot.bootVariables["--boot-background"]).toBe(BUILT_IN_THEMES[0]!.colors.canvas);
   });
 
-  it("ships the dark class in the markup instead of resolving an appearance", () => {
+  it("starts dark in the markup and never follows the OS scheme", () => {
     expect(indexHtml).toMatch(/<html lang="en" class="dark">/);
     expect(bootScript).not.toContain("prefers-color-scheme");
   });

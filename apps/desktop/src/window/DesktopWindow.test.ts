@@ -257,6 +257,7 @@ function layerTest(input: {
     setServerExposureMode: () => Effect.die("unexpected server exposure update"),
     setTailscaleServe: () => Effect.die("unexpected Tailscale Serve update"),
     setUpdateChannel: () => Effect.die("unexpected update channel change"),
+    setWindowAppearance: () => Effect.die("unexpected window appearance change"),
     setWslBackendEnabled: () => Effect.die("unexpected WSL backend toggle"),
     setWslDistro: () => Effect.die("unexpected WSL distro change"),
     setWslOnly: () => Effect.die("unexpected WSL-only toggle"),
@@ -511,20 +512,24 @@ describe("DesktopWindow", () => {
         const fakeWindow = makeFakeBrowserWindow();
         const createCount = yield* Ref.make(0);
         const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+        const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
         const layer = layerTest({
           window: fakeWindow.window,
           createCount,
           mainWindow,
-          createdWindowOptions: [],
+          createdWindowOptions,
           desktopSettings: {
             ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
             localEnvironmentEnabled: false,
+            windowAppearance: { appearance: "light", background: "#f6f2eb" },
           },
         });
         yield* Effect.gen(function* () {
           const desktopWindow = yield* DesktopWindow.DesktopWindow;
           yield* desktopWindow.createMainIfBackendReady;
           assert.equal(yield* Ref.get(createCount), 1);
+          // The first frame is the last theme's canvas, not a dark flash.
+          assert.equal(createdWindowOptions[0]?.backgroundColor, "#f6f2eb");
           yield* Ref.set(mainWindow, Option.none());
           yield* desktopWindow.activate;
           assert.equal(yield* Ref.get(createCount), 2);

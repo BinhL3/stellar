@@ -21,8 +21,8 @@ export function SubscriptionUsage(props: SubscriptionUsageProps, _environment: W
   // The widget runtime evaluates this function without the app's module scope.
   const now = Date.now();
   const limit = 2;
-  // Stellar is dark-only, so the widget does not follow the home screen's scheme.
-  const appearance = "dark";
+  // The widget follows the app's theme, not the home screen's scheme.
+  const appearance = props.theme?.mode ?? "dark";
   const palette = props.theme?.[appearance];
   const colors = palette
     ? {

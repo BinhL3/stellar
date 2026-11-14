@@ -124,7 +124,11 @@ function ThemeLibraryCard({
                       variant.onUse();
                     }}
                   >
-                    <ThemePreviewCircle colors={variant.card.colors} className="size-7" />
+                    <ThemePreviewCircle
+                      colors={variant.card.colors}
+                      appearance={variant.card.appearance}
+                      className="size-7"
+                    />
                   </button>
                 }
               />
@@ -134,7 +138,7 @@ function ThemeLibraryCard({
         </div>
       ) : (
         <div className="flex min-h-16 items-center justify-center px-3 pt-3">
-          <ThemePreviewCircle colors={theme.colors} />
+          <ThemePreviewCircle colors={theme.colors} appearance={theme.appearance} />
         </div>
       )}
       <div className="flex items-center gap-2 px-3 pb-3 pt-2">
@@ -538,7 +542,7 @@ export function ThemeLibrary({
                     </span>
                     <span className="flex size-11 shrink-0 items-center justify-center">
                       <span className="flex scale-75">
-                        <ThemePreviewCircle colors={card.colors} />
+                        <ThemePreviewCircle colors={card.colors} appearance={card.appearance} />
                       </span>
                     </span>
                     <p className="max-w-full truncate text-center text-base font-medium text-foreground sm:text-sm">

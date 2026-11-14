@@ -13,7 +13,7 @@ import { useState } from "react";
 import { getDesktopSnapShotBridge } from "../../lib/desktopSnapShot";
 import { resolveDiffThemeName } from "../../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
-import { RENDERED_APPEARANCE } from "../../hooks/useTheme";
+import { useRenderedAppearance } from "../../hooks/useTheme";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
@@ -36,7 +36,7 @@ export function CaptureShortcutConfig({
   onComplete?: () => Promise<void>;
 }) {
   const bridge = getDesktopSnapShotBridge();
-  const resolvedTheme = RENDERED_APPEARANCE;
+  const resolvedTheme = useRenderedAppearance();
   const { copyToClipboard, isCopied } = useCopyToClipboard();
   const [preview, setPreview] = useState<DesktopCaptureConfigPreview | null>(null);
   const [result, setResult] = useState<DesktopCaptureConfigApplied | null>(null);

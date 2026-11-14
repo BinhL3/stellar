@@ -49,6 +49,34 @@
             accent: "#dedede",
             chrome: "#252525",
           },
+          "long-bien": {
+            light: true,
+            background: "#f6f2eb",
+            foreground: "#2a211b",
+            accent: "#a3461f",
+            chrome: "#f6f2eb",
+          },
+          sakura: {
+            light: true,
+            background: "#fcf6f5",
+            foreground: "#2c1f23",
+            accent: "#ad4466",
+            chrome: "#fcf6f5",
+          },
+          shore: {
+            light: true,
+            background: "#f3f6f5",
+            foreground: "#1b2628",
+            accent: "#2d6a80",
+            chrome: "#f3f6f5",
+          },
+          "train-street": {
+            light: true,
+            background: "#f8f3e8",
+            foreground: "#26231a",
+            accent: "#2e6a4c",
+            chrome: "#f8f3e8",
+          },
         };
         // The runtime completes a custom palette that omits a role from the
         // Stellar palette; the splash does the same so it cannot flash other colors.
@@ -112,9 +140,9 @@
           typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,47})$/.test(value);
         const isThemeLabel = (value) =>
           typeof value === "string" && value.trim().length > 0 && value.trim().length <= 48;
-        // A theme saved before the app went dark-only may be light with a dark
-        // variant. Returns its dark colors, or null when it only has a light palette.
-        const storedDarkColors = (value) => {
+        // A theme saved while themes paired a light and a dark palette shows its
+        // dark variant; one with only a light palette is a light theme.
+        const storedPalette = (value) => {
           if (
             !isRecord(value) ||
             !isThemeId(value.id) ||
@@ -123,13 +151,10 @@
           ) {
             return null;
           }
-          const colors =
-            value.appearance === undefined || value.appearance === "dark"
-              ? value.colors
-              : value.appearance === "light" && isRecord(value.variants)
-                ? value.variants.dark
-                : null;
-          return isRecord(colors) ? colors : null;
+          const dark = isRecord(value.variants) ? value.variants.dark : undefined;
+          const light = value.appearance === "light" && dark === undefined;
+          const colors = value.appearance === "light" && !light ? dark : value.colors;
+          return isRecord(colors) ? { colors, light } : null;
         };
         const findCustomColors = (themeId) => {
           try {
@@ -138,7 +163,7 @@
             );
             if (!Array.isArray(parsed)) return null;
             for (const value of parsed) {
-              if (isRecord(value) && value.id === themeId) return storedDarkColors(value);
+              if (isRecord(value) && value.id === themeId) return storedPalette(value);
             }
           } catch {}
           return null;
@@ -150,12 +175,14 @@
           const themeId = LEGACY_THEME_IDS[stored] ?? stored;
           const builtIn = BUILT_IN_THEME_PALETTES[themeId];
           if (builtIn) return { id: themeId, palette: builtIn };
-          const colors = findCustomColors(themeId);
-          if (!colors) return null;
+          const saved = findCustomColors(themeId);
+          if (!saved) return null;
+          const colors = saved.colors;
           const pick = (role, fallback) => (isThemeColor(colors[role]) ? colors[role] : fallback);
           return {
             id: themeId,
             palette: {
+              light: saved.light,
               background: pick("canvas", CUSTOM_THEME_DEFAULTS.background),
               foreground: pick("text", CUSTOM_THEME_DEFAULTS.foreground),
               accent: pick("accent", CUSTOM_THEME_DEFAULTS.accent),
@@ -179,6 +206,8 @@
         theme ??= { id: DEFAULT_THEME_ID, palette: BUILT_IN_THEME_PALETTES[DEFAULT_THEME_ID] };
         const root = document.documentElement;
         root.dataset.themeId = theme.id;
+        // Tailwind's `dark:` variant and the light tokens key off this class.
+        root.classList.toggle("dark", !theme.palette.light);
         root.style.backgroundColor = theme.palette.chrome;
         for (const name of ["background", "foreground", "accent"]) {
           root.style.setProperty(`--boot-${name}`, theme.palette[name]);

@@ -142,6 +142,7 @@ it.layer(NodeServices.layer)("environment theme", (it) => {
         assert.deepEqual(
           (yield* currentThemes).map((theme) => [theme.id, theme.appearance]),
           [
+            ["light-only", "light"],
             ["nightfall", "dark"],
             ["notepad", "dark"],
             ["paired", "light"],

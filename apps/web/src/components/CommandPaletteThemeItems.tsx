@@ -57,7 +57,7 @@ export function useCommandPaletteThemeItems() {
       {
         value: "themes",
         label: "Change theme",
-        items: themeCards.map(({ id, label, colors }) => ({
+        items: themeCards.map(({ id, label, appearance, colors }) => ({
           kind: "action",
           value: `theme:palette:${id}`,
           title: label,
@@ -69,7 +69,11 @@ export function useCommandPaletteThemeItems() {
                 <span className="text-xs text-muted-foreground/70">Current</span>
               ) : null}
               <span className="flex items-center gap-1" aria-hidden>
-                <ThemePreviewCircle colors={colors} className="size-3 border-0" />
+                <ThemePreviewCircle
+                  colors={colors}
+                  appearance={appearance}
+                  className="size-3 border-0"
+                />
               </span>
             </span>
           ),

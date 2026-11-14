@@ -13,6 +13,7 @@ import * as DesktopState from "./DesktopState.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 
 import { createInitialDesktopUpdateState } from "../updates/updateMachine.ts";
@@ -162,6 +163,7 @@ it.effect.each([
               main: Ref.get(mainRef),
               create: () => Effect.succeed(recovery),
             } as unknown as ElectronWindow.ElectronWindow["Service"]),
+            DesktopAppSettings.layerTest(),
             Layer.succeed(DesktopUpdates.DesktopUpdates, {
               subscribe: Effect.succeed({
                 latest: updateState({ status: "disabled" }),

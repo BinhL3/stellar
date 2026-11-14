@@ -226,6 +226,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
                     }),
                   ),
                 ),
+          setWindowAppearance: () => Effect.die("unexpected window appearance change"),
           setWslBackendEnabled: () => Effect.die("unexpected WSL backend toggle"),
           setWslDistro: () => Effect.die("unexpected WSL distro change"),
           setLocalEnvironmentEnabled: () => Effect.die("unexpected local environment toggle"),

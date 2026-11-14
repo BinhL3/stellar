@@ -20,7 +20,7 @@ const snapshotAtom = Atom.make((get) =>
 ).pipe(Atom.withEquality((a, b) => JSON.stringify(a) === JSON.stringify(b)));
 
 export function SubscriptionUsageCoordinator() {
-  const { themeVariables, isReady: appearanceReady } = useAppearancePreferences();
+  const { themeVariables, themeAppearance, isReady: appearanceReady } = useAppearancePreferences();
   const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
   const snapshot = useAtomValue(snapshotAtom);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes subscription usage and theme to the native home screen widget
@@ -30,12 +30,12 @@ export function SubscriptionUsageCoordinator() {
       .then(() =>
         publishSubscriptionUsage({
           ...snapshot,
-          theme: createWidgetTheme(themeVariables),
+          theme: createWidgetTheme(themeVariables, themeAppearance),
         }),
       )
       .catch((error: unknown) => {
         console.warn("Could not update subscription usage widget", error);
       });
-  }, [catalog.isReady, appearanceReady, snapshot, themeVariables]);
+  }, [catalog.isReady, appearanceReady, snapshot, themeVariables, themeAppearance]);
   return null;
 }

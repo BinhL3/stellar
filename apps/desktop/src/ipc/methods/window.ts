@@ -3,6 +3,7 @@ import {
   DesktopAppBrandingSchema,
   DesktopEnvironmentBootstrapSchema,
   DesktopMediaReadSchema,
+  DesktopWindowAppearanceSchema,
   EDITORS,
   EditorId,
   PickedThemeFileSchema,
@@ -35,9 +36,11 @@ import * as ElectronApp from "../../electron/ElectronApp.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronMenu from "../../electron/ElectronMenu.ts";
 import * as ElectronShell from "../../electron/ElectronShell.ts";
+import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as Electron from "electron";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
+import { syncWindowAppearance } from "../../window/windowAppearance.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
@@ -440,6 +443,33 @@ export const revealWindow = DesktopIpc.makeIpcMethod({
 });
 
 const PICKED_THEME_FILE_MAX_BYTES = 256 * 1024;
+
+export const setWindowAppearance = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SET_WINDOW_APPEARANCE_CHANNEL,
+  payload: DesktopWindowAppearanceSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.setWindowAppearance")(function* (windowAppearance) {
+    const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
+    const electronTheme = yield* ElectronTheme.ElectronTheme;
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
+    const platform = yield* HostProcess.Platform;
+    const { changed } = yield* appSettings
+      .setWindowAppearance(windowAppearance)
+      .pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("failed to save the window appearance", { cause: error }).pipe(
+            Effect.as({ changed: true }),
+          ),
+        ),
+      );
+    if (!changed) return;
+    yield* electronTheme.setSource(windowAppearance.appearance);
+    const main = yield* electronWindow.main;
+    if (Option.isSome(main)) {
+      syncWindowAppearance(main.value, windowAppearance, platform);
+    }
+  }),
+});
 
 export const pickThemeFiles = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PICK_THEME_FILES_CHANNEL,

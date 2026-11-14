@@ -40,6 +40,7 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
+import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopShellEnvironment from "../shell/DesktopShellEnvironment.ts";
@@ -119,7 +120,7 @@ it.effect.each([false, true])(
             updates: Stream.empty,
           }),
           Effect.provideService(DesktopAppSettings.DesktopAppSettings, {
-            load: Effect.void,
+            load: Effect.succeed({ windowAppearance: null }),
             get: Effect.succeed({
               localEnvironmentEnabled: true,
               serverExposureMode: "local-only",
@@ -132,6 +133,7 @@ it.effect.each([false, true])(
           Effect.provideService(DesktopClerk.DesktopClerk, {
             configure: Effect.void,
           } as DesktopClerk.DesktopClerk["Service"]),
+          Effect.provideService(ElectronTheme.ElectronTheme, { setSource: () => Effect.void }),
           Effect.provideService(ElectronSafeStorage.ElectronSafeStorage, {
             selectedStorageBackend: Effect.succeedNone,
           } as unknown as ElectronSafeStorage.ElectronSafeStorage["Service"]),

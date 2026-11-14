@@ -11,6 +11,7 @@ import type * as Electron from "electron";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import type { BackendStartupFailure } from "../backend/DesktopBackendManager.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
@@ -144,12 +145,14 @@ export const listen: Effect.Effect<
   | DesktopState.DesktopState
   | DesktopUpdates.DesktopUpdates
   | DesktopEnvironment.DesktopEnvironment
+  | DesktopAppSettings.DesktopAppSettings
   | ElectronApp.ElectronApp
   | ElectronShell.ElectronShell
   | ElectronWindow.ElectronWindow
   | FileSystem.FileSystem
   | Scope.Scope
 > = Effect.gen(function* () {
+  const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const { primaryBackendStartup, quitting } = yield* DesktopState.DesktopState;
   const updates = yield* DesktopUpdates.DesktopUpdates;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -257,6 +260,8 @@ export const listen: Effect.Effect<
         yield* electronWindow.reveal(existing.value);
         return;
       }
+      // The page follows the native theme's scheme in plain black or white.
+      const light = (yield* desktopSettings.get).windowAppearance?.appearance === "light";
       const window = yield* electronWindow.create(
         {
           width: 640,
@@ -266,7 +271,7 @@ export const listen: Effect.Effect<
           show: false,
           title: "Stellar could not start",
           autoHideMenuBar: true,
-          backgroundColor: "#000000",
+          backgroundColor: light ? "#ffffff" : "#000000",
           webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,

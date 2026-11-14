@@ -319,13 +319,14 @@ describe("VS Code theme import", () => {
     ).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("refuses light themes, judging an untyped one by its editor background", () => {
+  it("imports light themes as light, judging an untyped one by its editor background", () => {
     for (const light of [
       { name: "Untyped", colors: { "editor.background": "#fdfdfd" } },
-      { name: "Typed", type: "light", colors: { "editor.background": "#101010" } },
       { name: "High contrast", type: "hc-light", colors: { "editor.background": "#ffffff" } },
     ]) {
-      expect(() => parseVsCodeThemeFile(light)).toThrow("is a light theme");
+      const theme = parseVsCodeThemeFile(light);
+      expect(theme.appearance).toBe("light");
+      expect(contrastRatio(theme.colors.text, theme.colors.canvas)).toBeGreaterThanOrEqual(4.5);
     }
     expect(
       asHex(

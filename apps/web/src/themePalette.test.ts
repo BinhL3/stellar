@@ -290,7 +290,7 @@ describe("theme files", () => {
     expect(themeColorToHex(theme.colors.accent)).toBe("#b5005e");
   });
 
-  it("reads only the dark palette of a file written with light and dark variants", () => {
+  it("reads the dark palette of a file with both, and a light-only file as a light theme", () => {
     const file = {
       version: THEME_FILE_VERSION,
       id: "aurora",
@@ -313,7 +313,9 @@ describe("theme files", () => {
     expect(serialized).not.toHaveProperty("variants");
     expect(parseThemeFile(serialized).colors).toEqual(theme.colors);
 
-    expect(() => parseThemeFile(file)).toThrow("only has a light palette");
+    const light = parseThemeFile(file);
+    expect(light).toMatchObject({ appearance: "light", colors: { canvas: canonical("#f8fbff") } });
+    expect(JSON.parse(serializeThemeFile(light)).appearance).toBe("light");
     expect(
       parseThemeFile({
         ...file,
@@ -694,7 +696,7 @@ describe("context chip colors", () => {
 });
 
 describe("stored theme preferences", () => {
-  it("reads the dark palette of stored themes, hides light-only ones, and never writes on read", () => {
+  it("reads the dark palette of stored themes, keeps light-only ones light, and never writes on read", () => {
     const storedThemes = JSON.stringify([
       {
         id: "aurora",
@@ -718,26 +720,14 @@ describe("stored theme preferences", () => {
     invalidateCustomThemes();
     try {
       const themes = getCustomThemes();
-      expect(themes.map((theme) => theme.id)).toEqual(["aurora", "charcoal"]);
+      expect(themes.map((theme) => theme.id)).toEqual(["aurora", "paper", "charcoal"]);
+      expect(themes.map((theme) => theme.appearance)).toEqual([undefined, "light", undefined]);
       expect(themes[0]!.colors).toMatchObject({
         canvas: canonical("rgb(16 24 39)"),
         accent: getDefaultThemeColors().accent,
       });
       expect(themes[0]).not.toHaveProperty("variants");
       expect(setItem).not.toHaveBeenCalled();
-
-      // A hidden light-only entry must not block reusing its id.
-      installCustomTheme(
-        parseThemeFile({
-          version: THEME_FILE_VERSION,
-          id: "paper",
-          name: "Paper",
-          colors: { canvas: "#101010" },
-        }),
-      );
-      const written: Array<{ id: string }> = JSON.parse(stored.get(CUSTOM_THEMES_STORAGE_KEY)!);
-      expect(written.filter((theme) => theme.id === "paper")).toHaveLength(1);
-      expect(getThemeDefinition("paper")?.colors.canvas).toBe(canonical("#101010"));
     } finally {
       vi.unstubAllGlobals();
       invalidateCustomThemes();

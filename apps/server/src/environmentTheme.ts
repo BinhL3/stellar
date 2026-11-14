@@ -135,9 +135,7 @@ export const readPublishedThemes = Effect.fn(function* (themesDir: string) {
     }
     const file = decoded.value;
     if (!environmentThemeFileHasColors(file)) {
-      yield* Effect.logWarning("ignoring environment theme without dark colors", {
-        path: filePath,
-      });
+      yield* Effect.logWarning("ignoring environment theme without colors", { path: filePath });
       continue;
     }
 
