@@ -12,6 +12,7 @@ import * as Option from "effect/Option";
 import * as CarouselProjects from "../../../carousel/CarouselProjects.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as VideoProjects from "../../../videoProject/VideoProjects.ts";
+import { recipeText } from "../../../videoProject/recipes/VideoRecipes.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { readThread, unavailable } from "../../threadAccess.ts";
 import { VideoToolkit } from "./tools.ts";
@@ -359,6 +360,18 @@ const handlers = {
           ? "Recorded in Stellar. Now set this video's row in the user's video catalog (their Google Sheet) to Posted with the post link, through their Google connector, and read the row back to confirm. Stellar does not write to Google; without a connector, ask the user to update the catalog."
           : "The posted record is removed. If the video catalog row says Posted, set it back through the user's Google connector.",
       };
+    }),
+  ),
+  video_recipe: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const text = recipeText(input.name);
+      if (text === undefined) {
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: `No recipe is named ${input.name}. These exist:\n${recipeText()}`,
+        });
+      }
+      return { text };
     }),
   ),
 } satisfies McpToolAccess.Handlers<typeof VideoToolkit.tools>;

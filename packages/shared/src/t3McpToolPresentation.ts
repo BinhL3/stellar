@@ -58,6 +58,7 @@ export type T3McpToolSummaryAction =
   | "video-render-check"
   | "video-preflight"
   | "video-posted"
+  | "video-recipe"
   | "carousel-read"
   | "carousel-edit"
   | "carousel-look"
@@ -241,6 +242,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   video_render_check: tool(["Check", "Checking", "Checked", "the export"], "video-render-check"),
   video_preflight: tool(["Read", "Reading", "Read", "the run's steps"], "video-preflight"),
   video_posted: tool(["Record", "Recording", "Recorded", "the short as posted"], "video-posted"),
+  video_recipe: tool(["Read", "Reading", "Read", "an edit recipe"], "video-recipe"),
   carousel_read: tool(["Read", "Reading", "Read", "the carousel"], "carousel-read"),
   carousel_edit: tool(["Edit", "Editing", "Edited", "the carousel"], "carousel-edit"),
   carousel_look: tool(["Look at", "Looking at", "Looked at", "the slides"], "carousel-look"),

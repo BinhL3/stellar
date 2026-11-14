@@ -333,6 +333,21 @@ const PostedTool = Tool.make("video_posted", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const RecipeTool = Tool.make("video_recipe", {
+  description:
+    "Stellar's built-in edit recipes: how to do an edit style with these tools, its default numbers, and what to finish in Premiere. Without `name`, lists them as `name: when to use it`; with one, returns that recipe to follow.",
+  parameters: Schema.Struct({ name: Schema.optional(Schema.String) }),
+  success: Schema.Struct({ text: Schema.String }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Read an edit recipe")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const VideoToolkit = Toolkit.make(
   TimelineReadTool,
   TimelineEditTool,
@@ -348,4 +363,5 @@ export const VideoToolkit = Toolkit.make(
   RenderCheckTool,
   PreflightTool,
   PostedTool,
+  RecipeTool,
 );
