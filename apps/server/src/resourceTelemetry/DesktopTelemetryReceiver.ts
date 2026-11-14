@@ -197,7 +197,7 @@ export class DesktopTelemetryReceiver extends Context.Service<
     readonly cancelDesktopUpdate: (
       requestId: string,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
-    /** Emits when the shell environment arrives after a start that could not wait for it. */
+    /** Emits when a shell environment snapshot changes the PATH this process started with. */
     readonly lateShellEnvironment: Stream.Stream<void>;
     readonly desktopUpdates: Effect.Effect<
       {
@@ -600,13 +600,16 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
         }
 
         if (message.type === "shellEnvironment") {
-          const awaited = environment.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING === "1";
+          const path = environment.PATH;
           return recordContact.pipe(
             Effect.andThen(applyShellSnapshot(message)),
+            // A launch with a current cache already has this PATH, and its providers are left alone.
             Effect.andThen(
-              awaited && message.discovered
-                ? PubSub.publish(lateShellEnvironment, undefined)
-                : Effect.void,
+              Effect.suspend(() =>
+                environment.PATH === path
+                  ? Effect.void
+                  : PubSub.publish(lateShellEnvironment, undefined),
+              ),
             ),
             Effect.asVoid,
           );
