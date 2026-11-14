@@ -178,17 +178,17 @@ describe("ThemeImportDialog JSONC imports", () => {
       new File([themeJsonc("JSONC Night", "#002b36")], "night.json", {
         type: "application/json",
       }),
-      new File([themeJsonc("JSONC Day", "#fdf6e3")], "day.json", {
+      new File([themeJsonc("JSONC Dusk", "#1e1e2e")], "dusk.json", {
         type: "application/json",
       }),
     ]);
 
     await vi.waitFor(() => {
-      expect(getCustomThemes().map((theme) => theme.label)).toEqual(["JSONC Night", "JSONC Day"]);
+      expect(getCustomThemes().map((theme) => theme.label)).toEqual(["JSONC Night", "JSONC Dusk"]);
     });
     expect(getCustomThemes().map((theme) => themeColorToHex(theme.colors.canvas))).toEqual([
       "#002b36",
-      "#fdf6e3",
+      "#1e1e2e",
     ]);
   });
 });
