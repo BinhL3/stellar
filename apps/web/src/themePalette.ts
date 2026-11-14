@@ -7,13 +7,14 @@ import { Atom } from "effect/reactivity";
 import "culori/css";
 import { converter, parse } from "culori/fn";
 import {
-  BOREALIS_THEME,
+  DRIVE_IN_THEME,
   BUILT_IN_THEMES,
   DARKROOM_THEME,
   DEFAULT_THEME_ID,
   NIGHT_EDIT_THEME,
   STUDIO_THEME,
   STELLAR_THEME,
+  RENAMED_THEME_IDS,
   RESERVED_THEME_IDS,
   THEME_COLOR_ROLES,
   type ThemeColorRole,
@@ -319,21 +320,24 @@ export function subscribeToCustomThemes(listener: () => void): () => void {
   };
 }
 
-const LEGACY_THEME_ID_ALIASES: Readonly<Record<string, string>> = Object.fromEntries(
-  [
-    "t3-code",
-    "t3-chat",
-    "t3-chat-dark",
-    "grove",
-    "ocean",
-    "ember",
-    "iris",
-    "t3-grove",
-    "t3-ocean",
-    "t3-ember",
-    "t3-iris",
-  ].map((id) => [id, "stellar"]),
-);
+const LEGACY_THEME_ID_ALIASES: Readonly<Record<string, string>> = {
+  ...RENAMED_THEME_IDS,
+  ...Object.fromEntries(
+    [
+      "t3-code",
+      "t3-chat",
+      "t3-chat-dark",
+      "grove",
+      "ocean",
+      "ember",
+      "iris",
+      "t3-grove",
+      "t3-ocean",
+      "t3-ember",
+      "t3-iris",
+    ].map((id) => [id, "stellar"]),
+  ),
+};
 
 function normalizeThemeId(themeId: string): string {
   return LEGACY_THEME_ID_ALIASES[themeId] ?? themeId;
@@ -1097,7 +1101,7 @@ export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | nu
 
 /** The theme on screen: an unknown preference, including the retired "system" and "light", shows the default. */
 export function getActiveThemeDefinition(theme: ThemePreference): ThemeDefinition {
-  return getThemeDefinition(theme) ?? BOREALIS_THEME;
+  return getThemeDefinition(theme) ?? DRIVE_IN_THEME;
 }
 
 export function themeAllowsSidebarArtwork(theme: ThemePreference): boolean {

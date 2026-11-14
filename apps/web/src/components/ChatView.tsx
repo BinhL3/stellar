@@ -182,6 +182,7 @@ import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.lo
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { GuestPendingMessages } from "./chat/GuestShareControls";
 import { useDeviceState } from "~/state/device";
+import { Backdrop } from "./backdrop/Backdrop";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { ComposerContextPermissions } from "./ComposerContextPermissions";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
@@ -264,7 +265,6 @@ import {
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
-import { DraftHeroBackdrop } from "./chat/DraftHeroBackdrop";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
@@ -3454,7 +3454,7 @@ export default function ChatView(props: ChatViewProps) {
               {...conversationArea}
               className="relative isolate flex min-h-0 flex-1 flex-col bg-background"
             >
-              {isDraftHeroState ? null : <DraftHeroBackdrop ambient />}
+              {isDraftHeroState ? null : <Backdrop variant="ambient" />}
               <WorkspaceMutationIdContext value={workspaceMutationId}>
                 <ThreadTimeline
                   pendingApprovals={pendingApprovals}
@@ -3579,7 +3579,7 @@ export default function ChatView(props: ChatViewProps) {
                   : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
               }
             >
-              {isDraftHeroState ? <DraftHeroBackdrop /> : null}
+              {isDraftHeroState ? <Backdrop variant="hero" /> : null}
               <div ref={draftHeroTransitionGroupRef} className="chat-composer-lane w-full">
                 <div
                   data-chat-composer-stack="true"

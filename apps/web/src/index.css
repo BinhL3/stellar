@@ -418,11 +418,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   text-transform: uppercase;
 }
 
-@theme inline {
-  /* The sky behind the planet backdrop: the app background with a little blue. */
-  --color-hero-paper: color-mix(in oklab, var(--info) 9%, var(--background));
-}
-
 /* Timeline clip kinds have fixed hues in every palette, apart from each other and from the
    blue-violet accent that marks selection. Fills stay dark enough for white names; the light tint is each kind's top edge and waveform. */
 :root {

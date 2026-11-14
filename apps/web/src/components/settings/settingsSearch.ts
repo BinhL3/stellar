@@ -325,9 +325,17 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Themes",
     to: "/settings/appearance",
     searchTerms: [
-      "appearance colors palette custom import Borealis Stellar Night Edit Darkroom Studio",
+      "appearance colors palette custom import Drive-In Stellar Night Edit Darkroom Studio",
     ],
     targetId: "appearance",
+  },
+  {
+    id: "backdrop",
+    title: "Backdrop",
+    to: "/settings/appearance",
+    searchTerms: [
+      "scene background art dither dithered halftone cmyk fluted ribbed paper texture strength dots",
+    ],
   },
   {
     // Prefixed because the slider control already owns the `appearance-contrast` id.

@@ -152,6 +152,23 @@ export const AppearanceContrast = Schema.Int.check(
 );
 export type AppearanceContrast = typeof AppearanceContrast.Type;
 const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 100;
+export const BACKDROP_TREATMENTS = [
+  "dither",
+  "halftone",
+  "cmyk",
+  "fluted",
+  "paper",
+  "none",
+] as const;
+export const BackdropTreatment = Schema.Literals(BACKDROP_TREATMENTS);
+export type BackdropTreatment = typeof BackdropTreatment.Type;
+export const BackdropStrength = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 }));
+/** Slider positions as percentages, keyed `<treatment>.<slider>`; a missing key is that slider's default. */
+export const BackdropParams = Schema.Record(
+  Schema.String.check(Schema.isMaxLength(48)),
+  Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
+);
+export type BackdropParams = typeof BackdropParams.Type;
 export const MIN_PANEL_ANIMATION_DURATION_MS = 0;
 export const MAX_PANEL_ANIMATION_DURATION_MS = 400;
 export const PanelAnimationDurationMs = Schema.Int.check(
@@ -401,6 +418,11 @@ export const ClientSettingsSchema = Schema.Struct({
   appearanceContrast: AppearanceContrast.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_APPEARANCE_CONTRAST)),
   ),
+  backdropTreatment: BackdropTreatment.pipe(
+    Schema.withDecodingDefault(Effect.succeed("dither" as const)),
+  ),
+  backdropStrength: BackdropStrength.pipe(Schema.withDecodingDefault(Effect.succeed(100))),
+  backdropParams: BackdropParams.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // Zero avoids per-frame layout work from width/height transitions.
   panelAnimationDurationMs: PanelAnimationDurationMs.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PANEL_ANIMATION_DURATION_MS)),
@@ -1870,6 +1892,9 @@ export const ClientSettingsPatch = Schema.Struct({
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
+  backdropTreatment: Schema.optionalKey(BackdropTreatment),
+  backdropStrength: Schema.optionalKey(BackdropStrength),
+  backdropParams: Schema.optionalKey(BackdropParams),
   panelAnimationDurationMs: Schema.optionalKey(PanelAnimationDurationMs),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),

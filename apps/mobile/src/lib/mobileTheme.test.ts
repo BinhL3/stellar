@@ -206,7 +206,8 @@ describe("mobile themes", () => {
   });
 
   it("keeps the dark theme of preferences saved with a theme per appearance", () => {
-    expect(resolveMobileThemeId({})).toBe("borealis");
+    expect(resolveMobileThemeId({})).toBe("drive-in");
+    expect(resolveMobileThemeId({ themeId: "borealis" })).toBe("drive-in");
     expect(resolveMobileThemeId({ themeId: "grove" })).toBe("stellar");
     expect(resolveMobileThemeId({ themeId: DEFAULT_MOBILE_THEME_ID })).toBe(
       DEFAULT_MOBILE_THEME_ID,
@@ -218,7 +219,7 @@ describe("mobile themes", () => {
     };
     expect(resolveMobileThemeId(pairedPreferences)).toBe("studio");
     expect(resolveMobileThemeId({ themeId: "night-edit", darkThemeId: "missing" })).toBe(
-      "borealis",
+      "drive-in",
     );
     // A new pick must outrank the stored dark theme, which is read first.
     expect(

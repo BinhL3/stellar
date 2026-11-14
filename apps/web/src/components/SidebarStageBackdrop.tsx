@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentIdentificationMode } from "@t3tools/contracts";
 
 import { APP_STAGE_LABEL, SHOW_STAGE_ARTWORK } from "../branding";
-import skyArtUrl from "./brand/stellar-sky.png";
+import { Backdrop } from "./backdrop/Backdrop";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 import { primaryServerConfigAtom } from "../state/server";
 
@@ -48,39 +48,23 @@ export function useSidebarStageBackdropVariant(
   return resolveSidebarStageBackdropVariant(useEnvironmentStageLabel(), mode);
 }
 
+/** The dev and nightly channels show a strip of the theme's scene across the sidebar header. */
 export function SidebarStageBackdrop({ variant }: { variant: SidebarStageBackdropVariant }) {
   return (
     <div
       aria-hidden
-      className="sidebar-stage-backdrop pointer-events-none absolute inset-x-0 top-0 z-0 h-20 select-none overflow-hidden"
-    >
-      <StageBackdropArt variant={variant} />
-    </div>
-  );
-}
-
-// A dithered moon in blue and red space, drawn at one dot per CSS pixel; `pixelated` keeps the
-// dots crisp. The moon sits about 260px in, inside the sidebar's usual width.
-function StageBackdropArt({ variant }: { variant: SidebarStageBackdropVariant }) {
-  return (
-    <img
       data-stage-art={variant}
-      alt=""
-      src={skyArtUrl}
-      draggable={false}
-      className="h-full w-auto max-w-none object-cover object-left [image-rendering:pixelated]"
-    />
+      className="sidebar-stage-backdrop pointer-events-none absolute inset-x-0 top-0 isolate z-0 h-20 select-none overflow-hidden"
+    >
+      <Backdrop variant="strip" className="bg-transparent" />
+    </div>
   );
 }
 
 export function StageBackdropButtonArt({ variant }: { variant: SidebarStageBackdropVariant }) {
   return (
-    <img
-      data-stage-art={variant}
-      alt=""
-      src={skyArtUrl}
-      draggable={false}
-      className="size-full object-cover object-[54%_50%] [image-rendering:pixelated]"
-    />
+    <span data-stage-art={variant} className="absolute inset-0 isolate block">
+      <Backdrop variant="strip" className="bg-transparent" />
+    </span>
   );
 }

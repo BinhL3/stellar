@@ -8,6 +8,7 @@ import {
   contextChipVariables,
   getActiveThemeDefinition,
   getThemeDefinition,
+  isReservedThemeId,
   legacyDarkThemeHalf,
   getCustomThemes,
   getStoredCustomThemeCollection,
@@ -78,7 +79,11 @@ describe("theme files", () => {
     expect(legacyDarkThemeHalf("{ not json")).toBeNull();
     expect(getThemeDefinition("my-custom-theme")).toBeNull();
     for (const retired of ["system", "light", "dark", "my-custom-theme"]) {
-      expect(getActiveThemeDefinition(retired).id).toBe("borealis");
+      expect(getActiveThemeDefinition(retired).id).toBe("drive-in");
+    }
+    for (const id of ["borealis", "drive-in"]) {
+      expect(getThemeDefinition(id)?.id).toBe("drive-in");
+      expect(isReservedThemeId(id)).toBe(true);
     }
   });
 

@@ -15,15 +15,15 @@
         const CUSTOM_THEMES_STORAGE_KEY = "t3code:themes:v1";
         // Written while a theme could be paired per appearance; its dark half still wins.
         const LEGACY_THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
-        const DEFAULT_THEME_ID = "borealis";
+        const DEFAULT_THEME_ID = "drive-in";
         // The roles the splash paints, per built-in theme. Keep in step with
         // packages/shared/src/themePalettes.ts.
         const BUILT_IN_THEME_PALETTES = {
-          borealis: {
-            background: "#08080d",
+          "drive-in": {
+            background: "#070a0e",
             foreground: "#eeeeee",
-            accent: "#6ff0c4",
-            chrome: "#08080d",
+            accent: "#d0f26a",
+            chrome: "#070a0e",
           },
           stellar: {
             background: "#141517",
@@ -58,6 +58,7 @@
           "light",
           "dark",
           ...Object.keys(BUILT_IN_THEME_PALETTES),
+          "borealis",
           "t3-code",
           "t3-chat",
           "grove",
@@ -70,11 +71,15 @@
           "t3-ember",
           "t3-iris",
         ];
-        const LEGACY_THEME_IDS = Object.fromEntries(
-          RESERVED_THEME_IDS.filter((id) => /^t3-|^(?:grove|ocean|ember|iris)$/.test(id)).map(
-            (id) => [id, "stellar"],
+        const LEGACY_THEME_IDS = {
+          ...Object.fromEntries(
+            RESERVED_THEME_IDS.filter((id) => /^t3-|^(?:grove|ocean|ember|iris)$/.test(id)).map(
+              (id) => [id, "stellar"],
+            ),
           ),
-        );
+          // Renamed built-ins; keep in step with RENAMED_THEME_IDS.
+          borealis: "drive-in",
+        };
         const setThemeColor = (color) => {
           for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
             meta.setAttribute("content", color);

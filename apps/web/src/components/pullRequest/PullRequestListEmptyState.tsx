@@ -70,7 +70,7 @@ export function PullRequestListEmptyState({
 }) {
   if (!hasProjects) {
     return (
-      <Empty>
+      <Empty backdrop="ambient">
         <BranchMark joined={false} />
         <EmptyHeader>
           <EmptyTitle>No projects in this workspace</EmptyTitle>
@@ -99,7 +99,7 @@ export function PullRequestListEmptyState({
 
   if (query.length > 0) {
     return (
-      <Empty>
+      <Empty backdrop="ambient">
         <BranchMark joined={false} />
         <EmptyHeader>
           <EmptyTitle>
@@ -124,7 +124,7 @@ export function PullRequestListEmptyState({
   }
 
   return (
-    <Empty>
+    <Empty backdrop="ambient">
       <BranchMark joined={false} />
       <EmptyHeader>
         <EmptyTitle>{filtered ? "Nothing under these filters" : "No pull requests"}</EmptyTitle>
