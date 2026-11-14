@@ -211,8 +211,19 @@ const EDGE_MAKING_EDITS: ReadonlySet<VideoTimelineEdit["kind"]> = new Set([
   "trim",
   "delete",
   "rippleDelete",
+  "rippleTrim",
+  "roll",
+  "slip",
+  "slide",
   "removeRange",
   "setEnabled",
+]);
+
+const HANDLE_EDITS: ReadonlySet<TimelineEdit["kind"]> = new Set([
+  "rippleTrim",
+  "roll",
+  "slip",
+  "slide",
 ]);
 
 // A split names its new pieces after the clip it cut ("id~frame"), so a later edit in the same
@@ -248,12 +259,20 @@ const toTimelineEdit = (
         ...(edit.magnetic === undefined ? {} : { magnetic: edit.magnetic }),
       };
     }
-    case "trim": {
+    case "trim":
+    case "rippleTrim":
+    case "roll": {
       const { clipId, edge, frame } = edit;
       if (clipId === undefined || edge === undefined || frame === undefined) {
         return missing("clipId", "edge", "frame");
       }
-      return { kind: "trim", clipId, edge, frame };
+      return { kind: edit.kind, clipId, edge, frame };
+    }
+    case "slip":
+    case "slide": {
+      const { clipId, frames } = edit;
+      if (clipId === undefined || frames === undefined) return missing("clipId", "frames");
+      return { kind: edit.kind, clipId, frames };
     }
     case "delete":
     case "rippleDelete":
@@ -2096,7 +2115,16 @@ const make = Effect.gen(function* () {
       edits.push(parsed);
       asked.push(index);
     }
-    const edited = applyEdits(timeline, edits);
+    // Ripple, roll, slip and slide stop where a file's media runs out, when its length is known.
+    const proxies = edits.some((edit) => HANDLE_EDITS.has(edit.kind))
+      ? yield* fileSystem.readFileString(path.join(input.workspaceRoot, PROXY_INDEX_PATH)).pipe(
+          Effect.flatMap(decodeJson),
+          Effect.map((value) => value as ProxyIndex),
+          Effect.orElseSucceed(() => null),
+        )
+      : null;
+    const options = { mediaSeconds: (target: string) => proxies?.media[target]?.duration };
+    const edited = applyEdits(timeline, edits, options);
     if (sound !== null && by === "agent") {
       const clippedBy = (result: Timeline) =>
         clippedEdges(
@@ -2111,7 +2139,7 @@ const make = Effect.gen(function* () {
       if (first !== undefined) {
         // The first edit after which the edge is there made it.
         const made = edits.findIndex((_, index) =>
-          clippedBy(applyEdits(timeline, edits.slice(0, index + 1))).some(
+          clippedBy(applyEdits(timeline, edits.slice(0, index + 1), options)).some(
             (edge) =>
               edge.target === first.target &&
               edge.side === first.side &&

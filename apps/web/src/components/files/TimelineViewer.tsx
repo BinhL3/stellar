@@ -2,6 +2,8 @@ import { compactLine } from "@t3tools/timeline/compactView";
 import {
   applyEdits,
   editClipId,
+  gapAt,
+  linkedTracks,
   rippleDeleteBlocked,
   type TimelineEdit,
 } from "@t3tools/timeline/edits";
@@ -16,27 +18,35 @@ import {
 import type { TimelineAction } from "@t3tools/timeline/premiere/shortcuts";
 import type { ProxyPeaks } from "@t3tools/timeline/proxies";
 import {
+  ArrowLeftRightIcon,
   AudioLinesIcon,
   BookmarkPlusIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronsLeftRightIcon,
   EllipsisIcon,
   FilmIcon,
+  FoldHorizontalIcon,
+  HandIcon,
   ImageIcon,
   MagnetIcon,
   MaximizeIcon,
   MessageSquarePlusIcon,
   MinusIcon,
+  MousePointer2Icon,
+  MoveHorizontalIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
   RepeatIcon,
+  ScissorsIcon,
   SkipBackIcon,
   SkipForwardIcon,
   SparklesIcon,
   TypeIcon,
   Undo2Icon,
   XIcon,
+  ZoomInIcon,
 } from "lucide-react";
 import {
   type ReactNode,
@@ -74,6 +84,8 @@ import {
   MenuCheckboxItem,
   MenuItem,
   MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
   MenuSeparator,
   MenuShortcut,
   MenuTrigger,
@@ -85,6 +97,9 @@ import {
   comboFromEvent,
   comboLabel,
   combosFor,
+  TOOL_ACTIONS,
+  TOOL_HINTS,
+  type TimelineTool,
   useTimelineKeymap,
 } from "~/components/timeline/timelineKeymap";
 import { toastManager } from "~/components/ui/toast";
@@ -121,6 +136,8 @@ type DragMode = "move" | "start" | "end";
 
 interface Drag {
   readonly id: string;
+  /** The tool that started the drag decides the edit; the mode, which part of the clip moves. */
+  readonly tool: Exclude<TimelineTool, "razor" | "hand" | "zoom">;
   readonly mode: DragMode;
   readonly fromTrack: string;
   readonly kind: LaidOutTrack["kind"];
@@ -134,6 +151,17 @@ interface Drag {
 }
 
 const dragEdit = (drag: Drag, magnetic: boolean): TimelineEdit => {
+  // Slipping drags the media under the clip, so it plays what was on the other side.
+  if (drag.tool === "slip") return { kind: "slip", clipId: drag.id, frames: -drag.deltaFrames };
+  if (drag.tool === "slide") return { kind: "slide", clipId: drag.id, frames: drag.deltaFrames };
+  if (drag.mode !== "move" && drag.tool !== "selection") {
+    return {
+      kind: drag.tool === "rippleEdit" ? "rippleTrim" : "roll",
+      clipId: drag.id,
+      edge: drag.mode,
+      frame: (drag.mode === "start" ? drag.startFrame : drag.endFrame) + drag.deltaFrames,
+    };
+  }
   if (drag.mode === "move") {
     return {
       kind: "move",
@@ -156,6 +184,10 @@ const EDIT_LABELS: Record<TimelineEdit["kind"], string> = {
   trim: "trim",
   delete: "delete",
   rippleDelete: "ripple delete",
+  rippleTrim: "ripple trim",
+  roll: "roll",
+  slip: "slip",
+  slide: "slide",
   split: "cut",
   removeRange: "remove range",
   setEnabled: "enable",
@@ -222,6 +254,31 @@ const KIND_ICON: Record<ClipKind, typeof FilmIcon> = {
   text: TypeIcon,
   audio: AudioLinesIcon,
   footageAudio: AudioLinesIcon,
+};
+
+const TOOL_ICON: Record<TimelineTool, typeof FilmIcon> = {
+  selection: MousePointer2Icon,
+  rippleEdit: FoldHorizontalIcon,
+  rollingEdit: ArrowLeftRightIcon,
+  razor: ScissorsIcon,
+  slip: ChevronsLeftRightIcon,
+  slide: MoveHorizontalIcon,
+  hand: HandIcon,
+  zoom: ZoomInIcon,
+};
+
+const TOOLS = Object.keys(TOOL_ACTIONS) as Array<TimelineTool>;
+
+// The pointer each tool shows over the tracks.
+const TOOL_CURSOR: Record<TimelineTool, string> = {
+  selection: "",
+  rippleEdit: "cursor-ew-resize",
+  rollingEdit: "cursor-col-resize",
+  razor: "cursor-crosshair",
+  slip: "cursor-ew-resize",
+  slide: "cursor-ew-resize",
+  hand: "cursor-grab active:cursor-grabbing",
+  zoom: "cursor-zoom-in",
 };
 
 const TIER_HINT: Record<EffectRef["tier"], string> = {
@@ -412,6 +469,9 @@ export default function TimelineViewer(props: {
   const [drag, setDrag] = useState<Drag | null>(null);
   // Magnetic drags close gaps and push clips along instead of overwriting, as in CapCut.
   const [magnetic, setMagnetic] = useState(true);
+  const [tool, setTool] = useState<TimelineTool>("selection");
+  // A click on a track's empty space picks the gap there, as in Premiere.
+  const [gapPick, setGapPick] = useState<{ track: string; frame: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [committing, setCommitting] = useState(false);
   const dragRef = useRef<Drag | null>(null);
@@ -572,6 +632,13 @@ export default function TimelineViewer(props: {
     const item = track.clips.find((c) => c.key === selectedKey);
     if (item) selected = { track, item };
   }
+  const selectedGap =
+    gapPick === null || selectedKey !== null
+      ? null
+      : (() => {
+          const found = gapAt(timeline, gapPick.track, gapPick.frame);
+          return found === null ? null : { ...found, track: gapPick.track };
+        })();
   const cuts = [
     ...new Set(tracks.flatMap((t) => t.clips.flatMap((c) => [c.startFrame, c.endFrame]))),
   ].toSorted((a, b) => a - b);
@@ -730,6 +797,8 @@ export default function TimelineViewer(props: {
 
   /** Moves a dragged edge onto the nearest cut, playhead or mark within reach. */
   const snapDelta = (current: Drag, rawDelta: number) => {
+    // A slip moves no edge, so there is nothing to snap.
+    if (current.tool === "slip") return Math.round(rawDelta);
     const reach = SNAP_PX / pxPerFrame;
     const targets = [
       ...cuts.filter((frame) => frame !== current.startFrame && frame !== current.endFrame),
@@ -761,15 +830,37 @@ export default function TimelineViewer(props: {
     track: LaidOutTrack,
     item: LaidOutClip,
   ) => {
-    if (!editable || event.button !== 0) return;
+    // The hand and zoom tools act on the track under the clip.
+    if (!editable || event.button !== 0 || tool === "hand" || tool === "zoom") return;
     const rect = event.currentTarget.getBoundingClientRect();
     const offset = event.clientX - rect.left;
+    if (tool === "razor") {
+      // The razor snaps to the playhead, so a cut lands on the frame being watched.
+      const raw = item.startFrame + offset / pxPerFrame;
+      const playhead = currentFrame();
+      const at = Math.round(Math.abs(raw - playhead) < SNAP_PX / pxPerFrame ? playhead : raw);
+      if (at > item.startFrame && at < item.endFrame) {
+        pushEdit({
+          kind: "split",
+          frame: at,
+          ...(event.shiftKey ? {} : { tracks: linkedTracks(timeline, item.key) }),
+        });
+      }
+      return;
+    }
+    const handles = rect.width > TRIM_HANDLE_PX * 3;
     const mode: DragMode =
-      rect.width > TRIM_HANDLE_PX * 3 && offset < TRIM_HANDLE_PX
-        ? "start"
-        : rect.width > TRIM_HANDLE_PX * 3 && offset > rect.width - TRIM_HANDLE_PX
-          ? "end"
-          : "move";
+      tool === "slip" || tool === "slide"
+        ? "move"
+        : tool === "rippleEdit" || tool === "rollingEdit"
+          ? offset < rect.width / 2
+            ? "start"
+            : "end"
+          : handles && offset < TRIM_HANDLE_PX
+            ? "start"
+            : handles && offset > rect.width - TRIM_HANDLE_PX
+              ? "end"
+              : "move";
     // Listen on the window: a clip dragged to another track re-renders in that row, and its old
     // element (and any pointer capture on it) goes away mid-drag.
     const onMove = (moveEvent: PointerEvent) => onClipPointerMove(moveEvent);
@@ -784,6 +875,7 @@ export default function TimelineViewer(props: {
     window.addEventListener("pointercancel", onEnd);
     dragRef.current = {
       id: item.key,
+      tool,
       mode,
       fromTrack: track.name,
       kind: track.kind,
@@ -803,7 +895,7 @@ export default function TimelineViewer(props: {
     const dy = event.clientY - current.originY;
     if (!current.active && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
     let toTrack = current.toTrack;
-    if (current.mode === "move") {
+    if (current.mode === "move" && current.tool === "selection") {
       const row = document
         .elementsFromPoint(event.clientX, event.clientY)
         .map((element) => element.closest<HTMLElement>("[data-track-name]"))
@@ -927,12 +1019,39 @@ export default function TimelineViewer(props: {
       case "nextEdit":
         seek(cuts.find((frame) => frame > here) ?? layout.durationFrames);
         return true;
+      case "previousGap":
+      case "nextGap": {
+        // Where no track plays anything, as Premiere's sequence gaps.
+        const gaps: Array<number> = [];
+        let cursor = 0;
+        for (const clip of allClips) {
+          if (clip.startFrame > cursor) gaps.push(cursor);
+          cursor = Math.max(cursor, clip.endFrame);
+        }
+        const next =
+          action === "nextGap"
+            ? gaps.find((frame) => frame > here)
+            : gaps.findLast((frame) => frame < here);
+        if (next !== undefined) seek(next);
+        return true;
+      }
       case "markIn":
         updateMarks({ ...marks, in: here });
         return true;
       case "markOut":
         updateMarks({ ...marks, out: here });
         return true;
+      case "markSelection": {
+        const range =
+          item ??
+          (selectedGap ? { startFrame: selectedGap.start, endFrame: selectedGap.end } : null);
+        if (range === null) {
+          notify("Select a clip or a gap first.");
+          return true;
+        }
+        updateMarks({ in: range.startFrame, out: range.endFrame });
+        return true;
+      }
       case "goToIn":
         if (marks.in !== null) seek(marks.in);
         return true;
@@ -967,9 +1086,20 @@ export default function TimelineViewer(props: {
         return true;
       }
       case "addEdit":
-        if (needsEdit()) pushEdit({ kind: "split", frame: here });
+      case "addEditAll": {
+        if (!needsEdit()) return true;
+        // Premiere cuts the targeted tracks; here that's the selected clip's, with its linked sound.
+        const crossing =
+          action === "addEdit" && item !== null && item.startFrame < here && here < item.endFrame;
+        pushEdit({
+          kind: "split",
+          frame: here,
+          ...(crossing ? { tracks: linkedTracks(timeline, item.key) } : {}),
+        });
         return true;
+      }
       case "clear":
+        if (item === null && selectedGap !== null) return rippleDeleteGap();
         if (item === null && selectedMarker !== null) {
           if (needsEdit()) removeMarker(selectedMarker);
           return true;
@@ -981,6 +1111,7 @@ export default function TimelineViewer(props: {
         }
         return true;
       case "rippleDelete":
+        if (item === null && selectedGap !== null) return rippleDeleteGap();
         if (!needsClip() || item === null) return true;
         if (rippleDeleteBlocked(timeline, item.key)) {
           notify("Other tracks have clips beside this one, so a ripple delete would cut them.");
@@ -1018,6 +1149,48 @@ export default function TimelineViewer(props: {
         const next = cuts.find((frame) => frame > here);
         if (next !== undefined && needsEdit()) {
           pushEdit({ kind: "removeRange", start: here, end: next, ripple: true });
+        }
+        return true;
+      }
+      case "extendPreviousEdit":
+      case "extendNextEdit": {
+        if (!needsEdit()) return true;
+        // The nearest cut on that side, on the selected clip's track when one is selected.
+        const scope = selected === null ? tracks : [selected.track];
+        const edges = scope.flatMap((track) =>
+          track.clips.flatMap((clip) => [
+            { clip, edge: "start" as const, frame: clip.startFrame },
+            { clip, edge: "end" as const, frame: clip.endFrame },
+          ]),
+        );
+        const side = edges.filter((edge) =>
+          action === "extendPreviousEdit" ? edge.frame < here : edge.frame > here,
+        );
+        const nearest = side.toSorted((a, b) =>
+          action === "extendPreviousEdit" ? b.frame - a.frame : a.frame - b.frame,
+        )[0];
+        if (nearest) {
+          pushEdit({ kind: "roll", clipId: nearest.clip.key, edge: nearest.edge, frame: here });
+        }
+        return true;
+      }
+      case "slipLeft":
+      case "slipRight":
+      case "slipLeftFive":
+      case "slipRightFive":
+      case "slideLeft":
+      case "slideRight":
+      case "slideLeftFive":
+      case "slideRightFive": {
+        if (!needsClip() || item === null) return true;
+        const step = action.endsWith("Five") ? 5 : 1;
+        if (action.startsWith("slip")) {
+          // Slipping left moves the media left under the clip, so it shows later frames.
+          const frames = action.startsWith("slipLeft") ? step : -step;
+          pushEdit({ kind: "slip", clipId: item.key, frames });
+        } else {
+          const frames = action.startsWith("slideLeft") ? -step : step;
+          pushEdit({ kind: "slide", clipId: item.key, frames });
         }
         return true;
       }
@@ -1113,7 +1286,54 @@ export default function TimelineViewer(props: {
         return true;
       case "listenToCut":
         return listenToCut();
+      case "toolSelection":
+      case "toolRippleEdit":
+      case "toolRollingEdit":
+      case "toolRazor":
+      case "toolSlip":
+      case "toolSlide":
+      case "toolHand":
+      case "toolZoom":
+        setTool(TOOLS.find((candidate) => TOOL_ACTIONS[candidate] === action) ?? "selection");
+        return true;
     }
+  };
+  /** Closes the selected gap, unless another track plays in it. */
+  const rippleDeleteGap = (): boolean => {
+    if (selectedGap === null || !editable) return selectedGap !== null;
+    if (selectedGap.shared) {
+      notify("Other tracks have clips in this gap, so closing it would cut them.");
+      return true;
+    }
+    pushEdit({ kind: "removeRange", start: selectedGap.start, end: selectedGap.end, ripple: true });
+    setGapPick(null);
+    return true;
+  };
+  /** Zooms around the frame under the pointer, as Premiere's zoom tool. */
+  const zoomAtPointer = (clientX: number, out: boolean) => {
+    const element = scrollerRef.current;
+    if (element === null) return;
+    const x = clientX - element.getBoundingClientRect().left;
+    const frameAt = (element.scrollLeft + x - LABEL_PX) / pxPerFrame;
+    zoomAround(zoom * (out ? 1 / ZOOM_STEP : ZOOM_STEP), Math.max(0, frameAt), x);
+  };
+  /** The hand tool drags the tracks along. */
+  const startHandDrag = (event: React.PointerEvent) => {
+    const element = scrollerRef.current;
+    if (element === null) return;
+    const originX = event.clientX;
+    const originLeft = element.scrollLeft;
+    const onMove = (moveEvent: PointerEvent) => {
+      element.scrollLeft = originLeft - (moveEvent.clientX - originX);
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
@@ -1361,6 +1581,7 @@ export default function TimelineViewer(props: {
     <>
       <PanelTools panel="timeline">
         <div role="toolbar" aria-label="Timeline tools" className="flex items-center gap-0.5">
+          <ToolPicker tool={tool} editable={editable} keymap={shortcuts.keymap} onPick={setTool} />
           {editable ? (
             <Tooltip>
               <TooltipTrigger
@@ -1598,14 +1819,41 @@ export default function TimelineViewer(props: {
                 </span>
               </div>
               <div
-                className="relative flex-1"
+                className={cn("relative flex-1", TOOL_CURSOR[tool])}
                 data-track-name={track.name}
                 data-track-kind={track.kind}
-                // A click on the track's empty space, not a clip, deselects.
+                onPointerDown={(event) => {
+                  if (tool === "hand" && event.button === 0) startHandDrag(event);
+                }}
                 onClick={(event) => {
-                  if (event.target === event.currentTarget) setSelectedKey(null);
+                  if (tool === "zoom") {
+                    zoomAtPointer(event.clientX, event.altKey);
+                    return;
+                  }
+                  // A click on the track's empty space, not a clip, deselects and picks the gap.
+                  if (event.target !== event.currentTarget) return;
+                  setSelectedKey(null);
+                  const left = event.currentTarget.getBoundingClientRect().left;
+                  setGapPick(
+                    tool === "selection" || tool === "rippleEdit"
+                      ? {
+                          track: track.name,
+                          frame: Math.floor((event.clientX - left) / pxPerFrame),
+                        }
+                      : null,
+                  );
                 }}
               >
+                {selectedGap?.track === track.name ? (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-y-1 rounded-xs border border-primary/60 bg-primary/12"
+                    style={{
+                      left: percent(selectedGap.start),
+                      width: percent(selectedGap.end - selectedGap.start),
+                    }}
+                  />
+                ) : null}
                 {pulledLayout?.tracks
                   .find((t) => t.name === track.name)
                   ?.clips.filter((item) => touched.has(item.key) && inView(item))
@@ -1659,6 +1907,8 @@ export default function TimelineViewer(props: {
                         );
                       }}
                       onClick={() => {
+                        if (tool === "razor" || tool === "hand" || tool === "zoom") return;
+                        setGapPick(null);
                         if (suppressClickRef.current) {
                           suppressClickRef.current = false;
                           return;
@@ -1676,7 +1926,10 @@ export default function TimelineViewer(props: {
                         TINT_CLASS[kind],
                         isSelected &&
                           "z-10 ring-2 ring-primary ring-offset-1 ring-offset-lanes before:h-[3px] before:bg-primary before:opacity-100 after:bg-white/12",
-                        editable && "cursor-grab touch-none active:cursor-grabbing",
+                        editable && "touch-none",
+                        tool === "selection"
+                          ? editable && "cursor-grab active:cursor-grabbing"
+                          : TOOL_CURSOR[tool],
                         touched.has(item.key) &&
                           "z-10 outline-2 -outline-offset-2 outline-warning outline-dashed",
                         drag?.active && drag.id === item.key && "opacity-90",
@@ -1687,7 +1940,7 @@ export default function TimelineViewer(props: {
                         width: percent(item.endFrame - item.startFrame),
                       }}
                     >
-                      {editable && widthPx > TRIM_HANDLE_PX * 3
+                      {editable && tool === "selection" && widthPx > TRIM_HANDLE_PX * 3
                         ? (["left", "right"] as const).map((side) => (
                             <span
                               key={side}
@@ -1807,6 +2060,60 @@ export default function TimelineViewer(props: {
         }}
       />
     </TimelinePlayerContext>
+  );
+}
+
+/**
+ * The current tool, quietly: one icon that opens the list of tools with their keys. A tool the
+ * layout gives no key (the razor, in a layout that put C on zoom) is still a click away here.
+ */
+function ToolPicker(props: {
+  readonly tool: TimelineTool;
+  readonly editable: boolean;
+  readonly keymap: Readonly<Record<string, TimelineAction>>;
+  readonly onPick: (tool: TimelineTool) => void;
+}) {
+  const Icon = TOOL_ICON[props.tool];
+  const label = ACTION_LABELS[TOOL_ACTIONS[props.tool]];
+  // Without edits, only the tools that look around apply.
+  const tools = props.editable
+    ? TOOLS
+    : TOOLS.filter((t) => ["selection", "hand", "zoom"].includes(t));
+  return (
+    <Menu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              render={<Button size="icon-sm" variant="ghost" aria-label={`Tool: ${label}`} />}
+            />
+          }
+        >
+          <Icon />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">
+          {label} · {TOOL_HINTS[props.tool]}
+        </TooltipPopup>
+      </Tooltip>
+      <MenuPopup align="start" side="bottom">
+        <MenuRadioGroup
+          value={props.tool}
+          onValueChange={(value) => props.onPick(value as TimelineTool)}
+        >
+          {tools.map((tool) => {
+            const ToolIcon = TOOL_ICON[tool];
+            const [combo] = combosFor(props.keymap, TOOL_ACTIONS[tool]);
+            return (
+              <MenuRadioItem key={tool} value={tool}>
+                <ToolIcon />
+                {ACTION_LABELS[TOOL_ACTIONS[tool]]}
+                {combo === undefined ? null : <MenuShortcut>{comboLabel(combo)}</MenuShortcut>}
+              </MenuRadioItem>
+            );
+          })}
+        </MenuRadioGroup>
+      </MenuPopup>
+    </Menu>
   );
 }
 

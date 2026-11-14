@@ -1,7 +1,7 @@
 /**
- * Hand edits (move, trim, delete) as pure operations, so the UI can show them pending and write
- * the result on commit. Times are whole timeline frames. Moves overwrite what they land on, as
- * an editor's drag does; trims stop at the neighbouring clip and the media's first frame.
+ * Hand edits as pure operations, in whole timeline frames, so the UI can show them pending.
+ * Moves overwrite what they land on; trims stop at the neighbour and the media's first frame.
+ * Ripple, roll, slip and slide carry a clip's linked partner: see `linkedGroup`.
  */
 import { layoutTimeline } from "./layout.ts";
 import {
@@ -10,6 +10,7 @@ import {
   type MarkerEdit,
   type MarkerHost,
   rippleMarkers,
+  shiftMarkersFrom,
 } from "./markers.ts";
 import {
   type Clip,
@@ -21,7 +22,7 @@ import {
   type TrackChild,
 } from "./otio.ts";
 import { STILL_PATH } from "./proxies.ts";
-import { reslicedSourceStart, timeScalarOf } from "./speed.ts";
+import { mediaSpanSeconds, reslicedSourceStart, timeScalarOf } from "./speed.ts";
 
 export type TimelineEdit =
   | {
@@ -42,8 +43,32 @@ export type TimelineEdit =
       readonly edge: "start" | "end";
       readonly frame: number;
     }
+  /**
+   * Premiere's ripple edit: the edge goes to `frame` as a trim would, the clip keeps its start,
+   * and everything after it on every track moves by the change in length.
+   */
+  | {
+      readonly kind: "rippleTrim";
+      readonly clipId: string;
+      readonly edge: "start" | "end";
+      readonly frame: number;
+    }
+  /** Premiere's rolling edit: the cut at the edge moves to `frame`, trimming both clips at it. */
+  | {
+      readonly kind: "roll";
+      readonly clipId: string;
+      readonly edge: "start" | "end";
+      readonly frame: number;
+    }
+  /** Plays `frames` later in its media (earlier when negative), in the same place. */
+  | { readonly kind: "slip"; readonly clipId: string; readonly frames: number }
+  /** Moves `frames` along its track; the clips either side trim so the cuts stay closed. */
+  | { readonly kind: "slide"; readonly clipId: string; readonly frames: number }
   | { readonly kind: "delete"; readonly clipId: string }
-  /** Closes the gap the clip leaves on every track; skipped when that would cut another clip. */
+  /**
+   * Closes the gap the clip and its linked partner leave on every track; skipped when that
+   * would cut another clip.
+   */
   | { readonly kind: "rippleDelete"; readonly clipId: string }
   /** Cuts every clip crossing `frame`, on the named tracks or on all of them. */
   | { readonly kind: "split"; readonly frame: number; readonly tracks?: ReadonlyArray<string> }
@@ -182,6 +207,33 @@ const placedTracks = (timeline: Timeline) => {
   });
 };
 
+export interface EditOptions {
+  /** A media file's length in seconds, when known, so edits stop where its handles run out. */
+  readonly mediaSeconds?: (target: string) => number | undefined;
+}
+
+const targetOf = (clip: Clip) => clip.media_references.DEFAULT_MEDIA.target_url;
+const hasNoSourceTime = (clip: Clip) => targetOf(clip) === "" || STILL_PATH.test(targetOf(clip));
+
+/**
+ * Timeline frames of media a clip leaves unplayed before its first frame (`head`) and after its
+ * last (`tail`). Unknown is unlimited; a reversed clip's head plays toward its media's end.
+ */
+const handlesOf = (clip: Clip, rate: number, options: EditOptions) => {
+  if (hasNoSourceTime(clip)) {
+    return { head: Number.POSITIVE_INFINITY, tail: Number.POSITIVE_INFINITY };
+  }
+  const scalar = Math.abs(timeScalarOf(clip));
+  const span = mediaSpanSeconds(clip);
+  const before = Math.floor((span.start * rate) / scalar + 1e-6);
+  const length = options.mediaSeconds?.(targetOf(clip));
+  const after =
+    length === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, Math.floor(((length - span.end) * rate) / scalar + 1e-6));
+  return timeScalarOf(clip) > 0 ? { head: before, tail: after } : { head: after, tail: before };
+};
+
 /** Clears [start, end) on a track: covered clips go, clips across an edge are trimmed or split. */
 const overwrite = (placed: Array<Placed>, start: number, end: number, rate: number) => {
   const kept: Array<Placed> = [];
@@ -247,6 +299,272 @@ const gapIsShared = (tracks: PlacedTracks, start: number, end: number, except: s
     placed.some((item) => item.id !== except && item.start < end && item.end > start),
   );
 
+interface Member {
+  readonly placed: Array<Placed>;
+  readonly item: Placed;
+}
+
+const sameSource = (a: Clip, b: Clip) =>
+  Math.abs(
+    a.source_range.start_time.value / a.source_range.start_time.rate -
+      b.source_range.start_time.value / b.source_range.start_time.rate,
+  ) < 1e-3;
+
+/**
+ * The clip and its linked partners: clips of the other kind (picture for sound, sound for
+ * picture) playing the same media from the same source frame over the same timeline frames.
+ */
+const linkedGroup = (tracks: PlacedTracks, clipId: string): Array<Member> => {
+  const own = tracks.find((t) => t.placed.some((p) => p.id === clipId));
+  const item = own?.placed.find((p) => p.id === clipId);
+  if (own === undefined || item === undefined) return [];
+  const group: Array<Member> = [{ placed: own.placed, item }];
+  if (hasNoSourceTime(item.clip)) return group;
+  for (const { track, placed } of tracks) {
+    if (track.kind === own.track.kind) continue;
+    const partner = placed.find(
+      (p) =>
+        p.start === item.start &&
+        p.end === item.end &&
+        targetOf(p.clip) === targetOf(item.clip) &&
+        sameSource(p.clip, item.clip),
+    );
+    if (partner) group.push({ placed, item: partner });
+  }
+  return group;
+};
+
+/** The track names a clip and its linked partners are on, for cutting them together. */
+export const linkedTracks = (timeline: Timeline, clipId: string): Array<string> => {
+  const tracks = placedTracks(timeline);
+  return linkedGroup(tracks, clipId).map(
+    (member) => tracks.find((t) => t.placed === member.placed)?.track.name ?? "",
+  );
+};
+
+const replace = (placed: Array<Placed>, item: Placed, next: Placed) => {
+  const index = placed.indexOf(item);
+  if (index >= 0) placed[index] = next;
+};
+
+/** The clip touching `item` on the side given, if a clip (not a gap) is there. */
+const neighbour = (placed: ReadonlyArray<Placed>, item: Placed, side: "before" | "after") =>
+  placed.find(
+    (p) => p !== item && (side === "before" ? p.end === item.start : p.start === item.end),
+  );
+
+const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
+
+/** A piece with `length` frames that starts `shift` frames later in its playback. */
+const resized = (item: Placed, rate: number, start: number, shift: number, length: number) => ({
+  ...item,
+  start,
+  end: start + length,
+  clip: reslice(item.clip, rate, shift, length),
+});
+
+const rippleTrim = (
+  tracks: PlacedTracks,
+  edit: Extract<TimelineEdit, { kind: "rippleTrim" }>,
+  rate: number,
+  markers: MarkerHost,
+  options: EditOptions,
+) => {
+  const group = linkedGroup(tracks, edit.clipId);
+  const [first] = group;
+  if (first === undefined) return;
+  const { start, end } = first.item;
+  const frame = Math.round(edit.frame);
+  const wanted = edit.edge === "end" ? frame - end : start - frame;
+  const inGroup = new Set(group.map((member) => member.item));
+  // Clips that move: everything after the clip, on every track.
+  const moving = tracks.map(({ placed }) => ({
+    placed,
+    own: placed.some((p) => inGroup.has(p)),
+    after: placed.filter((p) => !inGroup.has(p) && p.start >= end),
+    before: placed.filter((p) => !inGroup.has(p) && p.start < end),
+  }));
+  // Closing up stops where another track's later clips would run into one there that stays.
+  const room = Math.min(
+    ...moving
+      .filter((t) => !t.own && t.after.length > 0)
+      .map(
+        (t) =>
+          Math.min(...t.after.map((p) => p.start)) - Math.max(0, ...t.before.map((p) => p.end)),
+      ),
+  );
+  const handle = Math.min(
+    ...group.map(
+      ({ item }) => handlesOf(item.clip, rate, options)[edit.edge === "end" ? "tail" : "head"],
+    ),
+  );
+  const change = clamp(wanted, -(end - start - 1), handle);
+  const by = Math.max(change, -Math.max(0, room));
+  if (by === 0) return;
+  for (const { placed, item } of group) {
+    replace(
+      placed,
+      item,
+      resized(item, rate, item.start, edit.edge === "end" ? 0 : -by, item.end - item.start + by),
+    );
+  }
+  for (const { placed, after } of moving) {
+    for (const item of after)
+      replace(placed, item, { ...item, start: item.start + by, end: item.end + by });
+  }
+  markers.sequence = shiftMarkersFrom(markers.sequence, end, by, rate);
+};
+
+const roll = (
+  tracks: PlacedTracks,
+  edit: Extract<TimelineEdit, { kind: "roll" }>,
+  rate: number,
+  options: EditOptions,
+) => {
+  const group = linkedGroup(tracks, edit.clipId);
+  const [first] = group;
+  if (first === undefined) return;
+  const cut = edit.edge === "end" ? first.item.end : first.item.start;
+  const wanted = Math.round(edit.frame) - cut;
+  // Each track's two sides of the cut: the clip ending at it and the one starting at it.
+  const sides = group.map(({ placed, item }) => {
+    const left = edit.edge === "end" ? item : neighbour(placed, item, "before");
+    const right = edit.edge === "start" ? item : neighbour(placed, item, "after");
+    const previousEnd = Math.max(
+      0,
+      ...placed.filter((p) => p.end <= cut && p !== left).map((p) => p.end),
+    );
+    const nextStart = Math.min(
+      Number.POSITIVE_INFINITY,
+      ...placed.filter((p) => p.start >= cut && p !== right).map((p) => p.start),
+    );
+    return { placed, left, right, previousEnd, nextStart };
+  });
+  let low = Number.NEGATIVE_INFINITY;
+  let high = Number.POSITIVE_INFINITY;
+  for (const { left, right, previousEnd, nextStart } of sides) {
+    // Without a clip on one side, the cut rolls into the gap there.
+    if (left) {
+      low = Math.max(low, -(left.end - left.start - 1));
+      high = Math.min(high, handlesOf(left.clip, rate, options).tail);
+    } else low = Math.max(low, previousEnd - cut);
+    if (right) {
+      high = Math.min(high, right.end - right.start - 1);
+      low = Math.max(low, -handlesOf(right.clip, rate, options).head);
+    } else high = Math.min(high, nextStart - cut);
+  }
+  if (low > high) return;
+  const by = clamp(wanted, low, high);
+  if (by === 0) return;
+  for (const { placed, left, right } of sides) {
+    if (left) replace(placed, left, resized(left, rate, left.start, 0, left.end - left.start + by));
+    if (right)
+      replace(
+        placed,
+        right,
+        resized(right, rate, right.start + by, by, right.end - right.start - by),
+      );
+  }
+};
+
+const slip = (
+  tracks: PlacedTracks,
+  edit: Extract<TimelineEdit, { kind: "slip" }>,
+  rate: number,
+  options: EditOptions,
+) => {
+  const group = linkedGroup(tracks, edit.clipId).filter(({ item }) => !hasNoSourceTime(item.clip));
+  if (group.length === 0) return;
+  const handles = group.map(({ item }) => handlesOf(item.clip, rate, options));
+  const by = clamp(
+    Math.round(edit.frames),
+    -Math.min(...handles.map((h) => h.head)),
+    Math.min(...handles.map((h) => h.tail)),
+  );
+  if (by === 0) return;
+  for (const { placed, item } of group) {
+    const length = item.end - item.start;
+    const { start_time, duration } = item.clip.source_range;
+    // Only the media under the clip changes: its keyframes stay on their frames.
+    const sourceStart = reslicedSourceStart(item.clip, rate, by, length);
+    replace(placed, item, {
+      ...item,
+      clip: {
+        ...item.clip,
+        source_range: timeRange(
+          Math.round(sourceStart * 1000) / 1000,
+          duration.value,
+          start_time.rate,
+        ),
+      },
+    });
+  }
+};
+
+const slide = (
+  tracks: PlacedTracks,
+  edit: Extract<TimelineEdit, { kind: "slide" }>,
+  rate: number,
+  options: EditOptions,
+) => {
+  const group = linkedGroup(tracks, edit.clipId);
+  if (group.length === 0) return;
+  const sides = group.map(({ placed, item }) => {
+    const left = neighbour(placed, item, "before");
+    const right = neighbour(placed, item, "after");
+    const previousEnd = Math.max(0, ...placed.filter((p) => p.end <= item.start).map((p) => p.end));
+    const nextStart = Math.min(
+      Number.POSITIVE_INFINITY,
+      ...placed.filter((p) => p.start >= item.end).map((p) => p.start),
+    );
+    return { placed, item, left, right, previousEnd, nextStart };
+  });
+  let low = Number.NEGATIVE_INFINITY;
+  let high = Number.POSITIVE_INFINITY;
+  for (const { item, left, right, previousEnd, nextStart } of sides) {
+    if (left) {
+      low = Math.max(low, -(left.end - left.start - 1));
+      high = Math.min(high, handlesOf(left.clip, rate, options).tail);
+    } else low = Math.max(low, previousEnd - item.start);
+    if (right) {
+      high = Math.min(high, right.end - right.start - 1);
+      low = Math.max(low, -handlesOf(right.clip, rate, options).head);
+    } else high = Math.min(high, nextStart - item.end);
+  }
+  if (low > high) return;
+  const by = clamp(Math.round(edit.frames), low, high);
+  if (by === 0) return;
+  for (const { placed, item, left, right } of sides) {
+    replace(placed, item, { ...item, start: item.start + by, end: item.end + by });
+    if (left) replace(placed, left, resized(left, rate, left.start, 0, left.end - left.start + by));
+    if (right)
+      replace(
+        placed,
+        right,
+        resized(right, rate, right.start + by, by, right.end - right.start - by),
+      );
+  }
+};
+
+/** The empty stretch of a track around `frame`, between two clips; null over a clip or past the last. */
+export const gapAt = (
+  timeline: Timeline,
+  trackName: string,
+  frame: number,
+): { readonly start: number; readonly end: number; readonly shared: boolean } | null => {
+  const tracks = placedTracks(timeline);
+  const placed = tracks.find((t) => t.track.name === trackName)?.placed ?? [];
+  if (placed.some((p) => p.start <= frame && p.end > frame)) return null;
+  const start = Math.max(0, ...placed.filter((p) => p.end <= frame).map((p) => p.end));
+  const end = Math.min(
+    Number.POSITIVE_INFINITY,
+    ...placed.filter((p) => p.start > frame).map((p) => p.start),
+  );
+  if (!Number.isFinite(end) || end <= start) return null;
+  // Closing it up would cut whatever another track plays there.
+  return { start, end, shared: gapIsShared(tracks, start, end, "") };
+};
+
 const applyRangeEdit = (
   tracks: PlacedTracks,
   edit: TimelineEdit,
@@ -292,16 +610,41 @@ const applyRangeEdit = (
 /** Whether a ripple delete of `clipId` would have to cut a clip on another track. */
 export const rippleDeleteBlocked = (timeline: Timeline, clipId: string): boolean => {
   const tracks = placedTracks(timeline);
-  const item = tracks.flatMap((t) => t.placed).find((p) => p.id === clipId);
-  return item === undefined || gapIsShared(tracks, item.start, item.end, clipId);
+  const group = linkedGroup(tracks, clipId);
+  const [first] = group;
+  return first === undefined || rippleGapShared(tracks, first.item, group);
 };
 
-const applyOne = (tracks: PlacedTracks, edit: TimelineEdit, rate: number, markers: MarkerHost) => {
+/** Whether closing up a linked group's frames would cut a clip outside it. */
+const rippleGapShared = (tracks: PlacedTracks, item: Placed, group: ReadonlyArray<Member>) => {
+  const ids = new Set(group.map((member) => member.item));
+  return tracks.some(({ placed }) =>
+    placed.some((p) => !ids.has(p) && p.start < item.end && p.end > item.start),
+  );
+};
+
+const applyOne = (
+  tracks: PlacedTracks,
+  edit: TimelineEdit,
+  rate: number,
+  markers: MarkerHost,
+  options: EditOptions,
+) => {
   if (isMarkerEdit(edit)) {
     applyMarkerEdit(markers, edit, rate);
     return;
   }
   if (applyRangeEdit(tracks, edit, rate, markers)) return;
+  switch (edit.kind) {
+    case "rippleTrim":
+      return rippleTrim(tracks, edit, rate, markers, options);
+    case "roll":
+      return roll(tracks, edit, rate, options);
+    case "slip":
+      return slip(tracks, edit, rate, options);
+    case "slide":
+      return slide(tracks, edit, rate, options);
+  }
   if (!("clipId" in edit)) return;
   const from = tracks.find((t) => t.placed.some((p) => p.id === edit.clipId));
   const item = from?.placed.find((p) => p.id === edit.clipId);
@@ -314,8 +657,9 @@ const applyOne = (tracks: PlacedTracks, edit: TimelineEdit, rate: number, marker
   }
 
   if (edit.kind === "rippleDelete") {
-    if (gapIsShared(tracks, item.start, item.end, item.id)) return;
-    from.placed.splice(0, from.placed.length, ...others);
+    const group = linkedGroup(tracks, item.id);
+    if (rippleGapShared(tracks, item, group)) return;
+    for (const member of group) member.placed.splice(member.placed.indexOf(member.item), 1);
     shiftAfter(tracks, item.end, item.end - item.start);
     markers.sequence = rippleMarkers(markers.sequence, item.start, item.end, rate);
     return;
@@ -413,7 +757,11 @@ const applyOne = (tracks: PlacedTracks, edit: TimelineEdit, rate: number, marker
 };
 
 /** The timeline with `edits` applied in order. Edits naming a clip that no longer exists are skipped. */
-export const applyEdits = (timeline: Timeline, edits: ReadonlyArray<TimelineEdit>): Timeline => {
+export const applyEdits = (
+  timeline: Timeline,
+  edits: ReadonlyArray<TimelineEdit>,
+  options: EditOptions = {},
+): Timeline => {
   if (edits.length === 0) return timeline;
   const rate = timeline.global_start_time.rate;
   const tracks = placedTracks(timeline);
@@ -429,7 +777,7 @@ export const applyEdits = (timeline: Timeline, edits: ReadonlyArray<TimelineEdit
       }
     },
   };
-  for (const edit of edits) applyOne(tracks, edit, rate, markers);
+  for (const edit of edits) applyOne(tracks, edit, rate, markers, options);
   const { markers: _before, ...stack } = timeline.tracks;
   return {
     ...timeline,

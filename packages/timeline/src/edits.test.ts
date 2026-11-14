@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { applyEdits, rippleDeleteBlocked } from "./edits.ts";
+import { applyEdits, gapAt, linkedTracks, rippleDeleteBlocked } from "./edits.ts";
 import { layoutTimeline } from "./layout.ts";
 import { timelineMarkers } from "./markers.ts";
 import { type Clip, type Gap, rationalTime, type Timeline, timeRange, type Track } from "./otio.ts";
@@ -414,5 +414,199 @@ describe("applyEdits", () => {
     expect(timelineMarkers(edited)).toMatchObject([
       { id: "m1", frame: 30, clipId: "a", track: "V1", name: "Tighten", resolved: true },
     ]);
+  });
+});
+
+// Picture with its sound linked under it, then a gap. V1: a 0–30, b 30–60, gap, c 80–110.
+// A1 plays the same media from the same frames (a, b and c's sound). A2: n 70–100.
+const linked = (aV: Clip, bV: Clip, cV: Clip, extra: ReadonlyArray<Track> = []): Timeline => ({
+  ...timeline,
+  tracks: {
+    ...timeline.tracks,
+    children: [
+      track("V1", "Video", [aV, bV, gap(20), cV]),
+      track("A1", "Audio", [
+        clip("aA", aV.source_range.start_time.value, 30, "a.mov"),
+        clip("bA", bV.source_range.start_time.value, 30, "b.mov"),
+        gap(20),
+        clip("cA", cV.source_range.start_time.value, 30, "c.mov"),
+      ]),
+      track("A2", "Audio", [gap(70), clip("n", 0, 30, "n.wav")]),
+      ...extra,
+    ],
+  },
+});
+const cut = linked(clip("a", 100, 30), clip("b", 200, 30), clip("c", 5, 30));
+/** a.mov holds 134 frames: a (100–130) has 4 frames of tail handle. */
+const mediaSeconds = (target: string) => (target === "a.mov" ? 134 / RATE : undefined);
+
+describe("trimming tools", () => {
+  it("ripple trims an end: the clip and its sound shorten, everything after closes up", () => {
+    expect(
+      spans(applyEdits(cut, [{ kind: "rippleTrim", clipId: "a", edge: "end", frame: 20 }])),
+    ).toEqual({
+      V1: ["a 0–20 src 100", "b 20–50 src 200", "c 70–100 src 5"],
+      A1: ["aA 0–20 src 100", "bA 20–50 src 200", "cA 70–100 src 5"],
+      A2: ["n 60–90 src 0"],
+    });
+  });
+
+  it("ripple trims a start: the clip stays put, its head goes, later clips follow", () => {
+    expect(
+      spans(applyEdits(cut, [{ kind: "rippleTrim", clipId: "b", edge: "start", frame: 35 }])),
+    ).toMatchObject({
+      V1: ["a 0–30 src 100", "b 30–55 src 205", "c 75–105 src 5"],
+      A1: ["aA 0–30 src 100", "bA 30–55 src 205", "cA 75–105 src 5"],
+    });
+    // Pulled left, the head grows from the handle and pushes the rest along; c has only 5.
+    expect(
+      spans(applyEdits(cut, [{ kind: "rippleTrim", clipId: "c", edge: "start", frame: 70 }])).V1,
+    ).toEqual(["a 0–30 src 100", "b 30–60 src 200", "c 80–115 src 0"]);
+  });
+
+  it("ripple extends an end until the media runs out", () => {
+    const longer = applyEdits(cut, [{ kind: "rippleTrim", clipId: "a", edge: "end", frame: 40 }]);
+    expect(spans(longer).V1).toEqual(["a 0–40 src 100", "b 40–70 src 200", "c 90–120 src 5"]);
+    const handled = applyEdits(cut, [{ kind: "rippleTrim", clipId: "a", edge: "end", frame: 40 }], {
+      mediaSeconds,
+    });
+    expect(spans(handled)).toMatchObject({
+      V1: ["a 0–34 src 100", "b 34–64 src 200", "c 84–114 src 5"],
+      A2: ["n 74–104 src 0"],
+    });
+  });
+
+  it("ripple trims only as far as another track's later clips have room", () => {
+    // V2: t 10–40 crosses a's end and stays; u 40–50 after it can't move left of 40.
+    const blocked = linked(clip("a", 100, 30), clip("b", 200, 30), clip("c", 5, 30), [
+      track("V2", "Video", [gap(10), clip("t", 0, 30, "t.png"), clip("u", 0, 10, "u.png")]),
+    ]);
+    const edited = applyEdits(blocked, [
+      { kind: "rippleTrim", clipId: "a", edge: "end", frame: 20 },
+    ]);
+    expect(spans(edited)).toEqual(spans(blocked));
+  });
+
+  it("rolls a cut between two clips, within both clips' media", () => {
+    expect(
+      spans(applyEdits(cut, [{ kind: "roll", clipId: "a", edge: "end", frame: 25 }])),
+    ).toMatchObject({
+      V1: ["a 0–25 src 100", "b 25–60 src 195", "c 80–110 src 5"],
+      A1: ["aA 0–25 src 100", "bA 25–60 src 195", "cA 80–110 src 5"],
+    });
+    // Naming b's start is the same cut. Past b's last frame it stops one frame short.
+    expect(
+      spans(applyEdits(cut, [{ kind: "roll", clipId: "b", edge: "start", frame: 90 }])).V1,
+    ).toEqual(["a 0–59 src 100", "b 59–60 src 229", "c 80–110 src 5"]);
+    // a.mov has 4 frames after a's out point.
+    expect(
+      spans(
+        applyEdits(cut, [{ kind: "roll", clipId: "a", edge: "end", frame: 40 }], { mediaSeconds }),
+      ).V1,
+    ).toEqual(["a 0–34 src 100", "b 34–60 src 204", "c 80–110 src 5"]);
+    // c has 5 frames of head handle, so its cut rolls back only that far into the gap.
+    expect(
+      spans(applyEdits(cut, [{ kind: "roll", clipId: "c", edge: "start", frame: 60 }])).V1,
+    ).toEqual(["a 0–30 src 100", "b 30–60 src 200", "c 75–110 src 0"]);
+  });
+
+  it("rolls into a gap up to the next clip", () => {
+    expect(
+      spans(applyEdits(cut, [{ kind: "roll", clipId: "b", edge: "end", frame: 95 }])).V1,
+    ).toEqual(["a 0–30 src 100", "b 30–80 src 200", "c 80–110 src 5"]);
+  });
+
+  it("slips the media under a clip and its sound, stopping at the handles", () => {
+    expect(spans(applyEdits(cut, [{ kind: "slip", clipId: "b", frames: 10 }]))).toMatchObject({
+      V1: ["a 0–30 src 100", "b 30–60 src 210", "c 80–110 src 5"],
+      A1: ["aA 0–30 src 100", "bA 30–60 src 210", "cA 80–110 src 5"],
+    });
+    expect(spans(applyEdits(cut, [{ kind: "slip", clipId: "c", frames: -20 }])).V1).toContain(
+      "c 80–110 src 0",
+    );
+    expect(
+      spans(applyEdits(cut, [{ kind: "slip", clipId: "a", frames: 20 }], { mediaSeconds })).V1,
+    ).toContain("a 0–30 src 104");
+    // A still has no media time to slip through.
+    const still = linked(clip("a", 0, 30, "a.png"), clip("b", 200, 30), clip("c", 5, 30));
+    expect(spans(applyEdits(still, [{ kind: "slip", clipId: "a", frames: 5 }]))).toEqual(
+      spans(still),
+    );
+  });
+
+  it("slides a clip between its neighbours, which trim to keep the cuts closed", () => {
+    expect(spans(applyEdits(cut, [{ kind: "slide", clipId: "b", frames: -5 }]))).toMatchObject({
+      V1: ["a 0–25 src 100", "b 25–55 src 200", "c 80–110 src 5"],
+      A1: ["aA 0–25 src 100", "bA 25–55 src 200", "cA 80–110 src 5"],
+    });
+    // With a gap after it, b slides into the gap until it meets c; a grows to follow.
+    expect(spans(applyEdits(cut, [{ kind: "slide", clipId: "b", frames: 40 }])).V1).toEqual([
+      "a 0–50 src 100",
+      "b 50–80 src 200",
+      "c 80–110 src 5",
+    ]);
+    // a.mov has only 4 frames to give a's tail.
+    expect(
+      spans(applyEdits(cut, [{ kind: "slide", clipId: "b", frames: 40 }], { mediaSeconds })).V1,
+    ).toEqual(["a 0–34 src 100", "b 34–64 src 200", "c 80–110 src 5"]);
+    // Sliding left, the next clip's head grows from its handle: z has 2 frames.
+    const row: Timeline = {
+      ...timeline,
+      tracks: {
+        ...timeline.tracks,
+        children: [track("V1", "Video", [clip("x", 100, 30), clip("y", 3, 30), clip("z", 2, 30)])],
+      },
+    };
+    expect(spans(applyEdits(row, [{ kind: "slide", clipId: "y", frames: -5 }])).V1).toEqual([
+      "x 0–28 src 100",
+      "y 28–58 src 3",
+      "z 58–90 src 0",
+    ]);
+  });
+
+  it("links only sound playing the same media from the same frame", () => {
+    expect(linkedTracks(cut, "b")).toEqual(["V1", "A1"]);
+    const offset: Timeline = {
+      ...cut,
+      tracks: {
+        ...cut.tracks,
+        children: [
+          track("V1", "Video", [clip("a", 100, 30)]),
+          track("A1", "Audio", [clip("aA", 110, 30, "a.mov")]),
+        ],
+      },
+    };
+    expect(linkedTracks(offset, "a")).toEqual(["V1"]);
+    expect(spans(applyEdits(offset, [{ kind: "slip", clipId: "a", frames: 5 }])).A1).toEqual([
+      "aA 0–30 src 110",
+    ]);
+    // A razor through b and its sound leaves the other tracks whole.
+    const razored = applyEdits(cut, [{ kind: "split", frame: 75, tracks: linkedTracks(cut, "n") }]);
+    expect(spans(razored)).toMatchObject({
+      V1: ["a 0–30 src 100", "b 30–60 src 200", "c 80–110 src 5"],
+      A2: ["n 70–75 src 0", "n~75 75–100 src 5"],
+    });
+  });
+
+  it("ripple deletes a clip with its sound, and a gap no other track plays in", () => {
+    expect(rippleDeleteBlocked(cut, "b")).toBe(false);
+    expect(spans(applyEdits(cut, [{ kind: "rippleDelete", clipId: "b" }]))).toEqual({
+      V1: ["a 0–30 src 100", "c 50–80 src 5"],
+      A1: ["aA 0–30 src 100", "cA 50–80 src 5"],
+      A2: ["n 40–70 src 0"],
+    });
+    // V1's gap 60–80 is under n on A2, so closing it would cut n.
+    expect(gapAt(cut, "V1", 65)).toEqual({ start: 60, end: 80, shared: true });
+    expect(gapAt(cut, "V1", 45)).toBeNull();
+    expect(gapAt(cut, "V1", 200)).toBeNull();
+    const quiet: Timeline = {
+      ...cut,
+      tracks: { ...cut.tracks, children: cut.tracks.children.slice(0, 2) },
+    };
+    const found = gapAt(quiet, "V1", 65);
+    expect(found).toEqual({ start: 60, end: 80, shared: false });
+    expect(
+      spans(applyEdits(quiet, [{ kind: "removeRange", start: 60, end: 80, ripple: true }])).V1,
+    ).toEqual(["a 0–30 src 100", "b 30–60 src 200", "c 60–90 src 5"]);
   });
 });
