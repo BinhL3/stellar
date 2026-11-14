@@ -58,6 +58,8 @@ export function VideoStageSelect(props: {
   readonly hasTimeline: boolean;
   /** Ghost sits quietly in a toolbar beside a more important control. */
   readonly variant?: "ghost";
+  /** Shows the stage's name alone, where the control's place already says what it is. */
+  readonly bare?: boolean;
 }) {
   const file = useProjectFileQuery(props.environmentId, props.workspaceRoot, VIDEO_PROJECT_FILE);
   const canWrite = useEnvironmentScope(props.environmentId, AuthFilesystemWriteScope);
@@ -104,7 +106,7 @@ export function VideoStageSelect(props: {
       >
         <SelectValue>
           {(value: string) =>
-            `Stage: ${STAGES.find((candidate) => candidate.value === value)?.label ?? value}`
+            `${props.bare ? "" : "Stage: "}${STAGES.find((candidate) => candidate.value === value)?.label ?? value}`
           }
         </SelectValue>
       </SelectTrigger>

@@ -22,13 +22,7 @@ import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { useAssetUrls } from "~/assets/assetUrls";
 import { useComposerHandleContext } from "~/composerHandleContext";
 import { Button } from "~/components/ui/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "~/components/ui/empty";
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import {
   Menu,
   MenuCheckboxItem,
@@ -47,6 +41,7 @@ import {
 import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
 import { Toggle } from "~/components/ui/toggle";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useVideoProject } from "~/hooks/useVideoProject";
 import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentScope } from "~/state/session";
@@ -56,6 +51,8 @@ import { ImportFootageButton } from "../videoProject/ImportFootageButton";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
 import { RecordVoiceOverButton } from "../videoProject/RecordVoiceOverButton";
 import { VideoStageSelect } from "../videoProject/VideoStageSelect";
+import { Bay } from "./bay";
+import { cutName } from "./cutName";
 import { EditsPanel } from "./EditsPanel";
 import { HistoryPanel, type VersionPreview } from "./HistoryPanel";
 import type { PremierePull } from "./premiereChanges";
@@ -196,8 +193,16 @@ const parseTranscriptStatus = (text: string | undefined): VideoTranscriptStatus 
   }
 };
 
-const timelineLabel = (path: string) =>
-  path.slice(path.lastIndexOf("/") + 1).replace(/\.otio$/i, "");
+/** The sequence's own name, which the file name only approximates. */
+const timelineTitle = (text: string | undefined): string | null => {
+  if (text === undefined) return null;
+  try {
+    const { name } = JSON.parse(text) as { name?: unknown };
+    return typeof name === "string" ? name : null;
+  } catch {
+    return null;
+  }
+};
 
 // Whether script lines show on the ruler is a per-browser habit, like the shortcut layout.
 const SCRIPT_LINES_KEY = "stellar.timeline.scriptLines";
@@ -260,6 +265,13 @@ export default function TimelinePanel(props: {
   }));
   const media = plan.build(useAssetUrls(props.environmentId, resources));
   const canWriteFiles = useEnvironmentScope(props.environmentId, AuthFilesystemWriteScope);
+  // The project's folder holds this workspace beside its Premiere folder, and names the project.
+  const project = props.workspaceRoot.replace(/\/+$/, "").split("/").at(-2) ?? null;
+  const nameOf = (path: string) =>
+    cutName(path, {
+      project,
+      title: path === selectedPath ? timelineTitle(file.data?.contents) : null,
+    });
   const composerRef = useComposerHandleContext();
   // A reference: the timeline file as a chip, then a clip or moment in words, with stable clip
   // ids that the timeline's edits and an agent's tools both use.
@@ -336,7 +348,7 @@ export default function TimelinePanel(props: {
       toastManager.add({
         type: "success",
         title: "Pulled your Premiere save",
-        description: updated.map(timelineLabel).join(", "),
+        description: updated.map(nameOf).join(", "),
       });
     }
   };
@@ -530,35 +542,42 @@ export default function TimelinePanel(props: {
   }, [wantsBeats, beatsKey]);
   const ticks = scriptBeats !== null && selectedPath !== null ? scriptTicks(scriptBeats.beats) : [];
 
-  const stageSelect = (variant?: "ghost") => (
+  const stageSelect = (
     <VideoStageSelect
       environmentId={props.environmentId}
       workspaceRoot={props.workspaceRoot}
       hasTimeline={timelinePaths.length > 0}
-      {...(variant ? { variant } : {})}
+      variant="ghost"
+      bare
     />
   );
 
-  const importFootage = (size?: "sm" | "micro") => (
+  const importFootage = (look?: "micro" | "icon") => (
     <ImportFootageButton
       environmentId={props.environmentId}
       workspaceRoot={props.workspaceRoot}
       onStarted={() => intakeFile.refresh()}
-      {...(size ? { size } : {})}
+      {...(look === "micro" ? { size: look } : {})}
+      {...(look === "icon" ? { iconOnly: true } : {})}
     />
   );
+  const conforming = intake?.state === "conforming" ? intake.conform : undefined;
   const intakeNote =
     intake?.state === "copying" ? (
-      <span className="bay-label text-muted-foreground">
-        Copying footage: {intake.done} of {intake.total}
+      <span className="min-w-0 truncate bay-label text-muted-foreground">
+        Copying {intake.done} of {intake.total}
       </span>
-    ) : intake?.state === "conforming" && intake.conform !== undefined ? (
-      <span className="bay-label text-muted-foreground">
-        Conforming {intake.conform.file.slice(intake.conform.file.lastIndexOf("/") + 1)} to 59.94:{" "}
-        {intake.conform.percent}% ({intake.conform.done + 1} of {intake.conform.total})
-      </span>
+    ) : conforming !== undefined ? (
+      <Bay.Hint
+        className="min-w-0 truncate bay-label text-muted-foreground"
+        hint={`Conforming ${conforming.file.slice(conforming.file.lastIndexOf("/") + 1)} to 59.94`}
+      >
+        Conforming {conforming.done + 1} of {conforming.total} · {conforming.percent}%
+      </Bay.Hint>
     ) : intake?.state === "failed" ? (
-      <span className="text-xs text-destructive">Import failed: {intake.error}</span>
+      <Bay.Hint className="min-w-0 truncate text-xs text-destructive" hint={intake.error}>
+        Import failed
+      </Bay.Hint>
     ) : null;
 
   const premiereDialog = (
@@ -599,22 +618,19 @@ export default function TimelinePanel(props: {
   if (selectedPath === null) {
     return (
       <div className="edit-bay flex min-h-0 flex-1 flex-col">
-        {preflightStrip}
+        <div className="flex h-11 shrink-0 items-center gap-1 px-2">
+          {stageSelect}
+          {preflightStrip}
+        </div>
         <Empty>
-          {stageSelect()}
           <EmptyHeader>
-            <EmptyTitle>No timeline yet</EmptyTitle>
-            <EmptyDescription>
-              {isBuilding
-                ? "Footage is on its way. It plays here as soon as its previews are made."
-                : "Import the footage you shot and it plays here. Once a rough cut exists, save the Premiere project in this project's Premiere folder and pull a sequence."}
-            </EmptyDescription>
+            <EmptyTitle>{isBuilding ? "Footage is on its way" : "No timeline yet"}</EmptyTitle>
           </EmptyHeader>
           {intakeNote}
           {canWriteFiles ? (
             <EmptyContent>
               {importFootage()}
-              <Button variant="outline" onClick={() => setPulling(true)}>
+              <Button variant="ghost" onClick={() => setPulling(true)}>
                 Pull from Premiere
               </Button>
             </EmptyContent>
@@ -627,47 +643,75 @@ export default function TimelinePanel(props: {
 
   return (
     <div className="edit-bay flex min-h-0 flex-1 flex-col">
-      <div className="@container/bar flex h-11 shrink-0 items-center gap-1 px-2">
+      <div className="flex h-11 shrink-0 items-center gap-1 px-2">
         {timelinePaths.length > 1 ? (
           <Select value={selectedPath} onValueChange={(value) => setChosenPath(value)}>
             <SelectTrigger size="sm" variant="ghost" aria-label="Timeline">
-              <SelectValue>{(value: string) => timelineLabel(value)}</SelectValue>
+              <SelectValue>{(value: string) => nameOf(value)}</SelectValue>
             </SelectTrigger>
             <SelectPopup align="start" alignItemWithTrigger={false}>
               {timelinePaths.map((path) => (
                 <SelectItem key={path} value={path}>
-                  {timelineLabel(path)}
+                  {nameOf(path)}
                 </SelectItem>
               ))}
             </SelectPopup>
           </Select>
         ) : (
-          <h2 className="min-w-0 truncate px-1.5 bay-label text-foreground">
-            {timelineLabel(selectedPath)}
-          </h2>
+          <h2 className="min-w-0 truncate px-2 text-sm font-medium">{nameOf(selectedPath)}</h2>
         )}
-        {stageSelect("ghost")}
+        {stageSelect}
+        {preflightStrip}
         {intakeNote}
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          <Toggle
-            size="sm"
-            disabled={workspace === null}
-            pressed={scriptOpen}
-            onPressedChange={(open) =>
-              open ? workspace?.controls.show("script") : workspace?.controls.close("script")
-            }
-          >
-            <ScrollTextIcon />
-            <span className="@max-[34rem]/bar:sr-only">Script</span>
-          </Toggle>
-          <Menu>
-            <MenuTrigger
-              disabled={workspace === null}
-              render={<Button size="sm" variant="ghost" aria-label="Panels" />}
+        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+          {canWriteFiles ? (
+            <>
+              <RecordVoiceOverButton
+                iconOnly
+                environmentId={props.environmentId}
+                workspaceRoot={props.workspaceRoot}
+                onSaved={(path) => {
+                  // Hand the take to the chat, so asking the agent to place it is one sentence.
+                  composerRef?.current?.insertTextAtEnd(`Voice-over take: ${path} `, {
+                    ensureLeadingBoundary: true,
+                  });
+                }}
+              />
+              {importFootage("icon")}
+            </>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  size="sm"
+                  aria-label="Script"
+                  disabled={workspace === null}
+                  pressed={scriptOpen}
+                  onPressedChange={(open) =>
+                    open ? workspace?.controls.show("script") : workspace?.controls.close("script")
+                  }
+                />
+              }
             >
-              <LayoutPanelTopIcon />
-              <span className="@max-[34rem]/bar:sr-only">Panels</span>
-            </MenuTrigger>
+              <ScrollTextIcon />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">{scriptOpen ? "Hide script" : "Show script"}</TooltipPopup>
+          </Tooltip>
+          <Menu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <MenuTrigger
+                    disabled={workspace === null}
+                    render={<Button size="icon-sm" variant="ghost" aria-label="Panels" />}
+                  />
+                }
+              >
+                <LayoutPanelTopIcon />
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">Panels</TooltipPopup>
+            </Tooltip>
             <MenuPopup align="end" side="bottom">
               {TIMELINE_PANEL_IDS.map((id) => (
                 <MenuCheckboxItem
@@ -684,10 +728,8 @@ export default function TimelinePanel(props: {
               <MenuItem onClick={() => workspace?.controls.reset()}>Reset layout</MenuItem>
             </MenuPopup>
           </Menu>
-          {canWriteFiles ? importFootage("sm") : null}
         </span>
       </div>
-      {preflightStrip}
       {premiereDialog}
       {pull !== null && !pull.dismissed ? (
         <PremierePullNotice pull={pull} onDismiss={() => setPull({ ...pull, dismissed: true })} />
@@ -695,20 +737,18 @@ export default function TimelinePanel(props: {
       {preview !== null ? (
         <div
           role="status"
-          className="mx-2 mt-2 flex shrink-0 flex-wrap items-center gap-2 rounded-sm border border-info/40 bg-info/8 py-1.5 pr-1.5 pl-3 text-xs"
+          className="mx-2 mb-1 flex shrink-0 items-center gap-2 rounded-sm bg-info/10 py-1 pr-1 pl-3 text-xs"
         >
-          <span className="min-w-0 flex-1">
-            <span className="font-medium">
-              Looking at the version from {versionTime(preview.version.at)}
-            </span>
-            <span className="text-muted-foreground">
-              {" "}
-              · {preview.version.label}. The timeline itself is unchanged.
-            </span>
-          </span>
+          <Bay.Hint
+            className="min-w-0 flex-1 truncate"
+            hint={`${preview.version.label}. The timeline itself is unchanged.`}
+          >
+            <span className="font-medium">Viewing {versionTime(preview.version.at)}</span>
+            <span className="text-muted-foreground"> · {preview.version.label}</span>
+          </Bay.Hint>
           {canWriteFiles ? (
             <Button size="xs" onClick={() => void restore({ version: preview.version.id })}>
-              Restore this version
+              Restore
             </Button>
           ) : null}
           <Button size="xs" variant="ghost" onClick={() => setPreviewing(null)}>
@@ -838,24 +878,6 @@ export default function TimelinePanel(props: {
           <Spinner size="lg" />
         </div>
       )}
-      {canWriteFiles ? (
-        // The workspace's footer: recording runs against playback wherever the panels are.
-        <div className="flex h-11 shrink-0 items-center gap-2.5 bg-background dither-edge-t px-3 pt-1">
-          <RecordVoiceOverButton
-            environmentId={props.environmentId}
-            workspaceRoot={props.workspaceRoot}
-            onSaved={(path) => {
-              // Hand the take to the chat, so asking the agent to place it is one sentence.
-              composerRef?.current?.insertTextAtEnd(`Voice-over take: ${path} `, {
-                ensureLeadingBoundary: true,
-              });
-            }}
-          />
-          <span className="min-w-0 truncate text-2xs text-muted-foreground">
-            Press play, then record, to narrate to picture. Takes are saved in Audio/VO.
-          </span>
-        </div>
-      ) : null}
     </div>
   );
 }

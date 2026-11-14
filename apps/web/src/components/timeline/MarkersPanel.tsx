@@ -1,16 +1,18 @@
 import type { PlacedMarker } from "@t3tools/timeline/markers";
-import { CheckIcon, PlusIcon, SparklesIcon } from "lucide-react";
+import { CheckIcon, PlusIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { Kbd } from "~/components/ui/kbd";
 import { Toggle } from "~/components/ui/toggle";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 
 import { Bay } from "./bay";
 import { MarkerEditor, type MarkerPatch } from "./MarkerEditor";
 import { MarkerGlyph, markerTitle } from "./markerLook";
+import { PanelTools } from "./TimelineWorkspace";
 
 /**
  * Every marker on the timeline, to scan and jump between. The selected one opens for editing
@@ -35,37 +37,61 @@ export function MarkersPanel(props: {
   );
   return (
     <div className="flex h-full min-h-0 flex-col bg-card text-card-foreground">
-      <Bay.Toolbar>
-        <Bay.Label className="px-1">
-          {markers.length - resolved} open{resolved > 0 ? `, ${resolved} resolved` : ""}
-        </Bay.Label>
-        <span className="ml-auto flex items-center gap-1">
-          {resolved > 0 ? (
-            <Toggle size="xs" pressed={showResolved} onPressedChange={setShowResolved}>
+      <PanelTools panel="markers">
+        {resolved > 0 ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  size="sm"
+                  aria-label="Show resolved markers"
+                  pressed={showResolved}
+                  onPressedChange={setShowResolved}
+                />
+              }
+            >
               <CheckIcon />
-              Resolved
-            </Toggle>
-          ) : null}
-          {props.onAdd ? (
-            <Button size="xs" variant="ghost" onClick={props.onAdd}>
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">
+              {showResolved ? "Hide" : "Show"} {resolved} resolved
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
+        {props.onAdd ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Add a marker at the playhead"
+                  onClick={props.onAdd}
+                />
+              }
+            >
               <PlusIcon />
-              Add <Kbd>M</Kbd>
-            </Button>
-          ) : null}
-        </span>
-      </Bay.Toolbar>
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">
+              Add a marker at the playhead <Kbd>M</Kbd>
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
+      </PanelTools>
       {markers.length === 0 ? (
         <Empty>
           <EmptyHeader>
             <EmptyTitle>No markers yet</EmptyTitle>
-            <EmptyDescription>
-              Press M in the timeline to leave a note at the playhead. An agent reads your notes,
-              answers them and leaves its own here. Markers set in Premiere come in with each save.
-            </EmptyDescription>
           </EmptyHeader>
+          {props.onAdd ? (
+            <EmptyContent>
+              <Button size="sm" variant="outline" onClick={props.onAdd}>
+                Add marker <Kbd>M</Kbd>
+              </Button>
+            </EmptyContent>
+          ) : null}
         </Empty>
       ) : (
-        <ul className="flex min-h-0 flex-1 flex-col gap-px overflow-auto p-1.5">
+        <ul className="flex min-h-0 flex-1 flex-col gap-px overflow-auto px-1.5 pb-1.5">
           {listed.map((marker) => {
             const selected = marker.id === props.selectedId;
             return (
@@ -98,10 +124,7 @@ export function MarkersPanel(props: {
                     ) : null}
                   </span>
                   {marker.author === "agent" ? (
-                    <SparklesIcon
-                      aria-label="From the agent"
-                      className="mt-1 size-3 shrink-0 text-muted-foreground"
-                    />
+                    <span className="sr-only">From the agent</span>
                   ) : null}
                 </Bay.ItemButton>
                 {selected ? (

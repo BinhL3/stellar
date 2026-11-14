@@ -118,15 +118,16 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
         render={
           <button
             type="button"
-            aria-label="Premiere sync"
-            className="flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-sm border border-input py-0.5 pr-2 pl-0.5 text-2xs text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-popup-open:bg-accent"
+            aria-label={`Premiere sync${short === null ? "" : `: ${short}`}`}
+            aria-busy={props.syncing}
+            className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-sm px-1.5 text-2xs text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-popup-open:bg-accent"
           />
         }
       >
-        <span className="flex h-full items-center rounded-xs bg-premiere-bg px-1 font-bold text-premiere">
+        <span className="flex h-4 items-center rounded-xs bg-premiere-bg px-1 font-bold text-premiere">
           Pr
         </span>
-        {short !== null ? <span className="bay-label">{short}</span> : null}
+        {short !== null && !props.syncing ? <span className="bay-label">{short}</span> : null}
         {props.syncing ? (
           <Spinner size="xs" />
         ) : (

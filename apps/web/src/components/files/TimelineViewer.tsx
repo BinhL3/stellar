@@ -20,9 +20,9 @@ import {
   BookmarkPlusIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  EllipsisIcon,
   FilmIcon,
   ImageIcon,
-  KeyboardIcon,
   MagnetIcon,
   MaximizeIcon,
   MessageSquarePlusIcon,
@@ -31,11 +31,11 @@ import {
   PlayIcon,
   PlusIcon,
   RepeatIcon,
-  ScrollTextIcon,
   SkipBackIcon,
   SkipForwardIcon,
   SparklesIcon,
   TypeIcon,
+  Undo2Icon,
   XIcon,
 } from "lucide-react";
 import {
@@ -59,8 +59,25 @@ import { TimelinePlayerContext } from "~/components/timeline/timelinePlayer";
 import { MonitorAudio } from "~/components/timeline/MonitorAudio";
 import { type PreviewMedia, TimelinePreview } from "~/components/timeline/TimelinePreview";
 import { listenToCut } from "~/components/timeline/timelineEditsStore";
-import { TimelineWorkspace } from "~/components/timeline/TimelineWorkspace";
+import { PanelTools, TimelineWorkspace } from "~/components/timeline/TimelineWorkspace";
+import { Bay } from "~/components/timeline/bay";
 import { Button } from "~/components/ui/button";
+import {
+  Dialog,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "~/components/ui/dialog";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuShortcut,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import { Kbd } from "~/components/ui/kbd";
 import {
   ACTION_LABELS,
@@ -70,7 +87,6 @@ import {
   combosFor,
   useTimelineKeymap,
 } from "~/components/timeline/timelineKeymap";
-import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { toastManager } from "~/components/ui/toast";
 import { Textarea } from "~/components/ui/textarea";
 import { Toggle } from "~/components/ui/toggle";
@@ -88,7 +104,7 @@ const WHEEL_ZOOM_RATE = 0.002;
 const TICK_SECONDS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900] as const;
 // Show roughly this many seconds across the panel by default, then scroll.
 const DEFAULT_VISIBLE_SECONDS = 20;
-const LABEL_PX = 64;
+const LABEL_PX = 48;
 // Clips this far outside the visible range still render, so scrolling doesn't pop.
 const OVERSCAN_PX = 400;
 const MAX_SHUTTLE = 8;
@@ -399,6 +415,7 @@ export default function TimelineViewer(props: {
   const [drag, setDrag] = useState<Drag | null>(null);
   // Magnetic drags close gaps and push clips along instead of overwriting, as in CapCut.
   const [magnetic, setMagnetic] = useState(true);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [committing, setCommitting] = useState(false);
   const dragRef = useRef<Drag | null>(null);
   const suppressClickRef = useRef(false);
@@ -1120,6 +1137,7 @@ export default function TimelineViewer(props: {
   };
 
   const previewOnly = !timelineVisible;
+  const zoomLabel = `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}×`;
   // Each panel is a focus scope for the editor shortcuts, like an editor's monitor and timeline.
   const focusScope = (label: string, children: ReactNode) => (
     <div
@@ -1130,25 +1148,39 @@ export default function TimelineViewer(props: {
       onPointerDown={(event) => {
         if (!isTyping(event.target)) event.currentTarget.focus({ preventScroll: true });
       }}
-      className="edit-bay @container/viewer flex h-full min-h-0 min-w-0 flex-1 flex-col outline-none"
+      className="group/bay edit-bay @container/viewer flex h-full min-h-0 min-w-0 flex-1 flex-col outline-none"
     >
       {children}
     </div>
   );
   const pendingBar =
     edits.length > 0 ? (
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-y border-warning/35 bg-background px-3 py-1.5 text-xs">
-        <span aria-hidden className="block size-1.5 shrink-0 dither-block text-warning" />
-        <span className="bay-label text-warning">
-          {edits.length} pending {edits.length === 1 ? "edit" : "edits"}
-        </span>
-        <span className="truncate text-muted-foreground">
-          {edits.map(editLabel).join(", ")} · playing in the preview, not saved yet
-        </span>
-        <span className="ml-auto flex items-center gap-1">
-          <Button size="xs" variant="ghost" onClick={undoEdit}>
-            Undo <Kbd>⌘Z</Kbd>
-          </Button>
+      <div className="flex h-10 shrink-0 items-center gap-2 bg-warning/8 pr-2 pl-3 text-xs">
+        <Bay.Hint
+          side="top"
+          className="min-w-0 truncate text-warning"
+          hint={`${edits.map(editLabel).join(", ")}. Playing in the preview, not saved yet.`}
+        >
+          {edits.length} unsaved {edits.length === 1 ? "edit" : "edits"}
+        </Bay.Hint>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Undo the last edit"
+                  onClick={undoEdit}
+                />
+              }
+            >
+              <Undo2Icon />
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              Undo the last edit <Kbd>⌘Z</Kbd>
+            </TooltipPopup>
+          </Tooltip>
           <Button size="xs" variant="ghost" onClick={discardEdits}>
             Discard
           </Button>
@@ -1197,7 +1229,7 @@ export default function TimelineViewer(props: {
               />
             </div>
           ) : null}
-          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-x-2 gap-y-1 dither-edge-t px-3 pt-2.5 pb-1.5 text-xs [grid-template-areas:'time_transport_tools'] @max-[30rem]/viewer:grid-cols-[auto_1fr] @max-[30rem]/viewer:[grid-template-areas:'time_tools'_'transport_transport'] @max-[20rem]/viewer:grid-cols-1 @max-[20rem]/viewer:[grid-template-areas:'time'_'transport'_'tools']">
+          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-x-2 gap-y-1 px-3 py-2 text-xs [grid-template-areas:'time_transport_tools'] @max-[30rem]/viewer:grid-cols-[auto_1fr] @max-[30rem]/viewer:[grid-template-areas:'time_tools'_'transport_transport'] @max-[20rem]/viewer:grid-cols-1 @max-[20rem]/viewer:[grid-template-areas:'time'_'transport'_'tools']">
             <div className="flex min-w-0 items-center gap-1.5 [grid-area:time] @max-[20rem]/viewer:justify-center">
               <PlayheadTimecode store={playheadStore} rate={rate} duration={duration} />
               <SpeedBadge store={speedStore} />
@@ -1211,17 +1243,19 @@ export default function TimelineViewer(props: {
               ) : null}
             </div>
             <div className="flex items-center justify-center gap-0.5 [grid-area:transport]">
+              <Bay.Reveal>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Go to start"
+                  disabled={!playable}
+                  onClick={() => seek(0)}
+                >
+                  <SkipBackIcon />
+                </Button>
+              </Bay.Reveal>
               <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label="Go to start"
-                disabled={!playable}
-                onClick={() => seek(0)}
-              >
-                <SkipBackIcon />
-              </Button>
-              <Button
-                size="icon-xs"
+                size="icon-sm"
                 variant="ghost"
                 aria-label="Previous frame"
                 disabled={!playable}
@@ -1235,7 +1269,7 @@ export default function TimelineViewer(props: {
                 onToggle={() => shuttle(speedStore.get() === 0 ? 1 : 0)}
               />
               <Button
-                size="icon-xs"
+                size="icon-sm"
                 variant="ghost"
                 aria-label="Next frame"
                 disabled={!playable}
@@ -1243,58 +1277,78 @@ export default function TimelineViewer(props: {
               >
                 <ChevronRightIcon />
               </Button>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label="Go to end"
-                disabled={!playable}
-                onClick={() => seek(layout.durationFrames)}
-              >
-                <SkipForwardIcon />
-              </Button>
+              <Bay.Reveal>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Go to end"
+                  disabled={!playable}
+                  onClick={() => seek(layout.durationFrames)}
+                >
+                  <SkipForwardIcon />
+                </Button>
+              </Bay.Reveal>
             </div>
             <div className="flex min-w-0 items-center justify-end gap-1 [grid-area:tools] @max-[20rem]/viewer:justify-center">
               {props.onReference ? (
+                <Bay.Reveal>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={
+                            hasRange ? "Add marked section to chat" : "Add this moment to chat"
+                          }
+                          disabled={!playable}
+                          onClick={() => referenceMoment(hasRange)}
+                        />
+                      }
+                    >
+                      <MessageSquarePlusIcon />
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">
+                      {hasRange ? "Add marked section to chat" : "Add this moment to chat"}
+                    </TooltipPopup>
+                  </Tooltip>
+                </Bay.Reveal>
+              ) : null}
+              {props.premiere}
+              <MonitorAudio engine={engine} />
+              <Bay.Reveal>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Toggle
+                        size="sm"
+                        aria-label="Loop playback"
+                        pressed={loop}
+                        onPressedChange={toggleLoop}
+                      />
+                    }
+                  >
+                    <RepeatIcon />
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">Loop playback</TooltipPopup>
+                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
-                        size="icon-xs"
+                        size="icon-sm"
                         variant="ghost"
-                        aria-label={
-                          hasRange ? "Add marked section to chat" : "Add this moment to chat"
-                        }
+                        aria-label="Full screen"
                         disabled={!playable}
-                        onClick={() => referenceMoment(hasRange)}
+                        onClick={() => engine?.requestFullscreen()}
                       />
                     }
                   >
-                    <MessageSquarePlusIcon />
+                    <MaximizeIcon />
                   </TooltipTrigger>
-                  <TooltipPopup side="top">
-                    {hasRange ? "Add marked section to chat" : "Add this moment to chat"}
-                  </TooltipPopup>
+                  <TooltipPopup side="top">Full screen</TooltipPopup>
                 </Tooltip>
-              ) : null}
-              {props.premiere}
-              <MonitorAudio engine={engine} />
-              <Toggle
-                size="xs"
-                aria-label="Loop playback"
-                pressed={loop}
-                onPressedChange={toggleLoop}
-              >
-                <RepeatIcon />
-              </Toggle>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label="Full screen"
-                disabled={!playable}
-                onClick={() => engine?.requestFullscreen()}
-              >
-                <MaximizeIcon />
-              </Button>
+              </Bay.Reveal>
             </div>
           </div>
         </div>
@@ -1308,43 +1362,14 @@ export default function TimelineViewer(props: {
   const tracksPanel = focusScope(
     `${timeline.name} timeline`,
     <>
-      <div
-        role="toolbar"
-        aria-label="Timeline tools"
-        className="flex h-9 shrink-0 items-center gap-2 bg-background dither-edge-b px-2 pb-1"
-      >
-        <div className="flex items-center gap-0.5">
-          {playable ? (
-            <ShortcutsMenu
-              keymap={shortcuts.keymap}
-              layoutName={shortcuts.name}
-              imported={shortcuts.imported}
-              editable={editable}
-              onImport={async (file) => {
-                const count = await shortcuts.importKys(file);
-                toastManager.add(
-                  count > 0
-                    ? {
-                        type: "success",
-                        title: `Imported “${file.name.replace(/\.kys$/i, "")}”`,
-                        description: `${count} timeline shortcuts now follow your Premiere keys.`,
-                      }
-                    : {
-                        type: "error",
-                        title: "That isn't a Premiere shortcut file",
-                        description: "Choose a .kys file from Premiere's profile folder.",
-                      },
-                );
-              }}
-              onReset={shortcuts.reset}
-            />
-          ) : null}
+      <PanelTools panel="timeline">
+        <div role="toolbar" aria-label="Timeline tools" className="flex items-center gap-0.5">
           {editable ? (
             <Tooltip>
               <TooltipTrigger
                 render={
                   <Toggle
-                    size="xs"
+                    size="sm"
                     aria-label="Magnetic timeline"
                     pressed={magnetic}
                     onPressedChange={setMagnetic}
@@ -1358,67 +1383,101 @@ export default function TimelineViewer(props: {
               </TooltipPopup>
             </Tooltip>
           ) : null}
-          {editable ? (
-            <Tooltip>
-              <TooltipTrigger
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Zoom out"
+                  disabled={zoom <= 1}
+                  onClick={() => zoomBy(1 / ZOOM_STEP)}
+                />
+              }
+            >
+              <MinusIcon />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Zoom out · {zoomLabel}</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Zoom in"
+                  disabled={zoom >= maxZoom}
+                  onClick={() => zoomBy(ZOOM_STEP)}
+                />
+              }
+            >
+              <PlusIcon />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Zoom in · {zoomLabel}</TooltipPopup>
+          </Tooltip>
+          {editable || playable || props.scriptLines ? (
+            <Menu>
+              <MenuTrigger
                 render={
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    aria-label="Add a marker at the playhead"
-                    onClick={() => addMarkerAt(Math.round(currentFrame()))}
-                  />
+                  <Button size="icon-sm" variant="ghost" aria-label="More timeline options" />
                 }
               >
-                <BookmarkPlusIcon />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">
-                Add a marker at the playhead <Kbd>M</Kbd>
-              </TooltipPopup>
-            </Tooltip>
-          ) : null}
-          {props.scriptLines ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Toggle
-                    size="xs"
-                    aria-label="Script lines on the ruler"
-                    pressed={props.scriptLines.shown}
-                    onPressedChange={props.scriptLines.onShownChange}
-                  />
-                }
-              >
-                <ScrollTextIcon />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">Show where each script line starts</TooltipPopup>
-            </Tooltip>
+                <EllipsisIcon />
+              </MenuTrigger>
+              <MenuPopup align="end" side="bottom">
+                {editable ? (
+                  <MenuItem onClick={() => addMarkerAt(Math.round(currentFrame()))}>
+                    <BookmarkPlusIcon />
+                    Add marker at playhead
+                    <MenuShortcut>M</MenuShortcut>
+                  </MenuItem>
+                ) : null}
+                {props.scriptLines ? (
+                  <MenuCheckboxItem
+                    checked={props.scriptLines.shown}
+                    onCheckedChange={props.scriptLines.onShownChange}
+                  >
+                    Script lines on the ruler
+                  </MenuCheckboxItem>
+                ) : null}
+                {playable ? (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem onClick={() => setShortcutsOpen(true)}>Keyboard shortcuts…</MenuItem>
+                  </>
+                ) : null}
+              </MenuPopup>
+            </Menu>
           ) : null}
         </div>
-        <div className="ml-auto flex items-center rounded-sm border border-border/80 text-xs">
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Zoom out"
-            disabled={zoom <= 1}
-            onClick={() => zoomBy(1 / ZOOM_STEP)}
-          >
-            <MinusIcon />
-          </Button>
-          <span className="w-10 text-center font-mono text-2xs text-muted-foreground tabular-nums">
-            {zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}×
-          </span>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Zoom in"
-            disabled={zoom >= maxZoom}
-            onClick={() => zoomBy(ZOOM_STEP)}
-          >
-            <PlusIcon />
-          </Button>
-        </div>
-      </div>
+      </PanelTools>
+      {playable ? (
+        <ShortcutsDialog
+          open={shortcutsOpen}
+          onOpenChange={setShortcutsOpen}
+          keymap={shortcuts.keymap}
+          layoutName={shortcuts.name}
+          imported={shortcuts.imported}
+          editable={editable}
+          onImport={async (file) => {
+            const count = await shortcuts.importKys(file);
+            toastManager.add(
+              count > 0
+                ? {
+                    type: "success",
+                    title: `Imported “${file.name.replace(/\.kys$/i, "")}”`,
+                    description: `${count} timeline shortcuts now follow your Premiere keys.`,
+                  }
+                : {
+                    type: "error",
+                    title: "That isn't a Premiere shortcut file",
+                    description: "Choose a .kys file from Premiere's profile folder.",
+                  },
+            );
+          }}
+          onReset={shortcuts.reset}
+        />
+      ) : null}
 
       <TrackScroller
         scrollerRef={scrollerRef}
@@ -1432,9 +1491,9 @@ export default function TimelineViewer(props: {
         }}
       >
         <div className="relative min-w-full" style={{ width: `${zoom * 100}%` }}>
-          <div className="sticky top-0 z-50 flex h-8 border-b border-border bg-background">
+          <div className="sticky top-0 z-50 flex h-8 border-b border-border/60 bg-background">
             <div
-              className="sticky left-0 z-10 shrink-0 border-r border-border bg-background"
+              className="sticky left-0 z-10 shrink-0 bg-background"
               style={{ width: LABEL_PX }}
             />
             <TimelineRuler
@@ -1522,7 +1581,7 @@ export default function TimelineViewer(props: {
               key={track.name}
               className={cn(
                 // Picture lanes sit a step above the sound lanes; a heavier rule parts the two.
-                "flex h-11 border-b border-border/50",
+                "flex h-11 border-b border-border/40",
                 track.kind === "Video" && "bg-foreground/3",
                 track.kind === "Audio" &&
                   tracks[row - 1]?.kind === "Video" &&
@@ -1530,7 +1589,7 @@ export default function TimelineViewer(props: {
               )}
             >
               <div
-                className="sticky left-0 z-40 flex shrink-0 items-center gap-1.5 border-r border-border bg-background pr-2 text-muted-foreground"
+                className="sticky left-0 z-40 flex shrink-0 items-center gap-2 bg-background pr-1.5"
                 style={{ width: LABEL_PX }}
               >
                 <span
@@ -1540,12 +1599,7 @@ export default function TimelineViewer(props: {
                     track.kind === "Video" ? "bg-clip-video-tint/80" : "bg-clip-audio-tint/80",
                   )}
                 />
-                {track.kind === "Video" ? (
-                  <FilmIcon aria-hidden className="size-3 shrink-0 opacity-70" />
-                ) : (
-                  <AudioLinesIcon aria-hidden className="size-3 shrink-0 opacity-70" />
-                )}
-                <span className="truncate bay-label font-semibold text-foreground/85">
+                <span className="truncate bay-label font-medium text-muted-foreground">
                   {track.name}
                 </span>
               </div>
@@ -1577,7 +1631,6 @@ export default function TimelineViewer(props: {
                   const animated = effectsOf(item).some((e) => e.animated);
                   const source = props.media?.sources.get(targetOf(item));
                   const widthPx = (item.endFrame - item.startFrame) * pxPerFrame;
-                  const KindIcon = KIND_ICON[kind];
                   const isSelected = item.key === selectedKey;
                   const isAudio = kind === "audio" || kind === "footageAudio";
                   return (
@@ -1672,13 +1725,17 @@ export default function TimelineViewer(props: {
                       ) : null}
                       {widthPx > 28 ? (
                         <span className="relative flex min-w-0 items-center gap-1 text-white">
-                          <KindIcon className="size-3 shrink-0 opacity-75" />
                           {animated ? <SparklesIcon className="size-3 shrink-0" /> : null}
                           <span className="truncate font-medium text-white/95">
                             {clipTitle(kind, item)}
                           </span>
-                          {widthPx > 120 ? (
-                            <span className="ml-auto shrink-0 pl-1 font-mono text-3xs text-white/65 tabular-nums">
+                          {widthPx > 96 ? (
+                            <span
+                              className={cn(
+                                "ml-auto shrink-0 pl-1 font-mono text-3xs text-white/70 tabular-nums",
+                                !isSelected && "hidden group-hover/clip:inline",
+                              )}
+                            >
                               {seconds(item.endFrame - item.startFrame, rate)}
                             </span>
                           ) : null}
@@ -1698,8 +1755,8 @@ export default function TimelineViewer(props: {
         </div>
       </TrackScroller>
       {pendingBar}
-      <div className="flex max-h-56 min-h-10 shrink-0 flex-col justify-center overflow-auto bg-background dither-edge-t px-3 pt-3 pb-2 text-xs">
-        {selected ? (
+      {selected ? (
+        <div className="flex max-h-56 shrink-0 flex-col justify-center overflow-auto bg-background px-3 py-2.5 text-xs">
           <ClipDetails
             track={selected.track}
             item={selected.item}
@@ -1712,30 +1769,8 @@ export default function TimelineViewer(props: {
                 }
               : {})}
           />
-        ) : (
-          <div className="flex items-center gap-3 text-muted-foreground">
-            <p className="min-w-0 truncate">Select a clip to see its details.</p>
-            <ul
-              aria-label="Clip colours"
-              className="ml-auto flex shrink-0 items-center gap-3 bay-label @max-[26rem]/viewer:hidden"
-            >
-              {LEGEND.map(([kind, label]) => (
-                <li key={kind} className="flex items-center gap-1.5">
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "size-2 border-t-2 border-current",
-                      FILL_CLASS[kind],
-                      TINT_CLASS[kind],
-                    )}
-                  />
-                  {label}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : null}
     </>,
   );
   if (props.workspace === undefined) return tracksPanel;
@@ -1824,8 +1859,10 @@ function TrackScroller(props: {
   );
 }
 
-/** A keyboard button with every timeline shortcut, and importing a Premiere layout. */
-function ShortcutsMenu(props: {
+/** Every timeline shortcut, what the clip colours mean, and importing a Premiere layout. */
+function ShortcutsDialog(props: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
   readonly keymap: Readonly<Record<string, TimelineAction>>;
   readonly layoutName: string;
   readonly imported: boolean;
@@ -1835,57 +1872,73 @@ function ShortcutsMenu(props: {
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   return (
-    <Popover>
-      <PopoverTrigger
-        render={<Button size="icon-xs" variant="ghost" aria-label="Keyboard shortcuts" />}
-      >
-        <KeyboardIcon />
-      </PopoverTrigger>
-      <PopoverPopup side="bottom" align="end" className="w-80">
-        <div className="flex flex-col gap-2 text-xs">
-          <p className="font-medium">
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogPopup className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
             Shortcuts{" "}
             <span className="font-normal text-muted-foreground">· {props.layoutName}</span>
-          </p>
-          {props.editable ? (
-            <p className="text-muted-foreground">Drag a clip to move it; drag its edges to trim.</p>
-          ) : null}
-          <dl className="grid max-h-72 grid-cols-[1fr_auto] gap-x-3 gap-y-1 overflow-auto">
-            {(Object.keys(ACTION_LABELS) as Array<TimelineAction>).map((action) => (
-              <div key={action} className="contents">
-                <dt className="text-muted-foreground">{ACTION_LABELS[action]}</dt>
-                <dd className="flex justify-end gap-1">
-                  {combosFor(props.keymap, action).map((combo) => (
-                    <Kbd key={combo}>{comboLabel(combo)}</Kbd>
-                  ))}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <div className="flex flex-wrap gap-1">
-            <Button size="xs" variant="outline" onClick={() => fileRef.current?.click()}>
-              Import Premiere layout
-            </Button>
-            {props.imported ? (
-              <Button size="xs" variant="ghost" onClick={props.onReset}>
-                Use Premiere defaults
-              </Button>
+          </DialogTitle>
+        </DialogHeader>
+        <DialogPanel>
+          <div className="flex flex-col gap-3 text-xs">
+            {props.editable ? (
+              <p className="text-muted-foreground">
+                Drag a clip to move it; drag its edges to trim.
+              </p>
             ) : null}
+            <dl className="grid max-h-80 grid-cols-[1fr_auto] gap-x-3 gap-y-1 overflow-auto">
+              {(Object.keys(ACTION_LABELS) as Array<TimelineAction>).map((action) => (
+                <div key={action} className="contents">
+                  <dt className="text-muted-foreground">{ACTION_LABELS[action]}</dt>
+                  <dd className="flex justify-end gap-1">
+                    {combosFor(props.keymap, action).map((combo) => (
+                      <Kbd key={combo}>{comboLabel(combo)}</Kbd>
+                    ))}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <ul aria-label="Clip colours" className="flex flex-wrap items-center gap-3">
+              {LEGEND.map(([kind, label]) => (
+                <li key={kind} className="flex items-center gap-1.5 text-muted-foreground">
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "size-2.5 rounded-xs border-t-2 border-current",
+                      FILL_CLASS[kind],
+                      TINT_CLASS[kind],
+                    )}
+                  />
+                  {label}
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-wrap gap-1">
+              <Button size="xs" variant="outline" onClick={() => fileRef.current?.click()}>
+                Import Premiere layout
+              </Button>
+              {props.imported ? (
+                <Button size="xs" variant="ghost" onClick={props.onReset}>
+                  Use Premiere defaults
+                </Button>
+              ) : null}
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".kys"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                if (file) props.onImport(file);
+              }}
+            />
           </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".kys"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0];
-              event.currentTarget.value = "";
-              if (file) props.onImport(file);
-            }}
-          />
-        </div>
-      </PopoverPopup>
-    </Popover>
+        </DialogPanel>
+      </DialogPopup>
+    </Dialog>
   );
 }
 
@@ -2079,7 +2132,6 @@ function InOutReadout(props: {
   const stop = props.marks.out ?? props.end;
   return (
     <span className="ml-1 flex items-center gap-1.5 rounded-xs border border-primary/50 pl-1.5 font-mono text-primary tabular-nums">
-      <span className="bay-label">In/Out</span>
       <span aria-label="In to out duration">{timecode(Math.max(0, stop - start), props.rate)}</span>
       <Tooltip>
         <TooltipTrigger
@@ -2187,7 +2239,7 @@ function ClipDetails(props: {
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{clipTitle(kind, item)}</p>
-          <p className="bay-label text-muted-foreground tabular-nums">
+          <p className="bay-label text-muted-foreground">
             {track.name} · {timecode(item.startFrame, rate)} ·{" "}
             {seconds(item.endFrame - item.startFrame, rate)}
           </p>

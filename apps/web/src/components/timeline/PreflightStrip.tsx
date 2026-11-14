@@ -144,8 +144,9 @@ function RenderReport(props: {
 }
 
 /**
- * The run of a short as one quiet row under the Timeline tab's bar: how many steps are done,
- * and the one that needs attention with what moves it on. The full list opens from the count.
+ * The run of a short as a row of pips in the Timeline tab's bar, one per step. The full list,
+ * with what moves each step on, opens from them. A step that went wrong is also said in words
+ * beside them; a step that is merely next is not.
  */
 export function PreflightStrip(props: {
   readonly environmentId: EnvironmentId;
@@ -296,8 +297,10 @@ export function PreflightStrip(props: {
         ? `${dayOf(preflight.posted.at)} · ${step.detail}`
         : step.detail;
 
+  const attention =
+    headline !== null && (headline.state === "warn" || headline.state === "fail") ? headline : null;
   return (
-    <div className="flex h-8 shrink-0 items-center gap-2 dither-edge-b px-2 pb-1 text-2xs">
+    <div className="flex min-w-0 items-center gap-1.5 text-xs">
       <Popover
         open={open}
         onOpenChange={(next) => {
@@ -312,17 +315,14 @@ export function PreflightStrip(props: {
               type="button"
               aria-label={`Run: ${done} of ${steps.length} steps done`}
               aria-busy={reading}
-              className="flex h-5 shrink-0 cursor-pointer items-center gap-1.5 rounded-sm px-1 text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+              className="flex h-7 shrink-0 cursor-pointer items-center rounded-sm px-2 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-popup-open:bg-accent"
             />
           }
         >
           <span aria-hidden className="flex items-center gap-0.5">
             {steps.map((step) => (
-              <span key={step.id} className={cn("h-2 w-1", DOT[step.state])} />
+              <span key={step.id} className={cn("h-2.5 w-1 rounded-full", DOT[step.state])} />
             ))}
-          </span>
-          <span className="font-mono tabular-nums">
-            {done}/{steps.length}
           </span>
         </PopoverTrigger>
         <PopoverPopup side="bottom" align="start" className="w-80">
@@ -392,20 +392,12 @@ export function PreflightStrip(props: {
           </div>
         </PopoverPopup>
       </Popover>
-      {headline === null ? (
-        <span className="min-w-0 truncate text-muted-foreground">
-          Posted
-          {preflight.posted !== null && preflight.posted.at > 0
-            ? ` ${dayOf(preflight.posted.at)}`
-            : ""}
-        </span>
-      ) : (
+      {attention === null ? null : (
         <>
-          <span className="shrink-0 bay-label text-foreground/85">{headline.label}</span>
-          <span className={cn("min-w-0 flex-1 truncate", DETAIL[headline.state])}>
-            {detail(headline)}
+          <span className={cn("min-w-0 truncate", DETAIL[attention.state])}>
+            {attention.label}: {detail(attention)}
           </span>
-          {control(headline)}
+          {control(attention)}
         </>
       )}
     </div>

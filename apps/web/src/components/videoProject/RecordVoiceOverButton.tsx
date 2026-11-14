@@ -7,7 +7,9 @@ import { MicIcon, SquareIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useVoiceRecorder } from "./useVoiceRecorder";
@@ -21,6 +23,8 @@ export function RecordVoiceOverButton(props: {
   readonly workspaceRoot: string;
   /** Called with the saved file's path, relative to the project's media root. */
   readonly onSaved: (path: string) => void;
+  /** A toolbar's icon, with how to use it in its tooltip, instead of the worded button. */
+  readonly iconOnly?: boolean;
 }) {
   const save = useAtomCommand(projectEnvironment.saveVideoVoiceOver, { reportFailure: false });
   const recorder = useVoiceRecorder();
@@ -53,6 +57,39 @@ export function RecordVoiceOverButton(props: {
     }
   };
 
+  if (props.iconOnly) {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            recorder.recording ? (
+              <Button
+                size="icon-sm"
+                variant="destructive"
+                aria-label="Stop recording"
+                onClick={recorder.stop}
+              />
+            ) : (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Record voice-over"
+                disabled={saving}
+                onClick={() => void recorder.start((recording) => void finish(recording))}
+              />
+            )
+          }
+        >
+          {recorder.recording ? <SquareIcon /> : saving ? <Spinner size="xs" /> : <MicIcon />}
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">
+          {recorder.recording
+            ? "Stop recording"
+            : "Record voice-over. Press play first to narrate to picture; takes are saved in Audio/VO."}
+        </TooltipPopup>
+      </Tooltip>
+    );
+  }
   return recorder.recording ? (
     <Button size="sm" variant="destructive" onClick={recorder.stop}>
       <SquareIcon />

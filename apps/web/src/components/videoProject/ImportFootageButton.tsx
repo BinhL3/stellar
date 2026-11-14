@@ -19,7 +19,9 @@ import {
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 
@@ -54,6 +56,8 @@ export function ImportFootageButton(props: {
   /** Called once the copy has started; progress then comes from the project's intake status. */
   readonly onStarted: () => void;
   readonly size?: "sm" | "micro";
+  /** A toolbar's icon, named by its tooltip, instead of the worded button. */
+  readonly iconOnly?: boolean;
 }) {
   const scan = useAtomCommand(projectEnvironment.scanVideoIntake, { reportFailure: false });
   const startImport = useAtomCommand(projectEnvironment.importVideoFootage, {
@@ -125,15 +129,34 @@ export function ImportFootageButton(props: {
 
   return (
     <>
-      <Button
-        variant="outline"
-        {...(props.size ? { size: props.size } : {})}
-        disabled={busy !== null}
-        onClick={() => void open()}
-      >
-        <ImportIcon />
-        {busy === "scanning" ? "Looking in Downloads…" : "Import footage"}
-      </Button>
+      {props.iconOnly ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Import footage"
+                disabled={busy !== null}
+                onClick={() => void open()}
+              />
+            }
+          >
+            {busy === "scanning" ? <Spinner size="xs" /> : <ImportIcon />}
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">Import footage from Downloads</TooltipPopup>
+        </Tooltip>
+      ) : (
+        <Button
+          variant="outline"
+          {...(props.size ? { size: props.size } : {})}
+          disabled={busy !== null}
+          onClick={() => void open()}
+        >
+          <ImportIcon />
+          {busy === "scanning" ? "Looking in Downloads…" : "Import footage"}
+        </Button>
+      )}
       <Dialog open={found !== null} onOpenChange={(next) => (next ? undefined : setFound(null))}>
         <DialogPopup className="max-w-lg">
           <DialogHeader>

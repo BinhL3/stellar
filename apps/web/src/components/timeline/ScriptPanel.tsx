@@ -10,13 +10,7 @@ import type {
   VideoVoiceOverView,
 } from "@t3tools/contracts";
 import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
-import {
-  ClipboardPasteIcon,
-  ExternalLinkIcon,
-  RefreshCwIcon,
-  ScrollTextIcon,
-  XIcon,
-} from "lucide-react";
+import { EllipsisIcon, ExternalLinkIcon } from "lucide-react";
 import {
   type MouseEvent,
   type ReactNode,
@@ -30,15 +24,9 @@ import { canOpenLinksInApp, isWebUrl } from "~/browser/browserLinkTarget";
 import { openUrlInPreview } from "~/browser/openFileInPreview";
 import { recordVisitForThread } from "~/browserHistoryStore";
 import { Button } from "~/components/ui/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "~/components/ui/empty";
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
@@ -53,6 +41,7 @@ import { Bay } from "./bay";
 import { MAX_IMPORT_BYTES, ScriptLineVoiceOver } from "./ScriptLineVoiceOver";
 import { beatAtFrame, beatTime, groupBeatsBySection } from "./scriptBeats";
 import { useTimelinePlayer } from "./timelinePlayer";
+import { PanelTools } from "./TimelineWorkspace";
 
 const DOC_LINK_ID = "timeline-script-doc-link";
 
@@ -89,7 +78,7 @@ function BeatList(props: {
         // oxlint-disable-next-line react/no-array-index-key
         <section key={index} className="flex flex-col">
           {group.section !== null ? (
-            <h3 className="sticky top-0 z-10 bg-card dither-edge-b px-4 pt-3 pb-2.5 bay-label text-foreground/85">
+            <h3 className="sticky top-0 z-10 bg-card px-4 pt-3 pb-1.5 text-xs font-medium text-muted-foreground">
               {group.section}
             </h3>
           ) : null}
@@ -98,7 +87,7 @@ function BeatList(props: {
               const { startFrame } = beat;
               if (startFrame === null) {
                 return (
-                  <div key={beat.id} className="flex items-start gap-0.5">
+                  <div key={beat.id} className="group/line flex items-start gap-0.5">
                     <p className="flex min-w-0 flex-1 gap-2 rounded-sm px-2 py-1.5 text-sm leading-5 text-muted-foreground">
                       <span
                         aria-hidden
@@ -115,7 +104,7 @@ function BeatList(props: {
               }
               const current = beat.id === currentId;
               return (
-                <div key={beat.id} className="flex items-start gap-0.5">
+                <div key={beat.id} className="group/line flex items-start gap-0.5">
                   <button
                     type="button"
                     aria-current={current ? "true" : undefined}
@@ -429,7 +418,8 @@ export function ScriptPanel(props: {
   };
 
   const placed = view?.beats.filter((beat) => beat.startFrame !== null).length ?? 0;
-  const linkDraft = link ?? (view !== null && docUrl === null && props.canWrite ? "" : null);
+  // The link's field opens from the panel's menu; it is not left standing.
+  const linkDraft = props.canWrite ? link : null;
   const linkReady = linkDraft !== null && isWebUrl(linkDraft.trim());
 
   const linkForm =
@@ -459,11 +449,9 @@ export function ScriptPanel(props: {
         <Button type="submit" size="xs" variant="outline" disabled={!linkReady || saving}>
           Save link
         </Button>
-        {link !== null && docUrl !== null ? (
-          <Button size="xs" variant="ghost" onClick={() => setLink(null)}>
-            Cancel
-          </Button>
-        ) : null}
+        <Button size="xs" variant="ghost" onClick={() => setLink(null)}>
+          Cancel
+        </Button>
       </form>
     ) : null;
   const empty = view !== null && view.beats.length === 0;
@@ -473,63 +461,72 @@ export function ScriptPanel(props: {
       aria-label="Script"
       className="@container/script flex h-full min-h-0 min-w-0 flex-col bg-card text-xs"
     >
-      <Bay.Toolbar className="pr-1.5 pl-4">
-        <h2 className="sr-only">Script</h2>
-        {view !== null && view.beats.length > 0 ? (
-          <span className="min-w-0 truncate bay-label text-muted-foreground tabular-nums @max-[15rem]/script:hidden">
-            {placed} of {view.beats.length} placed
+      <h2 className="sr-only">Script</h2>
+      <PanelTools panel="script">
+        {view !== null && placed < view.beats.length ? (
+          <Bay.Hint
+            className="px-1 bay-label text-muted-foreground"
+            hint={`${placed} of ${view.beats.length} lines are on this timeline. Faded lines aren't.`}
+          >
+            {placed}/{view.beats.length}
+          </Bay.Hint>
+        ) : null}
+        {reading ? (
+          <span className="flex size-7 items-center justify-center text-muted-foreground">
+            <Spinner size="xs" />
           </span>
         ) : null}
-        <span className="ml-auto flex shrink-0 items-center">
-          {docUrl !== null ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    aria-label="Open script"
-                    render={<a href={docUrl} target="_blank" rel="noreferrer noopener" />}
-                    onClick={(event) => void openScript(event, docUrl)}
-                  />
-                }
-              >
-                <ExternalLinkIcon />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">Open the Google Doc</TooltipPopup>
-            </Tooltip>
-          ) : null}
-          {props.canWrite && view !== null && !empty && pasted === null ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    aria-label="Paste script"
-                    onClick={() => setPasted("")}
-                  />
-                }
-              >
-                <ClipboardPasteIcon />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">Paste script</TooltipPopup>
-            </Tooltip>
-          ) : null}
-          {reading ? (
-            <span className="flex size-6 items-center justify-center">
-              <Spinner size="xs" />
-            </span>
-          ) : (
-            <Button size="icon-xs" variant="ghost" aria-label="Reload script" onClick={reload}>
-              <RefreshCwIcon />
-            </Button>
-          )}
-          <Button size="icon-xs" variant="ghost" aria-label="Hide script" onClick={props.onClose}>
-            <XIcon />
-          </Button>
-        </span>
-      </Bay.Toolbar>
+        {docUrl !== null ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Open script"
+                  render={<a href={docUrl} target="_blank" rel="noreferrer noopener" />}
+                  onClick={(event) => void openScript(event, docUrl)}
+                />
+              }
+            >
+              <ExternalLinkIcon />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Open the Google Doc</TooltipPopup>
+          </Tooltip>
+        ) : null}
+        <Menu>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <MenuTrigger
+                  render={<Button size="icon-sm" variant="ghost" aria-label="Script options" />}
+                />
+              }
+            >
+              <EllipsisIcon />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">
+              {view?.savedAt == null
+                ? "Script options"
+                : `Script snapshot saved ${savedLabel(view.savedAt)}`}
+            </TooltipPopup>
+          </Tooltip>
+          <MenuPopup align="end" side="bottom">
+            {props.canWrite && view !== null && pasted === null ? (
+              <MenuItem onClick={() => setPasted("")}>Paste script…</MenuItem>
+            ) : null}
+            {props.canWrite && view !== null && pasted === null ? (
+              <MenuItem onClick={() => setLink(docUrl ?? "")}>
+                {docUrl === null ? "Link Google Doc…" : "Change Google Doc link…"}
+              </MenuItem>
+            ) : null}
+            <MenuItem disabled={reading} onClick={reload}>
+              Reload script
+            </MenuItem>
+            <MenuItem onClick={props.onClose}>Hide script</MenuItem>
+          </MenuPopup>
+        </Menu>
+      </PanelTools>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {pasted !== null ? (
           <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
@@ -575,28 +572,16 @@ export function ScriptPanel(props: {
           </div>
         ) : empty ? (
           <Empty size="compact">
-            <EmptyMedia variant="icon">
-              <ScrollTextIcon />
-            </EmptyMedia>
             <EmptyHeader>
               <EmptyTitle>No script yet</EmptyTitle>
-              <EmptyDescription>
-                {props.canWrite
-                  ? "Paste the script and each line sits where it is said. An agent can also refresh it from the Google Doc."
-                  : "An agent can refresh the script from the Google Doc."}
-              </EmptyDescription>
             </EmptyHeader>
             {props.canWrite ? (
               <EmptyContent>
-                <Button size="sm" onClick={() => setPasted("")}>
-                  Paste script
-                </Button>
-                {linkForm ? (
-                  <div className="flex w-full flex-col gap-1.5 border-t border-dotted border-input pt-4">
-                    <p className="bay-label text-muted-foreground">Or link its Google Doc</p>
-                    {linkForm}
-                  </div>
-                ) : null}
+                {linkForm ?? (
+                  <Button size="sm" onClick={() => setPasted("")}>
+                    Paste script
+                  </Button>
+                )}
               </EmptyContent>
             ) : null}
           </Empty>
@@ -604,21 +589,8 @@ export function ScriptPanel(props: {
           <BeatList beats={view.beats} trailing={lineVoiceOver} />
         )}
       </div>
-      {view !== null && !empty && pasted === null ? (
-        <div className="flex shrink-0 flex-col gap-2 dither-edge-t px-4 pt-3.5 pb-2.5">
-          <div className="flex items-start gap-2">
-            <p className="min-w-0 flex-1 text-2xs leading-4 text-muted-foreground">
-              {view.savedAt !== null ? `Snapshot saved ${savedLabel(view.savedAt)}. ` : ""}
-              {placed < view.beats.length ? "Faded lines aren't on this timeline." : ""}
-            </p>
-            {props.canWrite && docUrl !== null && link === null ? (
-              <Button size="xs" variant="ghost" onClick={() => setLink(docUrl)}>
-                Change link
-              </Button>
-            ) : null}
-          </div>
-          {linkForm}
-        </div>
+      {view !== null && !empty && linkForm ? (
+        <div className="shrink-0 px-3 py-2.5">{linkForm}</div>
       ) : null}
     </aside>
   );

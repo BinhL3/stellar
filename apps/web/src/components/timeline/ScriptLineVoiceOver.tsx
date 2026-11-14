@@ -245,7 +245,16 @@ export function ScriptLineVoiceOver(
   const count = line.takes.length;
   const placed = line.chosen !== null && line.placed?.takeId === line.chosen;
   return (
-    <span className="flex shrink-0 items-start pt-0.5">
+    <span
+      className={cn(
+        "flex shrink-0 items-start pt-0.5",
+        // A line with no takes shows its controls when the pointer or the keyboard reaches it.
+        count === 0 &&
+          state === "idle" &&
+          !open &&
+          "opacity-0 transition-opacity group-focus-within/line:opacity-100 group-hover/line:opacity-100 pointer-coarse:opacity-100",
+      )}
+    >
       {state === "recording" ? (
         <Button
           size="icon-xs"

@@ -152,16 +152,13 @@ export function HistoryPanel(props: {
           <EmptyTitle>
             {loaded.error === null ? "No versions yet" : "No history to show"}
           </EmptyTitle>
-          <EmptyDescription>
-            {loaded.error ??
-              "Each commit, agent edit, pull from Premiere and voice-over placement is kept here, so any of them can be looked at again or brought back."}
-          </EmptyDescription>
+          {loaded.error === null ? null : <EmptyDescription>{loaded.error}</EmptyDescription>}
         </EmptyHeader>
       </Empty>
     );
   }
   return (
-    <ol className="flex h-full min-h-0 flex-col gap-px overflow-auto bg-card p-1.5 text-card-foreground">
+    <ol className="flex h-full min-h-0 flex-col gap-px overflow-auto bg-card px-1.5 pb-1.5 text-card-foreground">
       {versions.map((version, index) => {
         const isCurrent = index === 0;
         const shown = preview?.version.id === version.id;
@@ -175,19 +172,16 @@ export function HistoryPanel(props: {
               aria-current={isCurrent && preview === null ? "true" : undefined}
               onClick={() => void open(version, isCurrent)}
             >
-              <WhoIcon aria-hidden className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+              <WhoIcon
+                role="img"
+                aria-label={who.label}
+                className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+              />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="flex min-w-0 items-baseline gap-1.5 text-sm leading-5">
-                  <span className="min-w-0 truncate">{version.label}</span>
-                  {isCurrent ? (
-                    <Bay.Label className="flex shrink-0 items-center gap-1 text-primary">
-                      <Bay.Mark />
-                      Now
-                    </Bay.Label>
-                  ) : null}
-                </span>
-                <Bay.Label>
-                  {who.label} · {when(version.at)} · {version.id}
+                <span className="min-w-0 truncate text-sm leading-5">{version.label}</span>
+                <Bay.Label title={`${who.label} · ${version.id}`}>
+                  {isCurrent ? <span className="text-primary">Now · </span> : null}
+                  {when(version.at)}
                 </Bay.Label>
                 {!shown && version.changes[0] !== undefined ? (
                   <span className="truncate text-xs text-muted-foreground">
@@ -200,11 +194,8 @@ export function HistoryPanel(props: {
             </Bay.ItemButton>
             {shown && preview !== null ? (
               <div className="mr-2 mb-2.5 ml-7.5 flex flex-col gap-2.5 border-t border-dotted border-input pt-2 text-xs">
-                <ChangeList title="What this version changed" changes={version.changes} />
-                <ChangeList
-                  title="Changed since, in the timeline now"
-                  changes={preview.changesSince}
-                />
+                <ChangeList title="Changed here" changes={version.changes} />
+                <ChangeList title="Changed since" changes={preview.changesSince} />
                 {props.canWrite ? (
                   <div className="flex items-center gap-1.5">
                     <Button
@@ -215,7 +206,7 @@ export function HistoryPanel(props: {
                         void props.onRestore(version.id).finally(() => setRestoring(false));
                       }}
                     >
-                      {restoring ? "Restoring…" : "Restore this version"}
+                      {restoring ? "Restoring…" : "Restore"}
                     </Button>
                     <Button size="xs" variant="ghost" onClick={() => props.onPreview(null)}>
                       Back to now

@@ -1,5 +1,6 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 
 /** A panel's bar. Its edge thins out in dots, like the dock's tab bar, instead of a hairline. */
@@ -74,4 +75,37 @@ function ItemButton({
   );
 }
 
-export const Bay = { Toolbar, Label, Mark, Item, ItemButton };
+/**
+ * Controls that wait for the pointer: hidden until their `group/bay` panel is hovered or holds
+ * focus, and kept on show while one of them is on or open. Touch screens always show them.
+ */
+function Reveal({ className, ...props }: ComponentProps<"span">) {
+  return (
+    <span
+      className={cn(
+        "flex items-center gap-0.5 opacity-0 transition-opacity group-focus-within/bay:opacity-100 group-hover/bay:opacity-100 has-data-popup-open:opacity-100 has-data-pressed:opacity-100 pointer-coarse:opacity-100",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** Short text whose longer explanation waits in a tooltip instead of standing beside it. */
+function Hint({
+  hint,
+  side = "bottom",
+  ...props
+}: ComponentProps<"span"> & {
+  readonly hint: ReactNode;
+  readonly side?: "top" | "bottom";
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span {...props} />} />
+      <TooltipPopup side={side}>{hint}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+export const Bay = { Toolbar, Label, Mark, Item, ItemButton, Reveal, Hint };

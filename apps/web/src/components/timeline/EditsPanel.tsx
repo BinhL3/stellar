@@ -8,7 +8,14 @@ import type {
   VideoTimelineEdits,
   VideoTimelineReviewEditInput,
 } from "@t3tools/contracts";
-import { CheckIcon, Undo2Icon } from "lucide-react";
+import {
+  CheckIcon,
+  CircleCheckIcon,
+  HeadphonesIcon,
+  MessageSquarePlusIcon,
+  Redo2Icon,
+  Undo2Icon,
+} from "lucide-react";
 import { useEffect, useEffectEvent, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -16,6 +23,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "~/components/u
 import { Kbd } from "~/components/ui/kbd";
 import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { cn } from "~/lib/utils";
@@ -31,6 +39,7 @@ import {
   useTimelineKeymap,
 } from "./timelineKeymap";
 import { useTimelinePlayer } from "./timelinePlayer";
+import { PanelTools } from "./TimelineWorkspace";
 
 const LISTEN_PAD_SECONDS = 2;
 
@@ -142,26 +151,26 @@ export function EditsPanel(props: {
   }, [cue, shownVersion]);
 
   const pad = Math.round(LISTEN_PAD_SECONDS * player.rate);
-  const listen = async () => {
-    const removed = selected?.removed ?? null;
-    if (selected === null || removed === null) return;
-    if (heardRemoved === selected.number && shownVersion !== null) {
+  const listen = async (edit: VideoTimelineEditRecord | null) => {
+    const removed = edit?.removed ?? null;
+    if (edit === null || removed === null) return;
+    if (heardRemoved === edit.number && shownVersion !== null) {
       setHeardRemoved(null);
       props.onPreview(null);
-      const join = selected.frame ?? removed.start;
+      const join = edit.frame ?? removed.start;
       setCue({ version: null, from: join - pad, to: join + pad });
       return;
     }
-    if (selected.before === null) {
+    if (edit.before === null) {
       toastManager.add({
         type: "info",
-        title: `What E${selected.number} removed is no longer in the history`,
+        title: `What E${edit.number} removed is no longer in the history`,
       });
       return;
     }
     const result = await readVersion({
       environmentId: props.environmentId,
-      input: { ...scope, version: selected.before },
+      input: { ...scope, version: edit.before },
     });
     if (result._tag !== "Success") {
       if (!isAtomCommandInterrupted(result)) {
@@ -169,11 +178,11 @@ export function EditsPanel(props: {
       }
       return;
     }
-    setHeardRemoved(selected.number);
+    setHeardRemoved(edit.number);
     props.onPreview(result.value);
-    setCue({ version: selected.before, from: removed.start - pad, to: removed.end + pad });
+    setCue({ version: edit.before, from: removed.start - pad, to: removed.end + pad });
   };
-  const listenNow = useEffectEvent(() => void listen());
+  const listenNow = useEffectEvent(() => void listen(selected));
   const canListen = selected !== null && selected.removed !== null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Publishes the listen action to the store the timeline's keys and the command palette read.
   useEffect(() => {
@@ -253,10 +262,7 @@ export function EditsPanel(props: {
       <Empty>
         <EmptyHeader>
           <EmptyTitle>{loaded.error === null ? "No edits yet" : "No edits to show"}</EmptyTitle>
-          <EmptyDescription>
-            {loaded.error ??
-              "Each change an agent makes to this timeline is listed here with what it did, so you can keep it, undo just that one, or send it back."}
-          </EmptyDescription>
+          {loaded.error === null ? null : <EmptyDescription>{loaded.error}</EmptyDescription>}
         </EmptyHeader>
       </Empty>
     );
@@ -271,102 +277,155 @@ export function EditsPanel(props: {
         if (combo === null || !canListen) return;
         if (actionsFor(shortcuts.keymap, combo)[0] !== "listenToCut") return;
         event.preventDefault();
-        void listen();
+        void listen(selected);
       }}
     >
-      <Bay.Toolbar className="px-3">
-        <Bay.Label>
-          {edits.length} {edits.length === 1 ? "edit" : "edits"}
-        </Bay.Label>
-        {waiting > 0 ? (
-          <Bay.Label className="ml-auto flex items-center gap-1.5 text-primary">
+      {waiting > 0 ? (
+        <PanelTools panel="edits">
+          <span className="flex items-center gap-1.5 px-1.5 bay-label text-primary">
             <Bay.Mark />
-            {waiting} {waiting === 1 ? "needs" : "need"} you
-          </Bay.Label>
-        ) : null}
-      </Bay.Toolbar>
-      <ol className="flex min-h-0 flex-1 flex-col gap-px overflow-auto p-1.5">
+            {waiting} to review
+          </span>
+        </PanelTools>
+      ) : null}
+      <ol className="flex min-h-0 flex-1 flex-col gap-px overflow-auto px-1.5 pb-1.5">
         {edits.map((edit) => {
           const isSelected = edit.number === selectedNumber;
           const undone = edit.decision === "undone";
+          const kept = edit.decision === "kept";
           const waitingOnYou = needsYou(edit);
-          const settled = edit.decision !== null;
           const stuck = blocked?.edit === edit.number ? blocked : null;
+          const hearingRemoved = heardRemoved === edit.number && shownVersion !== null;
           return (
-            <Bay.Item key={edit.number} selected={isSelected}>
-              <Bay.ItemButton
-                selected={isSelected}
-                aria-expanded={isSelected}
-                onClick={() => select(edit)}
-              >
-                <span
-                  className={cn(
-                    "mt-0.5 flex h-4 w-7 shrink-0 items-center justify-center rounded-xs border font-mono text-2xs leading-none tabular-nums",
-                    waitingOnYou
-                      ? "border-primary/60 text-primary"
-                      : settled
-                        ? "border-border text-muted-foreground"
-                        : "border-input text-foreground",
-                  )}
+            <Bay.Item
+              key={edit.number}
+              selected={isSelected}
+              className={cn(!isSelected && "hover:bg-accent/70")}
+            >
+              <div className="flex items-start">
+                <Bay.ItemButton
+                  selected={isSelected}
+                  aria-expanded={isSelected}
+                  onClick={() => select(edit)}
+                  className="min-w-0 flex-1 hover:bg-transparent"
                 >
-                  E{edit.number}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span
                     className={cn(
-                      "leading-5 wrap-anywhere",
-                      !isSelected && "line-clamp-2",
-                      edit.decision === "kept" && "text-foreground/80",
-                      undone && "text-muted-foreground line-through",
+                      "mt-0.5 flex h-4 w-7 shrink-0 items-center justify-center rounded-xs border font-mono text-2xs leading-none tabular-nums",
+                      waitingOnYou
+                        ? "border-primary/60 text-primary"
+                        : "border-border text-muted-foreground",
                     )}
                   >
-                    {edit.summary}
+                    E{edit.number}
+                    {waitingOnYou ? <span className="sr-only"> needs you</span> : null}
                   </span>
-                  {edit.check !== null && (isSelected || edit.decision === null) ? (
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span
                       className={cn(
-                        "border-l pl-2 text-xs wrap-anywhere",
-                        edit.decision === null
-                          ? "border-primary/70 text-foreground"
-                          : "border-border text-muted-foreground",
+                        "leading-5 wrap-anywhere",
+                        !isSelected && "line-clamp-2",
+                        kept && "text-foreground/80",
+                        undone && "text-muted-foreground line-through",
                       )}
                     >
-                      Check: {edit.check}
+                      {edit.summary}
                     </span>
-                  ) : null}
-                  <Bay.Label>
-                    {edit.frame === null ? "" : `${clock(edit.frame, player.rate)} · `}
-                    {undone ? "Undone" : edit.decision === "kept" ? "Kept" : "Not reviewed"}
-                  </Bay.Label>
-                </span>
-                {waitingOnYou ? (
-                  <span
-                    role="img"
-                    aria-label="Needs you"
-                    className="mt-1.5 block size-2 shrink-0 dither-block text-primary"
-                  />
-                ) : edit.decision === "kept" ? (
-                  <CheckIcon
-                    aria-label="Kept"
-                    className="mt-1 size-3.5 shrink-0 text-muted-foreground"
-                  />
-                ) : undone ? (
-                  <Undo2Icon
-                    aria-label="Undone"
-                    className="mt-1 size-3.5 shrink-0 text-muted-foreground"
-                  />
-                ) : null}
-              </Bay.ItemButton>
-              {isSelected ? (
-                <div className="mr-2 mb-2.5 ml-11 flex flex-col gap-2 border-t border-dotted border-input pt-2 text-xs">
+                    {edit.check !== null && (isSelected || edit.decision === null) ? (
+                      <span
+                        className={cn(
+                          "text-xs wrap-anywhere",
+                          edit.decision === null ? "text-primary" : "text-muted-foreground",
+                        )}
+                      >
+                        {edit.check}
+                      </span>
+                    ) : null}
+                    {edit.frame === null ? null : (
+                      <span className="font-mono text-2xs text-muted-foreground tabular-nums">
+                        {clock(edit.frame, player.rate)}
+                      </span>
+                    )}
+                  </span>
+                </Bay.ItemButton>
+                <span className="flex shrink-0 items-center gap-0.5 py-1 pr-1">
                   {edit.removed !== null ? (
-                    <p className="text-muted-foreground">
-                      {heardRemoved === edit.number && shownVersion !== null
-                        ? "Playing what it removed. Press again to hear the join as it is now."
-                        : "Hear what it removed, then the join as it is now."}{" "}
-                      {listenKey === undefined ? null : <Kbd>{comboLabel(listenKey)}</Kbd>}
-                    </p>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label={
+                              hearingRemoved
+                                ? `Hear the join E${edit.number} left`
+                                : `Hear what E${edit.number} removed`
+                            }
+                            onClick={() => {
+                              if (!isSelected) setSelectedNumber(edit.number);
+                              void listen(edit);
+                            }}
+                          />
+                        }
+                      >
+                        <HeadphonesIcon />
+                      </TooltipTrigger>
+                      <TooltipPopup side="top">
+                        {hearingRemoved ? "Hear the join as it is now" : "Hear what it removed"}
+                        {listenKey === undefined ? null : (
+                          <>
+                            {" "}
+                            <Kbd>{comboLabel(listenKey)}</Kbd>
+                          </>
+                        )}
+                      </TooltipPopup>
+                    </Tooltip>
                   ) : null}
+                  {props.canWrite && !undone ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-sm"
+                            variant={waitingOnYou ? "default" : "ghost"}
+                            aria-label={kept ? `Reopen E${edit.number}` : `Keep E${edit.number}`}
+                            aria-pressed={kept}
+                            disabled={busy}
+                            onClick={() => void review(edit, kept ? "reopen" : "keep")}
+                          />
+                        }
+                      >
+                        {kept ? <CircleCheckIcon className="text-success" /> : <CheckIcon />}
+                      </TooltipTrigger>
+                      <TooltipPopup side="top">{kept ? "Kept. Reopen" : "Keep"}</TooltipPopup>
+                    </Tooltip>
+                  ) : null}
+                  {props.canWrite ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label={
+                              undone ? `Put E${edit.number} back` : `Undo E${edit.number}`
+                            }
+                            disabled={busy}
+                            onClick={() => void review(edit, undone ? "redo" : "undo")}
+                          />
+                        }
+                      >
+                        {undone ? <Redo2Icon /> : <Undo2Icon />}
+                      </TooltipTrigger>
+                      <TooltipPopup side="top">
+                        {undone ? "Undone. Put back" : "Undo this edit"}
+                      </TooltipPopup>
+                    </Tooltip>
+                  ) : null}
+                </span>
+              </div>
+              {isSelected && (stuck !== null || props.onRevise) ? (
+                <div className="mr-2 mb-2 ml-11 flex flex-col items-start gap-2 text-xs">
                   {stuck !== null ? (
                     <div role="alert" className="flex flex-col items-start gap-1.5">
                       <p className="wrap-anywhere text-warning">{stuck.message}</p>
@@ -382,42 +441,16 @@ export function EditsPanel(props: {
                       ) : null}
                     </div>
                   ) : null}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {props.canWrite && !undone ? (
-                      <Button
-                        size="xs"
-                        variant={edit.decision === "kept" ? "ghost" : "default"}
-                        disabled={busy}
-                        onClick={() =>
-                          void review(edit, edit.decision === "kept" ? "reopen" : "keep")
-                        }
-                      >
-                        {edit.decision === "kept" ? "Reopen" : "Keep"}
-                      </Button>
-                    ) : null}
-                    {props.canWrite ? (
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => void review(edit, undone ? "redo" : "undo")}
-                      >
-                        {undone ? "Put back" : "Undo this edit"}
-                      </Button>
-                    ) : null}
-                    {props.onRevise ? (
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        onClick={() =>
-                          props.onRevise?.(`edit E${edit.number} (“${edit.summary}”): `)
-                        }
-                      >
-                        Revise
-                      </Button>
-                    ) : null}
-                    {busy ? <Spinner /> : null}
-                  </div>
+                  {props.onRevise ? (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => props.onRevise?.(`edit E${edit.number} (“${edit.summary}”): `)}
+                    >
+                      <MessageSquarePlusIcon />
+                      Revise
+                    </Button>
+                  ) : null}
                 </div>
               ) : null}
             </Bay.Item>

@@ -18,15 +18,11 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "~/components/ui/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "~/components/ui/empty";
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
+import { Kbd } from "~/components/ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import {
   savedTimelineLayout,
@@ -56,6 +52,29 @@ const usePanels = () => {
   if (panels === null) throw new Error("Timeline panels render inside a TimelineWorkspace.");
   return panels;
 };
+
+type ToolSlots = Readonly<Partial<Record<string, HTMLElement | null>>>;
+// Where each panel on show puts its tools: the right end of its group's bar.
+const ToolSlotsContext = createContext<ToolSlots | null>(null);
+const SetToolSlotContext = createContext<(id: string, element: HTMLElement | null) => void>(
+  () => {},
+);
+
+/**
+ * A panel's own tools. In the dock they sit in the bar that already names the panel, so a panel
+ * has one line of chrome; outside a dock they are a row above the panel.
+ */
+export function PanelTools(props: {
+  readonly panel: TimelinePanelId;
+  readonly children: ReactNode;
+}) {
+  const slots = use(ToolSlotsContext);
+  if (slots === null) {
+    return <div className="flex h-9 shrink-0 items-center justify-end px-1">{props.children}</div>;
+  }
+  const slot = slots[props.panel];
+  return slot ? createPortal(props.children, slot) : null;
+}
 
 // Styled from the app's tokens in index.css, under this class.
 const THEME: DockviewTheme = {
@@ -180,6 +199,11 @@ export function TimelineWorkspace(props: {
   readonly panels: TimelineWorkspacePanels;
 }) {
   const [api, setApi] = useState<DockviewApi | null>(null);
+  const [toolSlots, setToolSlots] = useState<ToolSlots>({});
+  const [setToolSlot] = useState(
+    () => (id: string, element: HTMLElement | null) =>
+      setToolSlots((slots) => (slots[id] === element ? slots : { ...slots, [id]: element })),
+  );
   const { projectKey, portrait } = props;
   // Each shape keeps its own arrangement, so a project with both doesn't fight over one.
   const layoutKey = portrait ? `${projectKey}:portrait` : projectKey;
@@ -268,19 +292,23 @@ export function TimelineWorkspace(props: {
 
   return (
     <PanelsContext value={props.panels}>
-      <div className="min-h-0 min-w-0 flex-1">
-        <DockviewReact
-          key={layoutKey}
-          theme={THEME}
-          components={PANEL_COMPONENTS}
-          rightHeaderActionsComponent={MaximizeAction}
-          watermarkComponent={NoPanels}
-          onReady={onReady}
-          disableFloatingGroups
-          singleTabMode="default"
-          getTabContextMenuItems={() => ["maximize", "separator", "close"]}
-        />
-      </div>
+      <SetToolSlotContext value={setToolSlot}>
+        <ToolSlotsContext value={toolSlots}>
+          <div className="min-h-0 min-w-0 flex-1">
+            <DockviewReact
+              key={layoutKey}
+              theme={THEME}
+              components={PANEL_COMPONENTS}
+              rightHeaderActionsComponent={GroupActions}
+              watermarkComponent={NoPanels}
+              onReady={onReady}
+              disableFloatingGroups
+              singleTabMode="default"
+              getTabContextMenuItems={() => ["maximize", "separator", "close"]}
+            />
+          </div>
+        </ToolSlotsContext>
+      </SetToolSlotContext>
     </PanelsContext>
   );
 }
@@ -340,29 +368,46 @@ const subscribeMaximized = (api: DockviewApi) => (listener: () => void) => {
   return () => disposable.dispose();
 };
 
-function MaximizeAction(props: IDockviewHeaderActionsProps) {
+/** The right end of a group's bar: the tools of the panel on show, then maximize. */
+function GroupActions(props: IDockviewHeaderActionsProps) {
   const maximized = useSyncExternalStore(subscribeMaximized(props.containerApi), () =>
     props.api.isMaximized(),
   );
+  const setToolSlot = use(SetToolSlotContext);
+  const panelId = props.activePanel?.id ?? null;
   const title = props.activePanel?.title ?? "panel";
   const label = maximized ? `Restore ${title}` : `Maximize ${title}`;
   return (
-    <div className="flex h-full items-center pr-1">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={label}
-              onClick={() => (maximized ? props.api.exitMaximized() : props.api.maximize())}
-            />
-          }
-        >
-          {maximized ? <Minimize2Icon /> : <Maximize2Icon />}
-        </TooltipTrigger>
-        <TooltipPopup side="bottom">{label}</TooltipPopup>
-      </Tooltip>
+    <div className="flex h-full items-center gap-0.5 pr-1">
+      {panelId === null ? null : (
+        <div
+          key={panelId}
+          ref={(element) => {
+            setToolSlot(panelId, element);
+            return () => setToolSlot(panelId, null);
+          }}
+          className="flex items-center gap-0.5"
+        />
+      )}
+      <span className="dock-group-action flex">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={label}
+                onClick={() => (maximized ? props.api.exitMaximized() : props.api.maximize())}
+              />
+            }
+          >
+            {maximized ? <Minimize2Icon /> : <Maximize2Icon />}
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">
+            {label} <Kbd>`</Kbd>
+          </TooltipPopup>
+        </Tooltip>
+      </span>
     </div>
   );
 }
@@ -373,9 +418,6 @@ function NoPanels(_props: IWatermarkPanelProps) {
     <Empty>
       <EmptyHeader>
         <EmptyTitle>Every panel is closed</EmptyTitle>
-        <EmptyDescription>
-          Open one from Panels, or put the workspace back as it was.
-        </EmptyDescription>
       </EmptyHeader>
       {controls ? (
         <EmptyContent>
