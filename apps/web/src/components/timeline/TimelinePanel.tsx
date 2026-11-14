@@ -6,7 +6,6 @@ import {
   type AssetResource,
   AuthFilesystemWriteScope,
   type EnvironmentId,
-  type ScopedThreadRef,
   type VideoProjectIntakeStatus,
   type VideoProjectSyncResult,
   type VideoScriptBeat,
@@ -14,7 +13,7 @@ import {
 } from "@t3tools/contracts";
 import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
 import { PROXY_INDEX_PATH, type ProxyIndex, STILL_PATH } from "@t3tools/timeline/proxies";
-import { LayoutPanelTopIcon, ScrollTextIcon } from "lucide-react";
+import { LayoutPanelTopIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useEffectEvent, useState } from "react";
 
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
@@ -40,7 +39,6 @@ import {
 } from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
-import { Toggle } from "~/components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useVideoProject } from "~/hooks/useVideoProject";
 import { projectEnvironment } from "~/state/projects";
@@ -60,7 +58,6 @@ import { PremierePullNotice } from "./PremierePullNotice";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
 import { PreflightStrip } from "./PreflightStrip";
 import { scriptTicks } from "./scriptBeats";
-import { ScriptPanel } from "./ScriptPanel";
 import {
   TIMELINE_PANEL_IDS,
   TIMELINE_PANEL_TITLES,
@@ -225,8 +222,6 @@ const versionTime = (time: number) =>
 export default function TimelinePanel(props: {
   readonly environmentId: EnvironmentId;
   readonly workspaceRoot: string;
-  /** The thread whose Browser tab opens the script's Google Doc. */
-  readonly threadRef: ScopedThreadRef;
 }) {
   const { timelinePaths, refresh: refreshTimelines } = useVideoProject(
     props.environmentId,
@@ -419,7 +414,6 @@ export default function TimelinePanel(props: {
   const workspace = useTimelineLayoutStore((state) =>
     state.active?.projectKey === projectKey ? state.active : null,
   );
-  const scriptOpen = workspace?.open.includes("script") ?? false;
 
   const commitTimeline = useAtomCommand(projectEnvironment.commitVideoTimeline, {
     reportFailure: false,
@@ -517,7 +511,7 @@ export default function TimelinePanel(props: {
     });
   };
 
-  // Script lines on the ruler: read from the Script panel when it is open, else fetched here.
+  // Where the script's lines fall, as notches on the ruler.
   const [scriptLinesShown, setScriptLinesShown] = useState(readScriptLinesShown);
   const [scriptBeats, setScriptBeats] = useState<{
     readonly key: string;
@@ -525,8 +519,7 @@ export default function TimelinePanel(props: {
   } | null>(null);
   const readScript = useAtomCommand(projectEnvironment.readVideoScript, { reportFailure: false });
   const beatsKey = `${selectedPath ?? ""}\n${file.data?.contents.length ?? 0}:${transcripts?.ready ?? 0}`;
-  const wantsBeats =
-    scriptLinesShown && !scriptOpen && selectedPath !== null && file.data !== undefined;
+  const wantsBeats = scriptLinesShown && selectedPath !== null && file.data !== undefined;
   const loadBeats = useEffectEvent(async (key: string) => {
     if (selectedPath === null) return;
     const result = await readScript({
@@ -535,7 +528,7 @@ export default function TimelinePanel(props: {
     });
     if (result._tag === "Success") setScriptBeats({ key, beats: result.value.beats });
   });
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Where script lines fall is worked out on the server; with the Script panel closed nothing else reads it, so the ruler's ticks read it when the timeline's text changes.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Where script lines fall is worked out on the server, so the ruler's ticks read it when the timeline's text changes.
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- The beats are set when the server answers, not as the effect runs.
     if (wantsBeats) void loadBeats(beatsKey);
@@ -609,7 +602,6 @@ export default function TimelinePanel(props: {
         sync: () => void sync(),
         merge: () => void sync({ merge: true }),
         transcribe: () => void transcribe(),
-        ...(workspace === null ? {} : { openScript: () => workspace.controls.show("script") }),
       }}
       onBeforeRenderCheck={() => sync({ quiet: true })}
     />
@@ -680,24 +672,6 @@ export default function TimelinePanel(props: {
               {importFootage("icon")}
             </>
           ) : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  size="sm"
-                  aria-label="Script"
-                  disabled={workspace === null}
-                  pressed={scriptOpen}
-                  onPressedChange={(open) =>
-                    open ? workspace?.controls.show("script") : workspace?.controls.close("script")
-                  }
-                />
-              }
-            >
-              <ScrollTextIcon />
-            </TooltipTrigger>
-            <TooltipPopup side="bottom">{scriptOpen ? "Hide script" : "Show script"}</TooltipPopup>
-          </Tooltip>
           <Menu>
             <Tooltip>
               <TooltipTrigger
@@ -773,7 +747,6 @@ export default function TimelinePanel(props: {
                   // Storage can be unavailable (private windows); the choice still holds this session.
                 }
               },
-              onPick: () => workspace?.controls.show("script"),
             }}
             onReference={reference}
             onPendingEdits={(pending) => {
@@ -813,25 +786,6 @@ export default function TimelinePanel(props: {
             }
             workspace={{
               projectKey,
-              script: (
-                <ScriptPanel
-                  environmentId={props.environmentId}
-                  workspaceRoot={props.workspaceRoot}
-                  timeline={selectedPath}
-                  revision={file.data?.contents ?? ""}
-                  transcribed={transcripts?.ready ?? 0}
-                  threadRef={props.threadRef}
-                  canWrite={canWriteFiles}
-                  pendingEdits={hasPendingEdits}
-                  onTimelineChanged={() => {
-                    file.refresh();
-                    // The timeline now differs from Premiere's save; the badge should say so.
-                    void sync({ quiet: true });
-                  }}
-                  onBeats={(beats) => setScriptBeats({ key: beatsKey, beats })}
-                  onClose={() => workspace?.controls.close("script")}
-                />
-              ),
               edits: (
                 <EditsPanel
                   environmentId={props.environmentId}

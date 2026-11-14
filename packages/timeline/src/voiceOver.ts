@@ -65,23 +65,6 @@ export const chooseTake = (
   return { ...index, chosen: { ...index.chosen, [beatId]: takeId } };
 };
 
-/** The index without `takeId`. A beat that lost its chosen take falls back to its newest one. */
-export const removeTake = (index: VoiceOverIndex, takeId: string): VoiceOverIndex | string => {
-  const take = index.takes.find((other) => other.id === takeId);
-  if (take === undefined) return `no take ${takeId}`;
-  const takes = index.takes.filter((other) => other !== take);
-  const { [take.beatId]: chosen, ...others } = index.chosen;
-  if (chosen !== takeId) return { ...index, takes };
-  const fallback = takes
-    .filter((other) => other.beatId === take.beatId)
-    .toSorted((a, b) => b.createdAt - a.createdAt || takeNumber(b.id) - takeNumber(a.id))[0];
-  return {
-    ...index,
-    takes,
-    chosen: fallback === undefined ? others : { ...others, [take.beatId]: fallback.id },
-  };
-};
-
 interface Placed {
   readonly id: string;
   readonly track: string;
@@ -160,17 +143,6 @@ export const placedVoiceOver = (
   }
   return found;
 };
-
-/** The ids of the takes any clip of a timeline plays. */
-export const takesOnTimeline = (
-  timeline: Timeline,
-  takes: ReadonlyArray<VoiceOverTake>,
-): ReadonlySet<string> =>
-  new Set(
-    flatten(timeline).flatMap((track) =>
-      track.clips.flatMap((item) => takeOf(item.clip, takes)?.id ?? []),
-    ),
-  );
 
 /** A clip that couldn't be stretched as far as the longer take needed. */
 export interface ShortClip {

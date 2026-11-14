@@ -386,6 +386,11 @@ Built from the past threads: it targets where time and failures actually went, a
   place each on a timeline by matching its words against the transcripts, so a beat knows its
   word numbers and frames. Stellar doesn't fetch the doc itself: an agent reads it and passes
   the text in.
+  - Stellar has no script panel or editor (decided 2026-11-14). A short starts either from a
+    script the user writes in their doc or from a pre-recording that is cut and then narrated,
+    and the chat drives both. Asked to show the script, the agent opens the doc in the Browser
+    tab; without a Docs tool it reads the doc there too. A pre-recorded short has no script, so
+    the preflight strip has no script step.
 - **Frame rates: tables and whole-clip conforming, built (milestone 2, second half).** Ahead
   of every proxy build the server reads each footage clip's frame times from its packets
   (`ffprobe`, no decoding: 1.6 s for a 3.3 GB, 8-minute 4K clip) and records them in
@@ -408,9 +413,9 @@ Built from the past threads: it targets where time and failures actually went, a
 - **Voice-over per script line: built (milestone 5).** A take is a WAV under `Audio/VO`
   recorded for one beat; `voiceover.json` in the project folder lists the takes and which one
   each beat uses.
-  - The Script panel records, imports, auditions, switches and deletes a line's takes.
-    Agents use `video_voice_over`, which can also cut a transcribed read of the whole script
-    into a take per line.
+  - Agents manage takes with `video_voice_over`: import a file as a line's take, choose a
+    line's take, or cut a transcribed read of the whole script into a take per line. The user
+    records with "Record voice-over" under the timeline and hands the take to the chat.
   - Placing a line's chosen take re-times that beat alone
     (`packages/timeline/src/voiceOver.ts`): cut points under the line scale to the new length
     and everything after moves by the difference. A clip keeps its in point and is never cut,
@@ -426,8 +431,7 @@ Built from the past threads: it targets where time and failures actually went, a
     round trip through Premiere, which drops Stellar's metadata.
   - Not built: a timeline for a project that has only voice-over (placing needs a cut; the
     footage timeline is regenerated, so it is refused), re-timing by matching the old and new
-    takes' words instead of by proportion, and takes on mobile. "Record voice-over" under the
-    timeline still records one loose take against the picture.
+    takes' words instead of by proportion, and takes on mobile.
 - **Stage: started.** A video project has a stage (Scripting, Footage in, Rough cut, Polish,
   Posted), kept as `stage` in `project.json` in the project folder, so the person, an agent
   editing the file and every client read the same thing. Unset, it reads Rough cut once a
@@ -665,8 +669,8 @@ Built so far: the last bullet's sync. The rest is proposed.
   invented, as in the run.
 - **Beat ↔ timeline.** Each beat's start shows on the ruler as a tick, derived from the
   alignment each time rather than stored as a marker, so it can never drift from the words.
-  Clicking one moves the playhead and shows the line in the Script panel. Opening the doc at
-  that heading from the tick is not built.
+  Hovering one shows its line; clicking it moves the playhead. Opening the doc at that heading
+  from the tick is not built.
 - **Binh's doc edits flow back as proposals, never as silent changes.** The server watches the doc
   revision (when its Browser tab loses focus, and every minute while the thread is active). When it changes, it
   diffs beats by id and posts a card: "You rewrote the hook line in beat 1. Recut the hook to
@@ -766,8 +770,8 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
    exports the rough cut, so an exported and pulled cut leaves the unlinked rough cut beside
    the linked one; reads and the picker default to the linked one.
 2. Of Decision 7's surfaces only the preflight strip is built, and not as drawn: it sits in the
-   Timeline tab and lists the run's steps (script, footage, previews, transcripts, Premiere link
-   and sync, render check, posted) from project data. It checks no drive, free space, connector
+   Timeline tab and lists the run's steps (footage, previews, transcripts, Premiere link and
+   sync, render check, posted) from project data. It checks no drive, free space, connector
    sign-in or MCP health, and has no Continue anyway. The intake card, job rows, hook card
    and catalog pill are unbuilt. Posted is recorded in the project; the catalog row
    is moved by an agent through the Google connector, and nothing confirms that it was.
@@ -775,8 +779,8 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
    agent turn has used them yet: they are proven by tests, by the service run on real clips,
    and by tool-choice cases that have not been run on a model.
 4. The script's snapshot is in the project (`Stellar/script.md`), but Stellar doesn't fetch
-   the Google Doc: an agent reads it through the connector and saves it, or the user pastes
-   it. Nothing watches the doc for changes (open questions 9 and 10).
+   the Google Doc: an agent reads it through a Docs connector, or opens it in the Browser tab
+   and reads it there, and saves it. Nothing watches the doc for changes (open questions 9 and 10).
 5. Intake is a dialog the person opens, or `video_footage` for an agent, which must show the
    scan and get approval in chat: there is no card. The scan lists every recent photo and
    video in Downloads, whatever it is, and the originals are never removed from there.

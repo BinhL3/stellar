@@ -117,9 +117,7 @@ import {
   nextTakeId,
   placedVoiceOver,
   placeTake,
-  removeTake,
   sliceByBeats,
-  takesOnTimeline,
 } from "@t3tools/timeline/voiceOver";
 import type { SoundPictureRequest } from "@t3tools/timeline/soundPicture";
 import { timelineWords, type TranscriptWord, wordsText } from "@t3tools/timeline/words";
@@ -588,17 +586,13 @@ export class VideoProjects extends Context.Service<
       input: VideoVoiceOverReadInput,
     ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
     /**
-     * Saves a recording, or a copy of an audio file on the host, as a take of one script line
-     * and makes it the line's chosen take. Nothing on a timeline changes until it is applied.
+     * Copies an audio file on the host in as a take of one script line and makes it the line's
+     * chosen take. Nothing on a timeline changes until it is applied.
      */
     readonly saveTake: (
       input: VideoVoiceOverSaveTakeInput,
     ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
     readonly chooseTake: (
-      input: VideoVoiceOverTakeInput,
-    ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
-    /** Deletes a take's file and transcript. Refused while a timeline still plays it. */
-    readonly deleteTake: (
       input: VideoVoiceOverTakeInput,
     ) => Effect.Effect<VideoVoiceOverView, VideoProjectError>;
     /**
@@ -624,7 +618,7 @@ export class VideoProjects extends Context.Service<
       input: VideoRenderCheckInput,
     ) => Effect.Effect<VideoRenderReport, VideoProjectError>;
     /**
-     * Where the short's run stands, step by step from script to posted, read from what the
+     * Where the short's run stands, step by step from footage to posted, read from what the
      * project folder records. Pulls nothing and writes nothing.
      */
     readonly preflight: (
@@ -1352,7 +1346,7 @@ const make = Effect.gen(function* () {
     const script = yield* loadScript(workspaceRoot);
     const scriptLine =
       script.beats.length === 0 && script.docUrl === null
-        ? "none (video_script saves one)"
+        ? "none (video_script saves one from the user's doc; a pre-recorded short needs none)"
         : `${script.beats.length} beats in Stellar/${SCRIPT_FILE}, Google Doc ${script.docUrl === null ? "not recorded" : "recorded"} (video_script)`;
     const hasFfmpeg = yield* spawner.string(ChildProcess.make("ffmpeg", ["-version"])).pipe(
       Effect.as(true),
@@ -1385,7 +1379,6 @@ const make = Effect.gen(function* () {
       yield* runLine(workspaceRoot, {
         footage: footage.length,
         coverage,
-        scriptBeats: script.beats.length,
       }),
       ...(hasFfmpeg
         ? []
@@ -2446,15 +2439,7 @@ const make = Effect.gen(function* () {
   const saveTake: VideoProjects["Service"]["saveTake"] = Effect.fn("VideoProjects.saveTake")(
     function* (input) {
       yield* requireProject(input.workspaceRoot);
-      const { recording, path: importPath } = input;
-      if ((recording === undefined) === (importPath === undefined)) {
-        return yield* new VideoProjectError({
-          reason: "A take is either a recording or the path of an audio file.",
-        });
-      }
-      if (recording?.byteLength === 0) {
-        return yield* new VideoProjectError({ reason: "The recording was empty." });
-      }
+      const importPath = input.path;
       const script = yield* loadScript(input.workspaceRoot);
       if (!script.beats.some((beat) => beat.id === input.beatId)) {
         return yield* new VideoProjectError({
@@ -2467,29 +2452,15 @@ const make = Effect.gen(function* () {
           const index = yield* onHost(readTakeIndex(input.workspaceRoot));
           const id = nextTakeId(index);
           const file = `${TAKE_FOLDER}/VO ${input.beatId.replace(/[^\w-]+/g, "_")} ${id}.wav`;
-          const raw = path.join(mediaRoot, TAKE_FOLDER, `.${id}.recording`);
-          const seconds = yield* Effect.gen(function* () {
-            if (recording !== undefined) {
-              yield* fileSystem.makeDirectory(path.dirname(raw), { recursive: true });
-              yield* fileSystem.writeFile(raw, recording);
-            }
-            return yield* onHost(
-              encodeTake({
-                source: importPath === undefined ? raw : path.resolve(mediaRoot, importPath),
-                target: path.join(mediaRoot, file),
-              }),
-            );
-          }).pipe(
-            Effect.ensuring(fileSystem.remove(raw, { force: true }).pipe(Effect.ignore)),
+          const seconds = yield* onHost(
+            encodeTake({
+              source: path.resolve(mediaRoot, importPath),
+              target: path.join(mediaRoot, file),
+            }),
+          ).pipe(
             Effect.mapError(
               (cause) =>
-                new VideoProjectError({
-                  reason:
-                    importPath === undefined
-                      ? "Could not save the take. Is ffmpeg installed on this machine?"
-                      : `Could not read ${importPath} as audio.`,
-                  cause,
-                }),
+                new VideoProjectError({ reason: `Could not read ${importPath} as audio.`, cause }),
             ),
           );
           if (seconds === null) {
@@ -2503,7 +2474,7 @@ const make = Effect.gen(function* () {
                 beatId: input.beatId,
                 file,
                 seconds,
-                source: importPath === undefined && input.picked !== true ? "recorded" : "imported",
+                source: "imported",
                 createdAt: yield* Clock.currentTimeMillis,
               }),
             ),
@@ -2528,42 +2499,6 @@ const make = Effect.gen(function* () {
           yield* onHost(writeTakeIndex(input.workspaceRoot, next)).pipe(
             Effect.mapError(takeIndexError),
           );
-        }),
-      );
-      return yield* voiceOverView(input.workspaceRoot, input.timeline);
-    },
-  );
-
-  const deleteTake: VideoProjects["Service"]["deleteTake"] = Effect.fn("VideoProjects.deleteTake")(
-    function* (input) {
-      yield* requireProject(input.workspaceRoot);
-      const mediaRoot = path.dirname(input.workspaceRoot);
-      yield* savingTakes.withPermits(1)(
-        Effect.gen(function* () {
-          const index = yield* onHost(readTakeIndex(input.workspaceRoot));
-          const take = index.takes.find((other) => other.id === input.takeId);
-          const next = removeTake(index, input.takeId);
-          if (take === undefined || take.beatId !== input.beatId || typeof next === "string") {
-            return yield* new VideoProjectError({
-              reason: `${input.beatId} has no take ${input.takeId}.`,
-            });
-          }
-          // Deleting the file under a clip would leave the timeline playing nothing.
-          for (const timelinePath of yield* listTimelines(input.workspaceRoot)) {
-            const timeline = yield* loadTimeline(input.workspaceRoot, timelinePath);
-            if (takesOnTimeline(timeline, index.takes).has(take.id)) {
-              return yield* new VideoProjectError({
-                reason: `Take ${take.id} is on ${timelinePath}. Choose another take for ${take.beatId} and place it, then delete this one.`,
-              });
-            }
-          }
-          yield* onHost(writeTakeIndex(input.workspaceRoot, next)).pipe(
-            Effect.mapError(takeIndexError),
-          );
-          const transcript = yield* onHost(findTranscript(mediaRoot, take.file));
-          for (const file of [path.join(mediaRoot, take.file), transcript]) {
-            if (file !== null) yield* fileSystem.remove(file, { force: true }).pipe(Effect.ignore);
-          }
         }),
       );
       return yield* voiceOverView(input.workspaceRoot, input.timeline);
@@ -2749,7 +2684,6 @@ const make = Effect.gen(function* () {
   interface KnownFacts {
     readonly footage: number;
     readonly coverage: { readonly total: number; readonly missing: ReadonlyArray<string> };
-    readonly scriptBeats: number;
   }
 
   const readPreflight = Effect.fn("VideoProjects.readPreflight")(function* (
@@ -2759,7 +2693,6 @@ const make = Effect.gen(function* () {
     const mediaRoot = path.dirname(workspaceRoot);
     const footage = known?.footage ?? (yield* onHost(listFootage(mediaRoot))).length;
     const coverage = known?.coverage ?? (yield* onHost(transcriptCoverage(mediaRoot)));
-    const scriptBeats = known?.scriptBeats ?? (yield* loadScript(workspaceRoot)).beats.length;
     const intake = yield* fileSystem
       .readFileString(path.join(workspaceRoot, INTAKE_STATUS_FILE))
       .pipe(Effect.flatMap(decodeIntakeStatus), Effect.option);
@@ -2772,7 +2705,6 @@ const make = Effect.gen(function* () {
     const report = yield* onHost(readRenderReport(workspaceRoot));
     const posted = yield* onHost(readPosted(workspaceRoot));
     const steps = derivePreflight({
-      scriptBeats,
       footage,
       intake: Option.getOrNull(intake),
       proxies:
@@ -2882,7 +2814,6 @@ const make = Effect.gen(function* () {
     readVoiceOver,
     saveTake,
     chooseTake,
-    deleteTake,
     applyVoiceOver,
     splitTake,
     checkRender,

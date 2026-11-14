@@ -386,23 +386,20 @@ export default function TimelineViewer(props: {
   /** The editing app's sync badge, shown in the transport row. */
   readonly premiere?: ReactNode;
   /**
-   * With a project, the monitor, tracks and script are panels in a dock that keeps the project's
+   * With a project, the monitor, tracks and side panels are panels in a dock that keeps the project's
    * layout; without one (a timeline file opened on its own) only the tracks show.
    */
   readonly workspace?: {
     readonly projectKey: string;
-    /** The Script panel's content; it can `useTimelinePlayer`. */
-    readonly script: ReactNode;
     /** The Edits panel's content; it can `useTimelinePlayer`. */
     readonly edits: ReactNode;
     readonly history: ReactNode;
   };
-  /** Script lines shown as notches on the ruler, and what picking one does besides seeking. */
+  /** Script lines shown as notches on the ruler; picking one seeks to it. */
   readonly scriptLines?: {
     readonly ticks: ReadonlyArray<ScriptTick>;
     readonly shown: boolean;
     readonly onShownChange: (shown: boolean) => void;
-    readonly onPick: () => void;
   };
   /** Undo and redo step through saved versions once no uncommitted edit is left to step over. */
   readonly onStepVersion?: (step: "undo" | "redo") => void;
@@ -1559,10 +1556,7 @@ export default function TimelineViewer(props: {
                   setMarkerOnRuler(id !== null);
                 }}
                 onSeek={seek}
-                onScriptTick={(tick) => {
-                  seek(tick.frame);
-                  props.scriptLines?.onPick();
-                }}
+                onScriptTick={(tick) => seek(tick.frame)}
                 {...(editable ? { onChange: changeMarker, onRemove: removeMarker } : {})}
               />
               {/* The playhead's head, in the ruler that sits above the tracks' line. */}
@@ -1789,7 +1783,6 @@ export default function TimelineViewer(props: {
         panels={{
           monitor,
           timeline: tracksPanel,
-          script: props.workspace.script,
           edits: props.workspace.edits,
           history: props.workspace.history,
           markers: (

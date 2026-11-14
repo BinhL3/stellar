@@ -17,11 +17,11 @@ const leaf = (views: ReadonlyArray<string>, id: string) => ({
 
 const panel = (id: string) => ({ id, contentComponent: id, title: id });
 
-/** Monitor over a Timeline and Script stack: the shape dockview's toJSON writes. */
+/** Monitor over a Timeline and Markers stack: the shape dockview's toJSON writes. */
 const layout = (
   views: { readonly top: ReadonlyArray<string>; readonly bottom: ReadonlyArray<string> } = {
     top: ["monitor"],
-    bottom: ["timeline", "script"],
+    bottom: ["timeline", "markers"],
   },
 ) =>
   ({
@@ -50,7 +50,7 @@ beforeEach(() => {
 describe("timelineLayoutStore", () => {
   it("restores each project's layout after a reload, and reset drops it for the default", async () => {
     const stacked = layout();
-    const split = layout({ top: ["monitor", "timeline"], bottom: ["script"] });
+    const split = layout({ top: ["monitor", "timeline"], bottom: ["history"] });
     useTimelineLayoutStore.getState().saveLayout("env:/a", stacked);
     useTimelineLayoutStore.getState().saveLayout("env:/b", split);
 
@@ -71,9 +71,13 @@ describe("timelineLayoutStore", () => {
     expect(validTimelineLayout("monitor")).toBeNull();
     // A panel this build no longer has.
     expect(validTimelineLayout(layout({ top: ["monitor"], bottom: ["bins"] }))).toBeNull();
+    // The Script panel, saved by builds that had one.
+    expect(
+      validTimelineLayout(layout({ top: ["monitor"], bottom: ["timeline", "script"] })),
+    ).toBeNull();
     // A grid that shows a panel the layout doesn't define.
     const missing = layout();
-    const { script: _script, ...panels } = missing.panels;
+    const { markers: _markers, ...panels } = missing.panels;
     expect(validTimelineLayout({ ...missing, panels })).toBeNull();
     // Nothing to show.
     expect(validTimelineLayout({ ...layout(), panels: {} })).toBeNull();
@@ -92,25 +96,22 @@ describe("timelineLayoutStore", () => {
 
   it("reopens a closed panel where it belongs among the open ones", () => {
     expect(timelinePanelPlacement("monitor", [])).toBeNull();
-    expect(timelinePanelPlacement("monitor", ["timeline", "script"])).toEqual({
+    expect(timelinePanelPlacement("monitor", ["timeline", "markers"])).toEqual({
       referencePanel: "timeline",
       direction: "above",
     });
-    expect(timelinePanelPlacement("monitor", ["script"])).toEqual({ direction: "left" });
+    expect(timelinePanelPlacement("monitor", ["markers"])).toEqual({ direction: "left" });
     expect(timelinePanelPlacement("timeline", ["monitor"])).toEqual({
       referencePanel: "monitor",
       direction: "below",
     });
-    expect(timelinePanelPlacement("timeline", ["script"])).toEqual({ direction: "left" });
-    expect(timelinePanelPlacement("script", ["monitor", "timeline"])).toEqual({
-      direction: "right",
-    });
+    expect(timelinePanelPlacement("timeline", ["markers"])).toEqual({ direction: "left" });
     // Markers and History share the side column, as tabs of whichever side panel is open.
     expect(timelinePanelPlacement("markers", ["monitor", "timeline"])).toEqual({
       direction: "right",
     });
-    expect(timelinePanelPlacement("history", ["monitor", "timeline", "script"])).toEqual({
-      referencePanel: "script",
+    expect(timelinePanelPlacement("history", ["monitor", "timeline", "edits"])).toEqual({
+      referencePanel: "edits",
       direction: "within",
     });
     expect(timelinePanelPlacement("markers", ["monitor", "history"])).toEqual({

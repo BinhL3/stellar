@@ -1,11 +1,10 @@
 /**
- * The run of a short, from script to posted, as steps with a state each. Derived from what the
+ * The run of a short, from footage to posted, as steps with a state each. Derived from what the
  * project folder already records, so the strip in the Timeline tab and an agent read one answer.
  */
 import type { RenderCheckLevel } from "./renderCheck.ts";
 
 export type PreflightStepId =
-  | "script"
   | "footage"
   | "proxies"
   | "transcripts"
@@ -18,7 +17,6 @@ export type PreflightStepId =
 export type PreflightState = "done" | "working" | "todo" | "warn" | "fail";
 
 export type PreflightAction =
-  | "openScript"
   | "importFootage"
   | "sync"
   | "merge"
@@ -44,8 +42,6 @@ interface Progress {
 }
 
 export interface PreflightFacts {
-  /** Beats in the script snapshot. */
-  readonly scriptBeats: number;
   /** Video files in Footage. */
   readonly footage: number;
   /** The last import, or null when nothing was imported through Stellar. */
@@ -105,10 +101,6 @@ export const derivePreflight = (facts: PreflightFacts): Array<PreflightStep> => 
 
   const missingTranscripts = transcripts.total - transcripts.ready;
   return [
-    facts.scriptBeats > 0
-      ? step("script", "Script", "done", count(facts.scriptBeats, "beat"))
-      : step("script", "Script", "todo", "No script saved", "openScript"),
-
     intake?.state === "copying"
       ? step("footage", "Footage", "working", `Copying ${intake.done} of ${intake.total}`)
       : intake?.state === "conforming"
@@ -242,7 +234,6 @@ export const preflightHeadline = (steps: ReadonlyArray<PreflightStep>): Prefligh
 
 // The tool an agent moves each step on with.
 const ACTION_TOOLS: Record<PreflightAction, string | null> = {
-  openScript: "video_script",
   importFootage: "video_footage",
   sync: "video_timeline_read",
   merge: "video_timeline_read",

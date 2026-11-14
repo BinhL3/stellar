@@ -1078,12 +1078,8 @@ export type VideoVoiceOverReadInput = typeof VideoVoiceOverReadInput.Type;
 export const VideoVoiceOverSaveTakeInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   beatId: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
-  /** Audio a client recorded or picked, in any format ffmpeg reads. */
-  recording: Schema.optional(Schema.Uint8ArrayFromBase64),
-  /** True when `recording` is a file the person picked, not the microphone. */
-  picked: Schema.optional(Schema.Boolean),
-  /** An audio file on the host to copy in, absolute or relative to the media root. */
-  path: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(4096))),
+  /** An audio file on the host to copy in, in any format ffmpeg reads, absolute or relative to the media root. */
+  path: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   timeline: VideoVoiceOverReadInput.fields.timeline,
 });
 export type VideoVoiceOverSaveTakeInput = typeof VideoVoiceOverSaveTakeInput.Type;
@@ -1173,10 +1169,9 @@ export const VideoRenderCheckInput = Schema.Struct({
 });
 export type VideoRenderCheckInput = typeof VideoRenderCheckInput.Type;
 
-/** One step of a short's run, from script to posted. */
+/** One step of a short's run, from footage to posted. */
 export const VideoPreflightStep = Schema.Struct({
   id: Schema.Literals([
-    "script",
     "footage",
     "proxies",
     "transcripts",
@@ -1193,7 +1188,6 @@ export const VideoPreflightStep = Schema.Struct({
   /** What moves the step on, where something does. */
   action: Schema.NullOr(
     Schema.Literals([
-      "openScript",
       "importFootage",
       "sync",
       "merge",

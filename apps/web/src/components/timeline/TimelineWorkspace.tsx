@@ -33,13 +33,11 @@ import {
   timelinePanelPlacement,
   useTimelineLayoutStore,
 } from "./timelineLayoutStore";
-import { TimelinePlayerContext, useTimelinePlayer } from "./timelinePlayer";
 
 /** What each panel shows; the viewer above the dock owns their state. */
 export interface TimelineWorkspacePanels {
   readonly monitor: ReactNode;
   readonly timeline: ReactNode;
-  readonly script: ReactNode;
   readonly markers: ReactNode;
   readonly edits: ReactNode;
   readonly history: ReactNode;
@@ -91,15 +89,12 @@ const THEME: DockviewTheme = {
 const CONSTRAINTS: Record<TimelinePanelId, { minimumWidth: number; minimumHeight: number }> = {
   monitor: { minimumWidth: 120, minimumHeight: 120 },
   timeline: { minimumWidth: 160, minimumHeight: 100 },
-  script: { minimumWidth: 160, minimumHeight: 100 },
   markers: { minimumWidth: 160, minimumHeight: 100 },
   edits: { minimumWidth: 160, minimumHeight: 100 },
   history: { minimumWidth: 160, minimumHeight: 100 },
 };
 
-const SCRIPT_WIDTH_PX = 320;
-// Below this window width the script starts closed, so the timeline keeps its room.
-const SCRIPT_DEFAULT_OPEN_PX = 1280;
+const SIDE_PANEL_WIDTH_PX = 320;
 const SAVE_DELAY_MS = 400;
 const PORTRAIT_MONITOR_MIN_PX = 240;
 // The most of the dock a tall monitor takes, so the tracks keep a workable width.
@@ -115,7 +110,8 @@ const addTimelinePanel = (
 ) => {
   const position = placed ? placed.position : timelinePanelPlacement(id, openPanels(api));
   const initialWidth =
-    placed?.initialWidth ?? (id === "monitor" || id === "timeline" ? undefined : SCRIPT_WIDTH_PX);
+    placed?.initialWidth ??
+    (id === "monitor" || id === "timeline" ? undefined : SIDE_PANEL_WIDTH_PX);
   api.addPanel({
     id,
     component: id,
@@ -127,24 +123,18 @@ const addTimelinePanel = (
 };
 
 /**
- * A wide picture sits on top with the timeline under it and the script as a column on the right
- * when there's room. A tall picture gets a full-height column sized to it, and the script and
- * the timeline share what is left, so a vertical video isn't a strip between two bars.
+ * A wide picture sits on top with the timeline under it. A tall picture gets a full-height
+ * column on the right sized to it and the timeline fills the rest, so a vertical video isn't
+ * a strip between two bars.
  */
 const buildDefaultLayout = (api: DockviewApi, portrait: boolean) => {
   if (!portrait) {
     addTimelinePanel(api, "monitor");
     addTimelinePanel(api, "timeline");
-    if (window.innerWidth >= SCRIPT_DEFAULT_OPEN_PX) addTimelinePanel(api, "script");
     api.getPanel("monitor")?.api.setActive();
     return;
   }
   addTimelinePanel(api, "timeline", { position: null });
-  if (window.innerWidth >= SCRIPT_DEFAULT_OPEN_PX) {
-    addTimelinePanel(api, "script", {
-      position: { referencePanel: "timeline", direction: "above" },
-    });
-  }
   addTimelinePanel(api, "monitor", {
     position: { direction: "right" },
     initialWidth: Math.round(
@@ -321,27 +311,6 @@ function TimelineTracksPanel() {
   return usePanels().timeline;
 }
 
-const subscribeVisibility = (api: IDockviewPanelProps["api"]) => (listener: () => void) => {
-  const disposable = api.onDidVisibilityChange(listener);
-  return () => disposable.dispose();
-};
-
-/** The script follows the playhead only while it is on screen. */
-function ScriptDockPanel(props: IDockviewPanelProps) {
-  const visible = useSyncExternalStore(subscribeVisibility(props.api), () => props.api.isVisible);
-  const player = useTimelinePlayer();
-  const script = usePanels().script;
-  if (visible) return script;
-  const frame = player.playhead.get();
-  return (
-    <TimelinePlayerContext
-      value={{ ...player, playhead: { get: () => frame, subscribe: () => () => {} } }}
-    >
-      {script}
-    </TimelinePlayerContext>
-  );
-}
-
 function MarkersDockPanel() {
   return usePanels().markers;
 }
@@ -357,7 +326,6 @@ function HistoryDockPanel() {
 const PANEL_COMPONENTS: Record<TimelinePanelId, React.FunctionComponent<IDockviewPanelProps>> = {
   monitor: MonitorPanel,
   timeline: TimelineTracksPanel,
-  script: ScriptDockPanel,
   markers: MarkersDockPanel,
   edits: EditsDockPanel,
   history: HistoryDockPanel,

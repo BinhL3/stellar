@@ -252,13 +252,7 @@ import {
   VideoTranscribeInput,
   VideoTranscriptStatus,
   VideoScriptReadInput,
-  VideoScriptSaveInput,
   VideoScriptView,
-  VideoVoiceOverApplyInput,
-  VideoVoiceOverReadInput,
-  VideoVoiceOverSaveTakeInput,
-  VideoVoiceOverTakeInput,
-  VideoVoiceOverView,
   VideoPreflight,
   VideoPreflightInput,
   VideoRenderCheckInput,
@@ -485,12 +479,6 @@ export const WS_METHODS = {
   videoProjectsSync: "videoProjects.sync",
   videoProjectsTranscribe: "videoProjects.transcribe",
   videoProjectsReadScript: "videoProjects.readScript",
-  videoProjectsSaveScript: "videoProjects.saveScript",
-  videoProjectsReadVoiceOver: "videoProjects.readVoiceOver",
-  videoProjectsSaveTake: "videoProjects.saveTake",
-  videoProjectsChooseTake: "videoProjects.chooseTake",
-  videoProjectsDeleteTake: "videoProjects.deleteTake",
-  videoProjectsApplyVoiceOver: "videoProjects.applyVoiceOver",
   videoProjectsCheckRender: "videoProjects.checkRender",
   videoProjectsPreflight: "videoProjects.preflight",
   videoProjectsSetPosted: "videoProjects.setPosted",
@@ -1511,42 +1499,6 @@ const WsVideoProjectsReadScriptRpc = Rpc.make(WS_METHODS.videoProjectsReadScript
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
-const WsVideoProjectsSaveScriptRpc = Rpc.make(WS_METHODS.videoProjectsSaveScript, {
-  payload: VideoScriptSaveInput,
-  success: VideoScriptView,
-  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
-});
-
-const WsVideoProjectsReadVoiceOverRpc = Rpc.make(WS_METHODS.videoProjectsReadVoiceOver, {
-  payload: VideoVoiceOverReadInput,
-  success: VideoVoiceOverView,
-  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
-});
-
-const WsVideoProjectsSaveTakeRpc = Rpc.make(WS_METHODS.videoProjectsSaveTake, {
-  payload: VideoVoiceOverSaveTakeInput,
-  success: VideoVoiceOverView,
-  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
-});
-
-const WsVideoProjectsChooseTakeRpc = Rpc.make(WS_METHODS.videoProjectsChooseTake, {
-  payload: VideoVoiceOverTakeInput,
-  success: VideoVoiceOverView,
-  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
-});
-
-const WsVideoProjectsDeleteTakeRpc = Rpc.make(WS_METHODS.videoProjectsDeleteTake, {
-  payload: VideoVoiceOverTakeInput,
-  success: VideoVoiceOverView,
-  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
-});
-
-const WsVideoProjectsApplyVoiceOverRpc = Rpc.make(WS_METHODS.videoProjectsApplyVoiceOver, {
-  payload: VideoVoiceOverApplyInput,
-  success: VideoVoiceOverView,
-  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
-});
-
 const WsVideoProjectsCheckRenderRpc = Rpc.make(WS_METHODS.videoProjectsCheckRender, {
   payload: VideoRenderCheckInput,
   success: VideoRenderReport,
@@ -2459,12 +2411,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsSyncRpc,
   WsVideoProjectsTranscribeRpc,
   WsVideoProjectsReadScriptRpc,
-  WsVideoProjectsSaveScriptRpc,
-  WsVideoProjectsReadVoiceOverRpc,
-  WsVideoProjectsSaveTakeRpc,
-  WsVideoProjectsChooseTakeRpc,
-  WsVideoProjectsDeleteTakeRpc,
-  WsVideoProjectsApplyVoiceOverRpc,
   WsVideoProjectsCheckRenderRpc,
   WsVideoProjectsPreflightRpc,
   WsVideoProjectsSetPostedRpc,

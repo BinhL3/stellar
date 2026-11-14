@@ -2990,54 +2990,6 @@ export const layerWsRpc = (
                 (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
               ),
             ),
-        [WS_METHODS.videoProjectsSaveScript]: (input) =>
-          videoProjects
-            .saveScript(input)
-            .pipe(
-              Effect.mapError(
-                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
-              ),
-            ),
-        [WS_METHODS.videoProjectsReadVoiceOver]: (input) =>
-          videoProjects
-            .readVoiceOver(input)
-            .pipe(
-              Effect.mapError(
-                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
-              ),
-            ),
-        [WS_METHODS.videoProjectsSaveTake]: (input) =>
-          videoProjects
-            .saveTake(input)
-            .pipe(
-              Effect.mapError(
-                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
-              ),
-            ),
-        [WS_METHODS.videoProjectsChooseTake]: (input) =>
-          videoProjects
-            .chooseTake(input)
-            .pipe(
-              Effect.mapError(
-                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
-              ),
-            ),
-        [WS_METHODS.videoProjectsDeleteTake]: (input) =>
-          videoProjects
-            .deleteTake(input)
-            .pipe(
-              Effect.mapError(
-                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
-              ),
-            ),
-        [WS_METHODS.videoProjectsApplyVoiceOver]: (input) =>
-          videoProjects
-            .applyVoiceOver(input)
-            .pipe(
-              Effect.mapError(
-                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
-              ),
-            ),
         [WS_METHODS.videoProjectsCheckRender]: (input) =>
           videoProjects
             .checkRender(input)

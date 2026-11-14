@@ -338,57 +338,6 @@ export function createProjectEnvironmentAtoms<R, E>(
       scheduler: projectScheduler,
       concurrency: { mode: "parallel" },
     }),
-    saveVideoScript: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:video-projects:save-script",
-      tag: WS_METHODS.videoProjectsSaveScript,
-      scheduler: projectScheduler,
-      concurrency: {
-        mode: "serial",
-        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
-      },
-    }),
-    readVideoVoiceOver: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:video-projects:read-voice-over",
-      tag: WS_METHODS.videoProjectsReadVoiceOver,
-      scheduler: projectScheduler,
-      concurrency: { mode: "parallel" },
-    }),
-    saveVideoTake: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:video-projects:save-take",
-      tag: WS_METHODS.videoProjectsSaveTake,
-      scheduler: projectScheduler,
-      concurrency: {
-        mode: "serial",
-        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
-      },
-    }),
-    chooseVideoTake: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:video-projects:choose-take",
-      tag: WS_METHODS.videoProjectsChooseTake,
-      scheduler: projectScheduler,
-      concurrency: {
-        mode: "serial",
-        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
-      },
-    }),
-    deleteVideoTake: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:video-projects:delete-take",
-      tag: WS_METHODS.videoProjectsDeleteTake,
-      scheduler: projectScheduler,
-      concurrency: {
-        mode: "serial",
-        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
-      },
-    }),
-    applyVideoVoiceOver: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:video-projects:apply-voice-over",
-      tag: WS_METHODS.videoProjectsApplyVoiceOver,
-      scheduler: projectScheduler,
-      concurrency: {
-        mode: "serial",
-        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
-      },
-    }),
     checkVideoRender: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:video-projects:check-render",
       tag: WS_METHODS.videoProjectsCheckRender,

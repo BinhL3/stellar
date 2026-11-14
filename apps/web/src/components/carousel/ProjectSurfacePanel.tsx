@@ -1,4 +1,4 @@
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { lazy } from "react";
 
 import { useIsCarouselProject } from "./useIsCarouselProject";
@@ -13,7 +13,6 @@ const CarouselPanel = lazy(() => import("./CarouselPanel"));
 export default function ProjectSurfacePanel(props: {
   readonly environmentId: EnvironmentId;
   readonly workspaceRoot: string;
-  readonly threadRef: ScopedThreadRef;
 }) {
   const isCarousel = useIsCarouselProject(props.environmentId, props.workspaceRoot);
   // Until the folder has been read, neither is drawn: a carousel must not flash a timeline first.

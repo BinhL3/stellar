@@ -1467,11 +1467,14 @@ it.live("places a line's take on a cut, and re-recording the line re-times only 
       );
     });
     const record = (beatId: string, seconds: string) =>
-      videoProjects.saveTake({
-        workspaceRoot,
-        beatId,
-        recording: new TextEncoder().encode(seconds),
-        timeline,
+      Effect.gen(function* () {
+        yield* fs.writeFileString(path.join(mediaRoot, "Audio", `${beatId}.m4a`), seconds);
+        return yield* videoProjects.saveTake({
+          workspaceRoot,
+          beatId,
+          path: `Audio/${beatId}.m4a`,
+          timeline,
+        });
       });
 
     yield* record("b1", "2");
@@ -1496,7 +1499,7 @@ it.live("places a line's take on a cut, and re-recording the line re-times only 
     ];
     assert.deepStrictEqual(yield* spans, placed);
 
-    // An imported file is a take like a recorded one; the newest take is the line's chosen one.
+    // The newest take is the line's chosen one.
     yield* fs.writeFileString(path.join(mediaRoot, "Audio", "retake.m4a"), "3");
     const retaken = yield* videoProjects.saveTake({
       workspaceRoot,
@@ -1538,25 +1541,6 @@ it.live("places a line's take on a cut, and re-recording the line re-times only 
       ],
     );
 
-    const inUse = yield* videoProjects
-      .deleteTake({ workspaceRoot, beatId: "b2", takeId: "t4", timeline })
-      .pipe(Effect.flip);
-    assert.strictEqual(
-      inUse.message,
-      "Take t4 is on timelines/Cut.otio. Choose another take for b2 and place it, then delete this one.",
-    );
-    const deleted = yield* videoProjects.deleteTake({
-      workspaceRoot,
-      beatId: "b2",
-      takeId: "t2",
-      timeline,
-    });
-    assert.deepStrictEqual(
-      deleted.beats[1]?.takes.map((take) => take.id),
-      ["t4"],
-    );
-    assert.isFalse(yield* fs.exists(path.join(mediaRoot, "Audio/VO/VO b2 t2.wav")));
-
     const wrongLine = yield* videoProjects
       .chooseTake({ workspaceRoot, beatId: "b1", takeId: "t4" })
       .pipe(Effect.flip);
@@ -1570,6 +1554,8 @@ it.live("places a line's take on a cut, and re-recording the line re-times only 
       .applyVoiceOver({ workspaceRoot, timeline: "timelines/Footage.otio" })
       .pipe(Effect.flip);
     assert.include(footage.message, "The footage timeline is rebuilt whenever footage changes");
+
+    assert.deepStrictEqual((yield* videoProjects.readVoiceOver({ workspaceRoot })).loose, []);
 
     // A read of the whole script is cut into a take per line it says, with the words it had.
     yield* fs.writeFileString(path.join(mediaRoot, "Audio/VO/whole.wav"), "9");
@@ -1586,7 +1572,6 @@ it.live("places a line's take on a cut, and re-recording the line re-times only 
         { w: "it.", start: 4.8, end: 5 },
       ]),
     );
-    assert.deepStrictEqual(deleted.loose, []);
     const split = yield* videoProjects.splitTake({
       workspaceRoot,
       path: "Audio/VO/whole.wav",
@@ -1640,7 +1625,7 @@ it.live("follows a short's run from an idea to posted, and takes posted back", (
     const empty = yield* videoProjects.preflight({ workspaceRoot });
     assert.deepStrictEqual(
       empty.steps.map((step) => step.state),
-      Array.from({ length: 8 }, () => "todo"),
+      Array.from({ length: 7 }, () => "todo"),
     );
     assert.strictEqual(empty.render, null);
     assert.strictEqual(
@@ -1648,8 +1633,7 @@ it.live("follows a short's run from an idea to posted, and takes posted back", (
       "No timeline to check the export against. This project has: none.",
     );
 
-    // What each step reads: the script snapshot, Footage, intake.json, the proxy index.
-    yield* videoProjects.saveScript({ workspaceRoot, text: "Hãy subscribe cho kênh!" });
+    // What each step reads: Footage, intake.json, the proxy index.
     yield* fs.makeDirectory(path.join(mediaRoot, "Footage", "raw"), { recursive: true });
     yield* fs.writeFileString(path.join(mediaRoot, "Footage", "raw", "a.MOV"), "");
     yield* fs.writeFileString(path.join(mediaRoot, "Audio", "a.words.json"), "[]");
@@ -1703,7 +1687,6 @@ it.live("follows a short's run from an idea to posted, and takes posted back", (
     yield* writeReport(yield* fs.readFileString(timelineFile));
     const checked = yield* videoProjects.preflight({ workspaceRoot });
     assert.deepStrictEqual(states(checked), {
-      script: "done",
       footage: "done",
       proxies: "done",
       transcripts: "done",
@@ -1714,7 +1697,7 @@ it.live("follows a short's run from an idea to posted, and takes posted back", (
     });
     assert.include(
       (yield* videoProjects.readTimeline({ workspaceRoot })).project,
-      "Run: 5 of 8 steps done; next: todo Premiere project: None linked (video_premiere_pull). video_preflight lists every step.",
+      "Run: 4 of 7 steps done; next: todo Premiere project: None linked (video_premiere_pull). video_preflight lists every step.",
     );
 
     // An edit to the timeline, or a newer export, makes the check stale.
@@ -1723,14 +1706,14 @@ it.live("follows a short's run from an idea to posted, and takes posted back", (
       timeline,
       edits: [{ kind: "removeRange", start: 0, end: 30, ripple: true }],
     });
-    const edited = (yield* videoProjects.preflight({ workspaceRoot })).steps[6];
+    const edited = (yield* videoProjects.preflight({ workspaceRoot })).steps[5];
     assert.deepStrictEqual(
       [edited?.state, edited?.detail],
       ["warn", "Timeline changed since the check"],
     );
     yield* writeReport(yield* fs.readFileString(timelineFile));
     yield* fs.writeFileString(exportPath, "a longer export");
-    const reExported = (yield* videoProjects.preflight({ workspaceRoot })).steps[6];
+    const reExported = (yield* videoProjects.preflight({ workspaceRoot })).steps[5];
     assert.deepStrictEqual(
       [reExported?.state, reExported?.detail],
       ["warn", "A newer export isn't checked"],

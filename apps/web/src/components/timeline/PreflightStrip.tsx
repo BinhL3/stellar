@@ -57,7 +57,6 @@ const DETAIL: Record<State, string> = {
 };
 
 const ACTION_LABEL: Record<Action, string> = {
-  openScript: "Open script",
   importFootage: "Import footage",
   sync: "Sync",
   merge: "Merge",
@@ -305,7 +304,7 @@ export function PreflightStrip(props: {
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
-          // Opening the list reads the steps again: a script saved since would not show otherwise.
+          // Opening the list reads the steps again: an export or a post since would not show otherwise.
           if (next) setReloads((count) => count + 1);
         }}
       >

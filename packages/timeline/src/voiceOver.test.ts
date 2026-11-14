@@ -11,9 +11,7 @@ import {
   NO_TAKES,
   placedVoiceOver,
   placeTake,
-  removeTake,
   sliceByBeats,
-  takesOnTimeline,
   type VoiceOverTake,
 } from "./voiceOver.ts";
 
@@ -110,7 +108,7 @@ const place = (
 };
 
 describe("the take index", () => {
-  it("uses a line's newest take until another is chosen, and never reuses an id", () => {
+  it("uses a line's newest take until another is chosen", () => {
     const first = addTake(NO_TAKES, take(nextTakeId(NO_TAKES), "b1", 60, 1));
     const second = addTake(first, take(nextTakeId(first), "b1", 70, 2));
     expect(second.chosen).toEqual({ b1: "t2" });
@@ -119,12 +117,6 @@ describe("the take index", () => {
     expect(back).toMatchObject({ chosen: { b1: "t1" } });
     expect(chooseTake(second, "b2", "t1")).toBe("take t1 was recorded for b1, not b2");
     expect(chooseTake(second, "b1", "t9")).toBe("no take t9");
-
-    const removed = removeTake(second, "t2");
-    expect(removed).toMatchObject({ chosen: { b1: "t1" }, takes: [{ id: "t1" }] });
-    if (typeof removed === "string") throw new Error(removed);
-    expect(nextTakeId(removed)).toBe("t3");
-    expect(removeTake(removed, "t1")).toMatchObject({ chosen: {}, takes: [] });
   });
 });
 
@@ -142,7 +134,6 @@ describe("placedVoiceOver", () => {
       endFrame: 90,
       clipIds: ["left", "right"],
     });
-    expect([...takesOnTimeline(pulled, [t1, t2])]).toEqual(["t2"]);
   });
 });
 

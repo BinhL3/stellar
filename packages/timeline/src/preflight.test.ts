@@ -4,7 +4,6 @@ import { derivePreflight, type PreflightFacts, preflightHeadline } from "./prefl
 
 /** A short that is cut, exported, checked and posted. */
 const finished: PreflightFacts = {
-  scriptBeats: 9,
   footage: 25,
   intake: { state: "done", done: 25, total: 25 },
   proxies: { building: null, ready: 31, failed: 0 },
@@ -23,7 +22,7 @@ const summary = (facts: PreflightFacts) =>
 describe("derivePreflight", () => {
   it("has nothing to say about a finished short", () => {
     const steps = derivePreflight(finished);
-    expect(steps.map((step) => step.state)).toEqual(Array.from({ length: 8 }, () => "done"));
+    expect(steps.map((step) => step.state)).toEqual(Array.from({ length: 7 }, () => "done"));
     expect(preflightHeadline(steps)).toBeNull();
     // The way back out of Posted is on the step itself.
     expect(steps.at(-1)).toMatchObject({ detail: "1 link", action: "unmarkPosted" });
@@ -32,7 +31,6 @@ describe("derivePreflight", () => {
   it("names what a project started from an idea is missing, and what would fix it", () => {
     expect(
       summary({
-        scriptBeats: 0,
         footage: 0,
         intake: null,
         proxies: null,
@@ -43,7 +41,6 @@ describe("derivePreflight", () => {
         posted: null,
       }),
     ).toEqual({
-      script: ["todo", "No script saved", "openScript"],
       footage: ["todo", "No footage imported", "importFootage"],
       proxies: ["todo", "Nothing to preview yet", null],
       // With nothing to transcribe, a missing transcriber is not yet a problem.
@@ -147,13 +144,13 @@ describe("preflightHeadline", () => {
   it("puts a failure ahead of earlier steps that are merely not done", () => {
     const steps = derivePreflight({
       ...finished,
-      scriptBeats: 0,
+      footage: 0,
       premiere: "conflict",
       posted: null,
     });
     expect(preflightHeadline(steps)?.id).toBe("premiereSync");
-    expect(
-      preflightHeadline(derivePreflight({ ...finished, scriptBeats: 0, posted: null }))?.id,
-    ).toBe("script");
+    expect(preflightHeadline(derivePreflight({ ...finished, footage: 0, posted: null }))?.id).toBe(
+      "footage",
+    );
   });
 });
