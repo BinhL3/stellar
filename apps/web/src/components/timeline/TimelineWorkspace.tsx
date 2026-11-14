@@ -83,6 +83,8 @@ const SCRIPT_WIDTH_PX = 320;
 const SCRIPT_DEFAULT_OPEN_PX = 1280;
 const SAVE_DELAY_MS = 400;
 const PORTRAIT_MONITOR_MIN_PX = 240;
+// The most of the dock a tall monitor takes, so the tracks keep a workable width.
+const PORTRAIT_MONITOR_SHARE = 0.55;
 
 const openPanels = (api: DockviewApi) =>
   TIMELINE_PANEL_IDS.filter((id) => api.getPanel(id) !== undefined);
@@ -127,7 +129,10 @@ const buildDefaultLayout = (api: DockviewApi, portrait: boolean) => {
   addTimelinePanel(api, "monitor", {
     position: { direction: "right" },
     initialWidth: Math.round(
-      Math.max(PORTRAIT_MONITOR_MIN_PX, Math.min(api.width / 2, (api.height * 9) / 16)),
+      Math.max(
+        PORTRAIT_MONITOR_MIN_PX,
+        Math.min(api.width * PORTRAIT_MONITOR_SHARE, (api.height * 9) / 16),
+      ),
     ),
   });
   api.getPanel("monitor")?.api.setActive();
