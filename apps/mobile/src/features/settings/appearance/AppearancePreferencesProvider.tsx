@@ -35,6 +35,7 @@ import {
   type MobileThemeAppearance,
   type MobileThemeId,
 } from "../../../lib/mobileTheme";
+import { projectThemeIdAtom } from "./projectTheme";
 import {
   getMobileUniwindThemeName,
   textScaleVariableUpdates,
@@ -42,7 +43,10 @@ import {
 
 interface AppearancePreferencesContextValue {
   readonly appearance: ResolvedAppearance;
+  /** The theme on screen, which the focused project's theme can replace. */
   readonly themeId: MobileThemeId;
+  /** The user's saved choice. */
+  readonly userThemeId: MobileThemeId;
   readonly androidNavigationStyle: AndroidNavigationStyle;
   readonly setAndroidNavigationStyle: (value: AndroidNavigationStyle) => void;
   /** The active theme's appearance; native views that take one read it from here. */
@@ -104,7 +108,8 @@ function resolveThemeVariables(
 
 const themeAppearanceAtom = Atom.make((get) =>
   getMobileThemeAppearance(
-    resolveMobileThemeId(storedPreferencesOf(get(mobilePreferencesAtom)) ?? {}),
+    get(projectThemeIdAtom) ??
+      resolveMobileThemeId(storedPreferencesOf(get(mobilePreferencesAtom)) ?? {}),
   ),
 );
 
@@ -164,7 +169,9 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     manufacturer,
     process.env.EXPO_PUBLIC_T3_FLOATING_TABS === "1",
   );
-  const themeId = resolveMobileThemeId(storedPreferences ?? {});
+  const userThemeId = resolveMobileThemeId(storedPreferences ?? {});
+  const projectThemeId = useAtomValue(projectThemeIdAtom);
+  const themeId = projectThemeId ?? userThemeId;
   const systemColorsActive = themeId === "material-you" && isSystemColorsAvailable;
   const systemColorPalette = useAtomValue(systemColorPaletteAtom);
   const themeVariables = resolveThemeVariables(themeId, systemColorPalette);
@@ -211,6 +218,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     (): AppearancePreferencesContextValue => ({
       appearance,
       themeId,
+      userThemeId,
       androidNavigationStyle,
       setAndroidNavigationStyle,
       themeAppearance,
@@ -230,6 +238,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [
       appearance,
       themeId,
+      userThemeId,
       androidNavigationStyle,
       setAndroidNavigationStyle,
       themeAppearance,

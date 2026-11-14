@@ -3,7 +3,7 @@ import { PaletteIcon } from "lucide-react";
 
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
-import { useTheme } from "../hooks/useTheme";
+import { isProjectThemeActive, useTheme } from "../hooks/useTheme";
 import { getActiveThemeDefinition } from "../themePalette";
 import {
   ADDON_ICON_CLASS,
@@ -79,6 +79,15 @@ export function useCommandPaletteThemeItems() {
           ),
           run: async () => {
             if (!setTheme(id)) notifyThemeSaveFailure();
+            else if (isProjectThemeActive()) {
+              toastManager.add(
+                stackedThreadToast({
+                  type: "info",
+                  title: "Saved as your theme",
+                  description: "This project shows its own theme. Yours is back when you leave.",
+                }),
+              );
+            }
           },
         })),
       },

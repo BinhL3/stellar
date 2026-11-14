@@ -50,6 +50,8 @@ import {
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
+import { ProjectThemeSelect } from "./ProjectThemeSelect";
+import { useProjectThemeClaim } from "../../hooks/useTheme";
 import {
   defaultProjectIcon,
   hasDefaultProjectIcon,
@@ -281,6 +283,10 @@ function ProjectDetail({
   });
   const projectNameEditedRef = useRef(false);
 
+  const projectThemeId = representative.themeId ?? null;
+  // The project's settings show the project's theme, so a pick previews at once.
+  useProjectThemeClaim(projectThemeId);
+
   const faviconPath = representative.faviconPath ?? null;
   const projectIcon = representative.projectIcon ?? null;
   const pickProjectFavicon =
@@ -298,6 +304,12 @@ function ProjectDetail({
     input: ProjectGroupUpdate | ((member: SidebarProjectGroupMember) => ProjectGroupUpdate),
     failureTitle: string,
   ) => updateProjectGroup(group.memberProjects, input, failureTitle);
+  const [isSavingTheme, setIsSavingTheme] = useState(false);
+  const setProjectTheme = async (themeId: string | null) => {
+    setIsSavingTheme(true);
+    await updateAllMembers({ themeId }, "Failed to update project theme");
+    setIsSavingTheme(false);
+  };
   const canOrganize =
     allMembers.every((member) => editableIds.has(member.environmentId)) &&
     canOrganizeProjectGroup(allMembers);
@@ -604,6 +616,26 @@ function ProjectDetail({
                   Choose file
                 </Button>
               </div>
+            }
+          />
+          <SettingsRow
+            title="Theme"
+            description="Shown while you're in this project. Your own theme comes back when you leave."
+            resetAction={
+              projectThemeId !== null ? (
+                <SettingResetButton
+                  label="project theme"
+                  disabled={isSavingTheme || !canEditGroup}
+                  onClick={() => void setProjectTheme(null)}
+                />
+              ) : null
+            }
+            control={
+              <ProjectThemeSelect
+                value={projectThemeId}
+                disabled={isSavingTheme || !canEditGroup}
+                onChange={(themeId) => void setProjectTheme(themeId)}
+              />
             }
           />
           {canOrganize ? (

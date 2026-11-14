@@ -273,8 +273,10 @@ it.layer(layerTest)("ProjectService", (it) => {
         projectIcon: { kind: "emoji", emoji: "🦊" },
         faviconPath: "/work/project/custom.svg",
         defaultThreadEnvMode: "worktree",
+        themeId: "long-bien",
       });
       assert.equal(updated.title, "Renamed");
+      assert.equal(updated.themeId, "long-bien");
       assert.equal(updated.createdAt, created.createdAt);
       assert.isTrue(updated.autoPull);
       assert.deepEqual(updated.projectIcon, { kind: "emoji", emoji: "🦊" });
@@ -290,6 +292,7 @@ it.layer(layerTest)("ProjectService", (it) => {
       assert.deepEqual(Option.getOrThrow(byId).projectIcon, updated.projectIcon);
       assert.equal(Option.getOrThrow(byId).faviconPath, updated.faviconPath);
       assert.equal(Option.getOrThrow(byId).defaultThreadEnvMode, "worktree");
+      assert.equal(Option.getOrThrow(byId).themeId, "long-bien");
       const reset = yield* service.update({
         commandId: CommandId.make("command:project:reset-appearance"),
         projectId,
@@ -297,8 +300,10 @@ it.layer(layerTest)("ProjectService", (it) => {
         projectIcon: null,
         faviconPath: null,
         defaultThreadEnvMode: null,
+        themeId: null,
       });
       assert.isFalse(reset.autoPull);
+      assert.isNull(reset.themeId);
       assert.isNull(reset.projectIcon);
       assert.equal(reset.faviconPath, hydratedCreated.faviconPath);
       assert.isNull(reset.defaultThreadEnvMode);

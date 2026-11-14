@@ -127,7 +127,7 @@ function ThemeCard(props: {
 }
 
 export function ThemeAppearanceSection() {
-  const { isReady, setThemeId, themeId, systemColorsAvailable } = useAppearancePreferences();
+  const { isReady, setThemeId, userThemeId, systemColorsAvailable } = useAppearancePreferences();
 
   return (
     <View className="gap-3">
@@ -141,7 +141,7 @@ export function ThemeAppearanceSection() {
             key={theme.id}
             label={theme.label}
             onSelect={() => setThemeId(theme.id)}
-            selected={theme.id === themeId}
+            selected={theme.id === userThemeId}
             themeId={theme.id}
           />
         ))}

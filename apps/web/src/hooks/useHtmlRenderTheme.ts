@@ -12,11 +12,11 @@ import { useClientSettings } from "./useSettings";
 import { useRenderedAppearance, useTheme } from "./useTheme";
 
 export function useHtmlRenderTheme() {
-  const { theme } = useTheme();
+  const { activeTheme } = useTheme();
   // Custom and published palettes can be edited in place, under an unchanged preference.
   const colors = useSyncExternalStore(
     subscribeToCustomThemes,
-    () => getActiveThemeDefinition(theme).colors,
+    () => getActiveThemeDefinition(activeTheme).colors,
     getDefaultThemeColors,
   );
   const sans = useClientSettings((settings) => settings.fontFamilySans);
