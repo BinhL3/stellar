@@ -295,7 +295,6 @@ it("owns a status stream only while the draft is active, retaining draft choices
   await screen.emit("/a", "stale-branch");
   expect(screen.current.currentCheckoutBranchName).toBe("main");
   expect(screen.snapshot(draftKey).workspaceSelection).toBeUndefined();
-  act(() => screen.current.setWorkspaceMode("worktree"));
   act(() =>
     screen.current.selectBranch({
       name: "feature",
@@ -307,7 +306,7 @@ it("owns a status stream only while the draft is active, retaining draft choices
   act(() => screen.current.setStartFromOrigin(true));
   const chosenWorkspace = screen.snapshot(draftKey).workspaceSelection;
   expect(chosenWorkspace).toEqual({
-    mode: "worktree",
+    mode: "local",
     branch: "feature",
     worktreePath: null,
     startFromOrigin: true,
@@ -349,19 +348,20 @@ it("does not persist a provisional workspace default after releasing inactive st
   expect(mocks.writeSettings).not.toHaveBeenCalled();
 });
 
-it("uses cached repository capability and branch defaults while offline", async () => {
+it("uses cached repository capability while offline", async () => {
   using screen = setup();
   screen.offline();
   await screen.render(true);
   expect(screen.current.currentCheckoutBranchName).toBeNull();
   expect(screen.current.isGitRepoKnown).toBe(true);
-  expect(screen.current.workspaceMode).toBe("worktree");
-  expect(screen.current.selectedBranchName).toBe("main");
+  // A cached "New worktree" default still starts in the project folder.
+  expect(screen.current.workspaceMode).toBe("local");
+  expect(screen.current.selectedBranchName).toBeNull();
   const draftKey = screen.current.draftKey!;
   expect(screen.snapshot(draftKey).workspaceSelection).toBeUndefined();
   await screen.render(false);
   await screen.expireIdle();
   await screen.render(true);
   expect(screen.current.draftKey).toBe(draftKey);
-  expect(screen.current.selectedBranchName).toBe("main");
+  expect(screen.current.selectedBranchName).toBeNull();
 });

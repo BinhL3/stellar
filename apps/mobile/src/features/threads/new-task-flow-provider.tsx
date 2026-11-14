@@ -91,7 +91,6 @@ import { useLegacyPlanModeState } from "./use-legacy-plan-mode-enabled";
 import {
   resolveNewTaskDraftWorkspace,
   resolveNewTaskBranchWorktreePath,
-  resolveNewTaskLocalWorkspaceSelection,
 } from "./new-task-context-presentation";
 import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
 import { useNewTaskProjectDefaults } from "./use-new-task-project-defaults";
@@ -188,7 +187,6 @@ type NewTaskFlowContextValue = {
     key: string | null,
     options?: ReadonlyArray<ProviderOptionSelection>,
   ) => void;
-  readonly setWorkspaceMode: (mode: WorkspaceMode) => void;
   readonly selectBranch: (branch: VcsRef) => void;
   readonly setStartFromOrigin: (value: boolean) => void;
   readonly buildPendingTaskMessage: (
@@ -635,31 +633,6 @@ export function NewTaskFlowProvider(
     return false;
   };
 
-  const setWorkspaceMode = (mode: WorkspaceMode) => {
-    if (!selectedProjectDraftKey) {
-      return;
-    }
-    if (!selectedProject) {
-      return;
-    }
-    const localSelection = resolveNewTaskLocalWorkspaceSelection({
-      branches: availableBranches,
-      projectCwd: selectedProject.workspaceRoot,
-    });
-    updateComposerDraftSettings(selectedProjectDraftKey, {
-      workspaceSelection: {
-        mode,
-        branch: mode === "local" ? localSelection.branch : selectedBranchName,
-        worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
-        ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
-        // Refs have not named the current branch yet; the selection follows it.
-        ...(mode === "local" && localSelection.awaitsCurrentBranch
-          ? { followsCurrentCheckout: true }
-          : {}),
-      },
-    });
-  };
-
   const selectBranch = (branch: VcsRef) => {
     if (!selectedProject || !selectedProjectDraftKey) {
       return;
@@ -895,7 +868,6 @@ export function NewTaskFlowProvider(
     switchEnvironment,
     switchingToEnvironmentId,
     setSelectedModelKey,
-    setWorkspaceMode,
     selectBranch,
     setStartFromOrigin,
     buildPendingTaskMessage,

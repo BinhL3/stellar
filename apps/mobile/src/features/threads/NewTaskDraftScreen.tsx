@@ -50,7 +50,6 @@ import {
   composerAttachmentUploadsAtom,
 } from "../../state/composer-attachment-uploads";
 
-import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { threadContextsOutsideEnvironment } from "@t3tools/shared/composerContextReferences";
 
@@ -85,61 +84,13 @@ import {
 } from "../keyboard/hardwareKeyboardCommands";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
 import { resolveDraftProjectSelection } from "./new-task-project-selection";
-import {
-  resolveNewTaskBranchLabel,
-  resolveNewTaskWorkspaceLabel,
-} from "./new-task-context-presentation";
+import { resolveNewTaskBranchLabel } from "./new-task-context-presentation";
 import { incomingShareImports, useIncomingShare } from "../sharing/IncomingShareProvider";
 import { idleShareFlagAtom, idleShareImportPhaseAtom } from "./incomingShareImport";
 import { newTaskFlowKey } from "./new-task-flow-state";
 import { appAtomRegistry } from "../../state/atom-registry";
 
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
-
-function NewTaskWorkspaceIcon(props: {
-  readonly workspaceMode: "local" | "worktree";
-  readonly worktreePath: string | null;
-  readonly size: number;
-}) {
-  if (props.workspaceMode === "local" && props.worktreePath === null) {
-    return (
-      <SymbolView
-        name="folder"
-        size={props.size}
-        tintColorClassName="accent-icon-muted"
-        type="monochrome"
-      />
-    );
-  }
-
-  const boxSize = (14 * props.size) / 16;
-  return (
-    <View
-      className="size-4"
-      style={Platform.OS === "android" ? { width: boxSize, height: boxSize } : undefined}
-    >
-      <SymbolView
-        name="folder"
-        size={props.size}
-        tintColorClassName="accent-icon-muted"
-        type="monochrome"
-      />
-      <View
-        className="absolute -right-1 -bottom-1"
-        style={
-          Platform.OS === "android" ? { right: -boxSize / 4, bottom: -boxSize / 4 } : undefined
-        }
-      >
-        <SymbolView
-          name="arrow.triangle.branch"
-          size={Math.round((9 * props.size) / 16)}
-          tintColorClassName="accent-icon-muted"
-          type="monochrome"
-        />
-      </View>
-    </View>
-  );
-}
 
 export function NewTaskDraftScreen(props: {
   readonly initialProjectRef?: {
@@ -538,10 +489,6 @@ export function NewTaskDraftScreen(props: {
     workspaceMode: flow.workspaceMode,
     pullRequestReference: flow.pullRequestReference,
   });
-  const workspaceLabel = resolveNewTaskWorkspaceLabel({
-    workspaceMode: flow.workspaceMode,
-    worktreePath: flow.selectedWorktreePath,
-  });
   const showBranchLoading =
     environmentConnected && flow.branchesLoading && flow.availableBranches.length === 0;
 
@@ -818,23 +765,6 @@ export function NewTaskDraftScreen(props: {
 
   const workspaceControls = (
     <View className="flex-row items-center gap-1 px-2">
-      <ComposerInlineControl
-        accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
-        accessibilityLabel={workspaceLabel}
-        disabled={isComposerInteractionLocked || !flow.isGitRepo}
-        renderIcon={(size) => (
-          <NewTaskWorkspaceIcon
-            workspaceMode={flow.workspaceMode}
-            worktreePath={flow.selectedWorktreePath}
-            size={size}
-          />
-        )}
-        label={workspaceLabel}
-        maxWidth="100%"
-        onPress={() => flow.setWorkspaceMode(flow.workspaceMode === "local" ? "worktree" : "local")}
-        showChevron={false}
-      />
-
       <View className="min-w-0 shrink">
         <ComposerInlineControl
           accessibilityLabel={`${flow.workspaceMode === "worktree" ? "Base branch" : "Branch"}: ${selectedBranchLabel}`}

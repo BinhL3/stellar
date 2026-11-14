@@ -8,7 +8,6 @@ import {
   type ResponseStreamingMode,
   type ServerSettings,
   type ServerSettingsPatch,
-  type ThreadEnvMode,
   type WorktreeSubmodules,
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
   type ProjectScopedServerSettingKey,
@@ -55,7 +54,6 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
 
 const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettingKey[]> = {
   threads: [
-    "defaultThreadEnvMode",
     "defaultRuntimeMode",
     "responseStreamingMode",
     "enableAgentBrowserAccess",
@@ -90,28 +88,6 @@ const SUBMODULE_CHOICES: ReadonlyArray<{
     description: "Skip submodules declared inside other submodules.",
   },
   { mode: "none", label: "Skip", description: "Leave submodules empty for a setup script." },
-];
-
-const WORKSPACE_CHOICES: ReadonlyArray<{
-  readonly mode: ThreadEnvMode | null;
-  readonly label: string;
-  readonly description: string;
-}> = [
-  {
-    mode: null,
-    label: "Inherit",
-    description: "Use the repository's t3.json, or the current checkout.",
-  },
-  {
-    mode: "local",
-    label: "Current checkout",
-    description: "Start new threads in the existing workspace.",
-  },
-  {
-    mode: "worktree",
-    label: "New worktree",
-    description: "Give each new thread a separate checkout.",
-  },
 ];
 
 const STREAMING_CHOICES: ReadonlyArray<{
@@ -311,32 +287,6 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
             ) : null}
             {props.page === "threads" ? (
               <>
-                <SettingsSection
-                  title="Default workspace"
-                  footer={managed("defaultThreadEnvMode")}
-                  trailing={
-                    pendingWrites === 0 && isMixed("defaultThreadEnvMode") ? (
-                      <MixedValuesLabel projectSelected={projectSelected} />
-                    ) : null
-                  }
-                >
-                  {WORKSPACE_CHOICES.filter(
-                    (choice) => choice.mode !== null || !projectSelected,
-                  ).map((choice, index) => (
-                    <SettingsChoiceRow
-                      key={choice.mode ?? "inherit"}
-                      label={choice.label}
-                      description={choice.description}
-                      selected={
-                        !isMixed("defaultThreadEnvMode") &&
-                        uniform("defaultThreadEnvMode") === choice.mode
-                      }
-                      separated={index > 0}
-                      disabled={disabledFor("defaultThreadEnvMode")}
-                      onPress={() => write({ defaultThreadEnvMode: choice.mode })}
-                    />
-                  ))}
-                </SettingsSection>
                 <SettingsSection
                   title="Default permissions"
                   footer={managed("defaultRuntimeMode")}

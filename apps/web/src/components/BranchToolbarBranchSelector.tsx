@@ -164,7 +164,6 @@ export function BranchToolbarBranchSelector({
     resolveEffectiveEnvMode({
       activeWorktreePath,
       hasServerThread,
-      draftThreadEnvMode: draftThread?.envMode,
     });
 
   const setThreadBranch = (

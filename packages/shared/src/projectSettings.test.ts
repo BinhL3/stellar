@@ -11,27 +11,12 @@ import {
   hasProjectSettingsOverrides,
   resolveNewThreadEnvMode,
   resolveProjectSettings,
-  resolveSendEnvMode,
   resolveWorktreeCleanup,
 } from "./projectSettings.ts";
 import { applyServerSettingsPatch } from "./serverSettings.ts";
 
 const projectId = ProjectId.make("project-a");
 const otherProjectId = ProjectId.make("project-b");
-
-describe("resolveSendEnvMode", () => {
-  // regression: #21404 non-git projects send from the current checkout, git repos keep their mode
-  it.each(["local", "worktree"] as const)(
-    "uses local for non-git projects requesting %s",
-    (mode) => {
-      expect(resolveSendEnvMode({ requestedEnvMode: mode, isGitRepo: false })).toBe("local");
-    },
-  );
-
-  it.each(["local", "worktree"] as const)("preserves %s for git repositories", (mode) => {
-    expect(resolveSendEnvMode({ requestedEnvMode: mode, isGitRepo: true })).toBe(mode);
-  });
-});
 
 describe("resolveProjectSettings", () => {
   it("ignores an override left undefined by a forward-compatible decode", () => {

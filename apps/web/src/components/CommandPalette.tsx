@@ -1731,7 +1731,6 @@ function OpenCommandPaletteDialog(props: {
         "model",
         "workspace",
         "grouping",
-        "checkout",
         "remove",
         "t3.json",
       ],

@@ -2028,6 +2028,10 @@ body {
   :where(svg.lucide[stroke-width="2"]) {
     stroke-width: 1.75;
   }
+  /* Base UI selects keep their serialized value (often an internal id) in a hidden input, which copied text would include. */
+  :where(input[aria-hidden="true"]) {
+    user-select: none;
+  }
 }
 
 html,

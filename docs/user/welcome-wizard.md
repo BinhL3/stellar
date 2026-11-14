@@ -22,7 +22,7 @@ browser.
 You can add more computers before continuing:
 
 - **T3 Connect** connects computers that are signed in to your account.
-  [Install the CLI](./install.md#the-t3-command) and run `t3 connect` on each
+  [Install the CLI](./install.md#the-stellar-command) and run `t3 connect` on each
   computer you want to add, then start Stellar or run `t3 serve` so the
   computer stays available.
 - **Add a computer** connects directly to a server on your network or tailnet.

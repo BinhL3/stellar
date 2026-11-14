@@ -329,7 +329,7 @@ export function planScopedSettingsPatch(
         : unscopableKeys.length > 0
           ? "This setting is environment-wide and cannot be overridden by a project."
           : isProjectScope
-            ? "Connect the selected checkouts, or update their environments, to save a project override."
+            ? "Connect the selected folders, or update their environments, to save a project override."
             : `Connect ${scope.kind === "environment" ? scope.label : "an environment"} to save this setting.`;
   return { clientPatch, hasClientWrite, serverWrites, unavailableReason };
 }
@@ -352,7 +352,7 @@ export function planScopedSettingsClear(
     unavailableReason:
       serverWrites.length > 0
         ? null
-        : "Connect the selected checkouts, or update their environments, to reset this override.",
+        : "Connect the selected folders, or update their environments, to reset this override.",
   };
 }
 

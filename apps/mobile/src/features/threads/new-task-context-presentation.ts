@@ -1,6 +1,5 @@
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
-import { resolveSendEnvMode } from "@t3tools/shared/projectSettings";
 import type { ComposerDraftWorkspaceSelection } from "../../state/use-composer-drafts";
 
 type WorkspaceMode = "local" | "worktree";
@@ -11,18 +10,10 @@ export function resolveNewTaskWorkspaceSelection(input: {
   readonly isGitRepo: boolean;
 }): ComposerDraftWorkspaceSelection {
   const selection = input.selection ?? input.fallback;
-  const mode = resolveSendEnvMode({ requestedEnvMode: selection.mode, isGitRepo: input.isGitRepo });
-  return input.isGitRepo ? selection : { mode, branch: null, worktreePath: null };
-}
-
-export function resolveNewTaskWorkspaceLabel(input: {
-  readonly workspaceMode: WorkspaceMode;
-  readonly worktreePath: string | null;
-}): "Current checkout" | "Current worktree" | "New worktree" {
-  if (input.workspaceMode === "worktree") {
-    return "New worktree";
-  }
-  return input.worktreePath ? "Current worktree" : "Current checkout";
+  // New threads always start in the project folder; a persisted "New worktree" choice is ignored.
+  return input.isGitRepo && selection.mode === "local"
+    ? selection
+    : { mode: "local", branch: null, worktreePath: null };
 }
 
 export function resolveNewTaskBranchWorktreePath(input: {

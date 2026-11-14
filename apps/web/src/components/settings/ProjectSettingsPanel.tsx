@@ -436,7 +436,7 @@ function ProjectDetail({
           variant="outline"
           disabled={!editableIds.has(member.environmentId)}
           onClick={() => void removeMembers([member])}
-          aria-label={`Remove checkout ${member.workspaceRoot}`}
+          aria-label={`Remove folder ${member.workspaceRoot}`}
         >
           Remove
         </Button>
@@ -444,10 +444,10 @@ function ProjectDetail({
     </div>
   );
   const checkoutChoices = (
-    <SettingsSection title="Checkouts">
+    <SettingsSection title="Folders">
       <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-        Grouping rule decides how each checkout joins project groups in the sidebar. Changing it can
-        move a checkout to a different project.
+        Grouping rule decides how each folder joins project groups in the sidebar. Changing it can
+        move a folder to a different project.
       </p>
       {Array.from(checkoutsByEnvironment, ([environmentId, members]) => {
         if (checkoutsByEnvironment.size === 1) {
@@ -528,7 +528,7 @@ function ProjectDetail({
           {!canEditGroup ? (
             <p className="px-3 py-2 text-sm text-muted-foreground sm:px-4">
               {group.memberProjects.length > 1
-                ? "Shared settings require permission to change every checkout in this group."
+                ? "Shared settings require permission to change every folder in this group."
                 : "This connection cannot change this project."}
             </p>
           ) : null}
@@ -692,16 +692,16 @@ function ProjectDetail({
           <SettingsRow
             title={
               hasOtherMembers
-                ? "Remove checkout"
+                ? "Remove folder"
                 : group.memberProjects.length > 1
                   ? "Remove this project everywhere"
                   : "Remove project"
             }
             description={
               hasOtherMembers
-                ? "Deletes the selected machine's checkout entries and their threads. Other machines and files on disk are not touched."
+                ? "Deletes the selected machine's folder entries and their threads. Other machines and files on disk are not touched."
                 : group.memberProjects.length > 1
-                  ? `Deletes all ${group.memberProjects.length} checkout entries and their threads on every machine. Files on disk are not touched.`
+                  ? `Deletes all ${group.memberProjects.length} folder entries and their threads on every machine. Files on disk are not touched.`
                   : "Deletes the project entry and its threads. Files on disk are not touched."
             }
             control={
@@ -713,7 +713,7 @@ function ProjectDetail({
               >
                 <Trash2Icon />
                 {hasOtherMembers
-                  ? "Remove checkout"
+                  ? "Remove folder"
                   : group.memberProjects.length > 1
                     ? "Remove all entries"
                     : "Remove project"}

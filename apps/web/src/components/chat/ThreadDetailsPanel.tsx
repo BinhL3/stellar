@@ -51,7 +51,6 @@ interface ThreadDetailsPanelProps extends Pick<
   threadId: ThreadId;
   projectId: ProjectId;
   worktreePath: string | null;
-  isServerThread: boolean;
   draftId?: DraftId;
   activeProjectName: string | undefined;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
@@ -69,7 +68,6 @@ interface ThreadDetailsPanelProps extends Pick<
   autoEnvironmentLabel?: string | undefined;
   onAutoEnvironment?: (() => void) | undefined;
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
-  onEnvModeChange: (mode: EnvMode) => void;
   envMode: EnvMode;
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
@@ -102,9 +100,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     threadId: props.threadId,
     projectId: props.projectId,
     worktreePath: props.worktreePath,
-    isServerThread: props.isServerThread,
     ...(props.draftId ? { draftId: props.draftId } : {}),
-    onEnvModeChange: props.onEnvModeChange,
     startFromOrigin: props.startFromOrigin,
     onStartFromOriginChange: props.onStartFromOriginChange,
     envMode: props.envMode,

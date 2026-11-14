@@ -31,7 +31,6 @@ import * as Schema from "effect/Schema";
 import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
 import { AboutVersionTitle } from "./AboutVersionTitle";
 import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
-import { MobileAppSettingsRow } from "./MobileAppSettingsRow";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -294,6 +293,21 @@ function AboutVersionSection() {
       ? "Update available."
       : (getDesktopUpdateDisabledReason(updateState, updatesDenial) ??
         "Current version of the application.");
+
+  // Without an update feed neither control can move this app; the track switch would only move
+  // connected servers onto upstream npm releases.
+  if (hasDesktopBridge && updateState?.enabled === false && updatesDenial === undefined) {
+    return (
+      <>
+        <SettingsRow
+          id={searchableSetting("app-version").id}
+          title={<AboutVersionTitle />}
+          description="Current version of the application."
+        />
+        <CliCommandSettingsRow />
+      </>
+    );
+  }
 
   return (
     <>
@@ -2044,7 +2058,6 @@ export function AboutSettingsPanel() {
             />
           </>
         )}
-        <MobileAppSettingsRow />
       </SettingsSection>
 
       <SettingsSection id="legal" title="Legal">

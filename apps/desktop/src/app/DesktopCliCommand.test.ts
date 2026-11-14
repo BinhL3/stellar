@@ -98,7 +98,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       const path = yield* Path.Path;
       const home = yield* fs.makeTempDirectoryScoped();
       const command = yield* commandIn({ home });
-      const link = path.join(home, ".local", "bin", "t3");
+      const link = path.join(home, ".local", "bin", "stellar");
 
       expect(yield* command.state).toEqual({
         supported: true,
@@ -111,36 +111,40 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect(installed.launcherPath).toBe(path.join(home, ".t3", "bin", "t3"));
       expect(yield* fs.readLink(link)).toBe(path.join(home, ".t3", "bin", "t3"));
       expect((yield* command.install).installedPath).toBe(link);
+      const legacyLink = path.join(home, "bin", "t3");
+      yield* fs.makeDirectory(path.dirname(legacyLink), { recursive: true });
+      yield* fs.symlink(path.join(home, ".t3", "bin", "t3"), legacyLink);
 
       expect((yield* command.uninstall).installedPath).toBeNull();
       expect(yield* fs.exists(link)).toBe(false);
+      expect(yield* fs.exists(legacyLink)).toBe(false);
       expect(yield* fs.exists(path.join(home, ".t3", "bin", "t3"))).toBe(true);
     }).pipe(Effect.scoped),
   );
 
-  it.effect("never replaces or removes a t3 it did not create", () =>
+  it.effect("never replaces or removes a command it did not create", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const home = yield* fs.makeTempDirectoryScoped();
       const env: NodeJS.ProcessEnv = { PATH: "" };
       const command = yield* commandIn({ home, env });
-      const theirs = path.join(home, ".local", "bin", "t3");
+      const theirs = path.join(home, ".local", "bin", "stellar");
       yield* fs.makeDirectory(path.dirname(theirs), { recursive: true });
       yield* fs.writeFileString(theirs, "npm's t3\n");
       yield* fs.makeDirectory(path.join(home, "bin"), { recursive: true });
-      yield* fs.symlink(path.join(home, "gone"), path.join(home, "bin", "t3"));
+      yield* fs.symlink(path.join(home, "gone"), path.join(home, "bin", "stellar"));
 
       const error = yield* Effect.flip(command.install);
-      expect(error.message).toContain("Another t3 command is already installed");
+      expect(error.message).toContain("Another stellar command is already installed");
       yield* command.uninstall;
       expect(yield* fs.readFileString(theirs)).toBe("npm's t3\n");
-      expect(yield* fs.readLink(path.join(home, "bin", "t3"))).toBe(path.join(home, "gone"));
+      expect(yield* fs.readLink(path.join(home, "bin", "stellar"))).toBe(path.join(home, "gone"));
 
       const launcher = path.join(home, ".t3", "bin", "t3");
       yield* fs.writeFileString(launcher, "npm's t3\n");
       env.PATH = path.dirname(launcher);
-      expect(yield* command.state).toMatchObject({ onPath: false, shadowedBy: launcher });
+      expect(yield* command.state).toMatchObject({ onPath: false });
       expect((yield* Effect.flip(command.install)).message).toContain("Could not set up");
       yield* command.uninstall;
       expect(yield* fs.readFileString(launcher)).toBe("npm's t3\n");
@@ -160,40 +164,40 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect((yield* after.install).installedPath).toBe(link);
       expect(yield* fs.readLink(link!)).toBe(path.join(home, "new-t3", "bin", "t3"));
       yield* after.uninstall;
-      expect(yield* fs.exists(path.join(home, ".local", "bin", "t3"))).toBe(false);
-      expect(yield* fs.exists(path.join(home, "bin", "t3"))).toBe(false);
+      expect(yield* fs.exists(path.join(home, ".local", "bin", "stellar"))).toBe(false);
+      expect(yield* fs.exists(path.join(home, "bin", "stellar"))).toBe(false);
     }).pipe(Effect.scoped),
   );
 
-  it.effect("refuses to install behind another t3 that runs first", () =>
+  it.effect("refuses to install behind another stellar that runs first", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const home = yield* fs.makeTempDirectoryScoped();
       const shadow = path.join(home, "shadow");
       yield* fs.makeDirectory(shadow);
-      yield* fs.writeFileString(path.join(shadow, "t3"), "#!/bin/sh\n", { mode: 0o755 });
+      yield* fs.writeFileString(path.join(shadow, "stellar"), "#!/bin/sh\n", { mode: 0o755 });
       const env = { PATH: [shadow, path.join(home, ".local", "bin")].join(":") };
 
       const command = yield* commandIn({ home, env });
-      const theirs = path.join(shadow, "t3");
+      const theirs = path.join(shadow, "stellar");
       expect((yield* command.state).shadowedBy).toBe(theirs);
       const error = yield* Effect.flip(command.install);
       expect(error.message).toContain(theirs);
-      expect(yield* fs.exists(path.join(home, ".local", "bin", "t3"))).toBe(false);
+      expect(yield* fs.exists(path.join(home, ".local", "bin", "stellar"))).toBe(false);
 
       yield* fs.remove(theirs);
       const installed = yield* command.install;
       expect(installed).toMatchObject({
         onPath: true,
-        installedPath: path.join(home, ".local", "bin", "t3"),
+        installedPath: path.join(home, ".local", "bin", "stellar"),
       });
       expect(installed.shadowedBy).toBeUndefined();
     }).pipe(Effect.scoped),
   );
 
   it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
-    "skips a t3 directory or a file this user cannot execute",
+    "skips a stellar directory or a file this user cannot execute",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -202,55 +206,57 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
         const folder = path.join(home, "folder");
         const plain = path.join(home, "plain");
         const shadow = path.join(home, "shadow");
-        yield* fs.makeDirectory(path.join(folder, "t3"), { recursive: true });
+        yield* fs.makeDirectory(path.join(folder, "stellar"), { recursive: true });
         yield* fs.makeDirectory(plain);
-        yield* fs.writeFileString(path.join(plain, "t3"), "notes\n");
+        yield* fs.writeFileString(path.join(plain, "stellar"), "notes\n");
         // Root can execute mode 0o601; other users must honor the owner permissions.
-        yield* fs.chmod(path.join(plain, "t3"), process.getuid?.() === 0 ? 0o600 : 0o601);
+        yield* fs.chmod(path.join(plain, "stellar"), process.getuid?.() === 0 ? 0o600 : 0o601);
         yield* fs.makeDirectory(shadow);
-        yield* fs.writeFileString(path.join(shadow, "t3"), "#!/bin/sh\n", { mode: 0o755 });
+        yield* fs.writeFileString(path.join(shadow, "stellar"), "#!/bin/sh\n", { mode: 0o755 });
         const env = { PATH: [folder, plain, shadow, path.join(home, ".local", "bin")].join(":") };
 
         const command = yield* commandIn({ home, env });
-        expect((yield* command.state).shadowedBy).toBe(path.join(shadow, "t3"));
+        expect((yield* command.state).shadowedBy).toBe(path.join(shadow, "stellar"));
 
         const error = yield* Effect.flip(command.install);
-        expect(error.message).toContain(path.join(shadow, "t3"));
+        expect(error.message).toContain(path.join(shadow, "stellar"));
 
         yield* fs.remove(shadow, { recursive: true });
         expect(yield* command.install).toMatchObject({
           onPath: true,
-          installedPath: path.join(home, ".local", "bin", "t3"),
+          installedPath: path.join(home, ".local", "bin", "stellar"),
         });
       }).pipe(Effect.scoped),
   );
 
-  it.effect("does not treat its own launcher as another t3 when its folder is first on PATH", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const home = yield* fs.makeTempDirectoryScoped();
-      const launcher = path.join(home, ".t3", "bin", "t3");
-      const env = { PATH: [path.dirname(launcher), path.join(home, ".local", "bin")].join(":") };
+  it.effect(
+    "does not treat its own launcher as another command when its folder is first on PATH",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const home = yield* fs.makeTempDirectoryScoped();
+        const launcher = path.join(home, ".t3", "bin", "t3");
+        const env = { PATH: [path.dirname(launcher), path.join(home, ".local", "bin")].join(":") };
 
-      const command = yield* commandIn({ home, env });
-      const installed = yield* command.install;
+        const command = yield* commandIn({ home, env });
+        const installed = yield* command.install;
 
-      expect(yield* fs.exists(launcher)).toBe(true);
-      expect(installed).toMatchObject({
-        onPath: true,
-        installedPath: path.join(home, ".local", "bin", "t3"),
-      });
-      expect(installed.shadowedBy).toBeUndefined();
-      expect(yield* command.state).toEqual(installed);
+        expect(yield* fs.exists(launcher)).toBe(true);
+        expect(installed).toMatchObject({
+          onPath: true,
+          installedPath: path.join(home, ".local", "bin", "stellar"),
+        });
+        expect(installed.shadowedBy).toBeUndefined();
+        expect(yield* command.state).toEqual(installed);
 
-      const removed = yield* command.uninstall;
-      expect(removed.installedPath).toBeNull();
-      expect(removed.onPath).toBe(true);
-      expect(yield* command.state).toEqual(removed);
-      expect(yield* fs.exists(installed.installedPath!)).toBe(false);
-      expect(yield* fs.exists(launcher)).toBe(true);
-    }).pipe(Effect.scoped),
+        const removed = yield* command.uninstall;
+        expect(removed.installedPath).toBeNull();
+        expect(removed.onPath).toBe(false);
+        expect(yield* command.state).toEqual(removed);
+        expect(yield* fs.exists(installed.installedPath!)).toBe(false);
+        expect(yield* fs.exists(launcher)).toBe(true);
+      }).pipe(Effect.scoped),
   );
 
   it.effect("leaves the Windows PATH alone when it cannot be read", () =>
@@ -272,6 +278,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       ).replace(/[\\/]t3\.cmd$/, "");
       yield* command.install;
       expect(registry.path).toBe(`${userPath};${launcherDir}`);
+      expect(yield* fs.exists(`${launcherDir}/stellar.cmd`)).toBe(true);
       yield* command.uninstall;
       expect(registry.path).toBe(userPath);
     }).pipe(Effect.scoped),

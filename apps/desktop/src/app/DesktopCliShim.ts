@@ -112,12 +112,23 @@ export const renderCliShim = (input: {
   ].join("\n");
 };
 
+/** The command users type. The launcher keeps its `t3` name because the server and agents run it by path. */
+export const COMMAND_NAME = "stellar";
+
 export const launcherPath = (environment: DesktopEnvironment.DesktopEnvironment["Service"]) =>
   environment.path.join(
     environment.baseDir,
     "bin",
     environment.platform === "win32" ? "t3.cmd" : "t3",
   );
+
+/** Windows puts the launcher's folder on PATH, so `stellar` needs its own copy there. */
+const shimPaths = (environment: DesktopEnvironment.DesktopEnvironment["Service"]) => {
+  const launcher = launcherPath(environment);
+  return environment.platform === "win32"
+    ? [launcher, environment.path.join(environment.path.dirname(launcher), `${COMMAND_NAME}.cmd`)]
+    : [launcher];
+};
 
 export const install = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -140,17 +151,19 @@ export const install = Effect.gen(function* () {
   const content = renderCliShim({ target, shimPath, t3Home: environment.baseDir });
 
   return yield* Effect.gen(function* () {
-    const existing = yield* fs.readFileString(shimPath).pipe(Effect.option);
-    if (Option.isSome(existing) && !existing.value.includes(MARKER)) {
-      yield* logWarning("leaving a t3 launcher the app did not write", { shimPath });
-      return Option.none<string>();
-    }
-    if (Option.getOrUndefined(existing) !== content) {
-      yield* fs.makeDirectory(path.dirname(shimPath), { recursive: true });
-      const staging = `${shimPath}.${process.pid}.tmp`;
-      yield* fs.writeFileString(staging, content, { mode: 0o755 });
-      yield* fs.rename(staging, shimPath);
-      yield* logInfo("installed t3 launcher", { shimPath });
+    for (const file of shimPaths(environment)) {
+      const existing = yield* fs.readFileString(file).pipe(Effect.option);
+      if (Option.isSome(existing) && !existing.value.includes(MARKER)) {
+        yield* logWarning("leaving a t3 launcher the app did not write", { shimPath: file });
+        return Option.none<string>();
+      }
+      if (Option.getOrUndefined(existing) !== content) {
+        yield* fs.makeDirectory(path.dirname(file), { recursive: true });
+        const staging = `${file}.${process.pid}.tmp`;
+        yield* fs.writeFileString(staging, content, { mode: 0o755 });
+        yield* fs.rename(staging, file);
+        yield* logInfo("installed t3 launcher", { shimPath: file });
+      }
     }
     return Option.some(shimPath);
   }).pipe(

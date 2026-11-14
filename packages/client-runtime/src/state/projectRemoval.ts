@@ -30,10 +30,11 @@ export function planProjectRemoval<
   const targetKind = hasOtherMembers || !isWholeGroup ? "checkout" : "project";
   const singleMember = members.length === 1 ? members[0]! : null;
   const targetLabel = singleMember?.title ?? displayName;
+  const targetNoun = targetKind === "checkout" ? "folder" : "project";
   const confirmationMessage = [
     threadCount > 0
-      ? `Remove ${targetKind} "${targetLabel}" and delete its ${threadCount} thread${threadCount === 1 ? "" : "s"}?`
-      : `Remove ${targetKind} "${targetLabel}"?`,
+      ? `Remove ${targetNoun} "${targetLabel}" and delete its ${threadCount} thread${threadCount === 1 ? "" : "s"}?`
+      : `Remove ${targetNoun} "${targetLabel}"?`,
     ...(singleMember
       ? [
           `Path: ${singleMember.workspaceRoot}`,
