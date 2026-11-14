@@ -1195,7 +1195,7 @@ export default function TimelineViewer(props: {
         {previewOnly ? pendingBar : null}
         <div className="flex min-h-0 flex-1 flex-col items-center">
           <div
-            className="flex min-h-0 w-full flex-1 items-center justify-center bg-viewer p-2"
+            className="flex min-h-0 w-full flex-1 items-center justify-center p-2 [container-type:size]"
             onContextMenu={showPreviewMenu}
           >
             <TimelinePreview

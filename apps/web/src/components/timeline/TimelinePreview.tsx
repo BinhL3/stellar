@@ -62,9 +62,13 @@ export function TimelinePreview(props: {
 
   const missing = notDrawn.join(", ");
   return (
+    // Exactly the exported frame, as large as fits: black only ever means the frame.
     <div
-      className="relative h-full max-w-full"
-      style={{ aspectRatio: `${props.frame.width} / ${props.frame.height}` }}
+      className="relative"
+      style={{
+        aspectRatio: `${props.frame.width} / ${props.frame.height}`,
+        width: `min(100cqw, 100cqh * ${props.frame.width / props.frame.height})`,
+      }}
     >
       <canvas ref={canvasRef} className="size-full bg-black" />
       {notDrawn.length > 0 ? (
