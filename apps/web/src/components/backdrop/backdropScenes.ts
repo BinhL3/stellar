@@ -650,12 +650,655 @@ const orbit: Scene = {
   },
 };
 
+/** Keeps the middle of the pane quiet, where the new-thread heading sits: 0 there, 1 well clear. */
+function clearOfHeading(x: number, y: number): number {
+  return smooth(0.85, 1.6, Math.hypot(x / 0.36, (y - 0.43) / 0.1));
+}
+
+/** Long Biên: the cantilever truss over a still river at dawn, mirrored, under a mackerel sky. */
+const longBien: Scene = {
+  hues: [205, 22],
+  layers: ({ aspect, dot }) => {
+    const deck = 0.655;
+    const water = 0.745;
+    const span = 0.56;
+    const panel = span / 14;
+    // Piers sit off-centre so a tower does not stand behind the heading.
+    const pierOffset = span * 0.32;
+    const pierU = (x: number) => (x - pierOffset) / span - Math.round((x - pierOffset) / span);
+    // Over each pier the truss rises to a tower; between, the top chord sags towards mid-span.
+    const top = (x: number) => {
+      const u = Math.abs(pierU(x)) * 2;
+      return deck - 0.072 - 0.088 * (1 - u) ** 1.7;
+    };
+    const truss = (x: number, y: number): number => {
+      if (y > deck + dot * 2.5) {
+        return Math.abs(pierU(x)) * span < 0.016 && y < water ? 0.5 : OUTSIDE;
+      }
+      const roof = top(x);
+      if (y < roof - dot) return OUTSIDE;
+      // Chords: a heavy deck with a rail on it, a lighter top chord.
+      if (y > deck - dot * 0.5) return 0.95;
+      if (y > deck - dot * 3.5 && y < deck - dot * 2.5) return 0.8;
+      if (y < roof + dot * 0.9) return 0.95;
+      const s = x / panel - Math.floor(x / panel);
+      const t = (deck - y) / (deck - roof);
+      // Verticals at each panel point, and an X across every panel.
+      const width = dot / panel;
+      if (s < width * 0.9) return 0.9;
+      const cross = Math.min(Math.abs(t - s), Math.abs(t - (1 - s)));
+      return cross < width * 0.55 * (1 + 0.6 * (1 - t)) ? 0.85 : OUTSIDE;
+    };
+    // Mackerel sky: rows of small cloudlets, gathered in drifting patches. Returns how much of
+    // a cloudlet covers the point, and how much of that is its sunlit underside.
+    const mackerel = (x: number, y: number): readonly [number, number] => {
+      const v = y / 0.024 + 1.6 * fbm1(x * 2.6, 81);
+      const row = Math.floor(v);
+      const u = x / 0.04 + row * 0.5 + 0.5 * noise1(v * 0.7, 82);
+      const column = Math.floor(u);
+      const fu = u - column - 0.5 - 0.25 * (hash(column, row, 83) - 0.5);
+      const fv = v - row - 0.5 - 0.25 * (hash(column, row, 84) - 0.5);
+      const patch = smooth(0.28, 0.52, fbm2(x * 1.9 + y * 1.2, y * 3.1, 85));
+      const size = patch * (0.7 + 0.35 * hash(column, row, 86));
+      if (size <= 0.05) return [0, 0];
+      const d = Math.hypot(fu / 0.46, fv / 0.38) / size;
+      const cover = smooth(1, 0.75, d);
+      return [cover, cover * smooth(-0.05, 0.3, fv)];
+    };
+    // Bright towards the horizon, where the mist sits.
+    const blue = (y: number) => 0.04 + 0.24 * smooth(water - 0.04, 0.02, y);
+    const mirror = (y: number) => 2 * water - y;
+    // Below the waterline, a row breaks now and then where a breath of wind crosses it.
+    const still = (x: number, j: number) => noise1(x * 7 + j * 13.1, 84) > 0.2;
+    const mist = (y: number) => Math.exp(-Math.abs(y - water) / 0.025);
+    const boats = [-0.58, -0.21, 0.13, 0.47].map((at, k) => ({
+      x: at * aspect * 0.9 + 0.03 * hash(k, 0, 85),
+      width: 0.045 + 0.03 * hash(k, 1, 85),
+    }));
+    const boat = (x: number, y: number) => {
+      for (const { x: bx, width } of boats) {
+        const dx = x - bx;
+        if (Math.abs(dx) > width / 2) continue;
+        const h = water - y;
+        if (h < 0 || h > 0.022) continue;
+        // Hull, then a cabin under a low curved roof.
+        if (h < 0.006) return 0.85;
+        const cabin = Math.abs(dx) < width * 0.36;
+        const roof = 0.018 - 0.006 * (dx / width) ** 2 * 4;
+        if (cabin && h < roof) return h > roof - dot ? 0.9 : 0.45;
+      }
+      return OUTSIDE;
+    };
+    return [
+      {
+        ink: 1,
+        depth: 0,
+        band: [-1, 2],
+        tone: (x, y) => {
+          const above = y < water;
+          const sy = above ? y : mirror(y);
+          const tone = blue(sy) * (1 - mackerel(x, sy)[0]);
+          return above
+            ? tone * (0.25 + 0.75 * clearOfHeading(x, y))
+            : tone * 0.75 * (1 - 0.85 * mist(y));
+        },
+      },
+      {
+        // Dawn on the undersides of the cloudlets, and a peach haze low over the river.
+        ink: 2,
+        depth: 0,
+        band: [-1, 2],
+        tone: (x, y) => {
+          const sy = y < water ? y : mirror(y);
+          const lit = mackerel(x, sy)[1] * (0.25 + 0.4 * smooth(0, water, sy));
+          return (lit + 0.22 * mist(y)) * (0.35 + 0.65 * clearOfHeading(x, y));
+        },
+      },
+      {
+        // The far bank: a low line of trees and roofs, half lost in mist.
+        ink: 1,
+        depth: 0.25,
+        solid: true,
+        band: [water - 0.06, water + 0.06],
+        tone: (x, y) => {
+          const bank = water - 0.012 - 0.022 * fbm1(x * 9, 86) - 0.012 * noise1(x * 40, 87);
+          const below = bank + (water - bank) * 2;
+          if (y < bank || y > below) return OUTSIDE;
+          return (y < water ? 0.4 : 0.22) * (1 - 0.55 * mist(y));
+        },
+      },
+      {
+        ink: 0,
+        depth: 0.6,
+        solid: true,
+        band: [deck - 0.17, water + 0.02],
+        tone: (x, y) => boat(x, y),
+      },
+      {
+        ink: 0,
+        depth: 0.6,
+        band: [water, water + 0.03],
+        tone: (x, y, _i, j) => {
+          const tone = boat(x, mirror(y));
+          return tone > 0 && still(x, j) ? tone * 0.5 : 0;
+        },
+      },
+      {
+        ink: 0,
+        depth: 0.6,
+        solid: true,
+        band: [deck - 0.17, water],
+        tone: (x, y) => truss(x, y),
+      },
+      {
+        // The bridge upside down in the river, a little paler, broken by the odd ripple.
+        ink: 0,
+        depth: 0.6,
+        band: [water, 2],
+        tone: (x, y, _i, j) => {
+          const tone = truss(x, mirror(y));
+          return tone > 0 && still(x, j) ? tone * (0.62 - 0.3 * mist(y)) : 0;
+        },
+      },
+    ];
+  },
+};
+
+interface Capsule {
+  readonly ax: number;
+  readonly ay: number;
+  readonly bx: number;
+  readonly by: number;
+  readonly r: number;
+}
+
+/** Distance from a point to a capsule's surface; negative inside. */
+function capsuleDistance(c: Capsule, x: number, y: number): number {
+  const dx = c.bx - c.ax;
+  const dy = c.by - c.ay;
+  const t = clamp01(((x - c.ax) * dx + (y - c.ay) * dy) / (dx * dx + dy * dy || 1));
+  return Math.hypot(x - c.ax - dx * t, y - c.ay - dy * t) - c.r;
+}
+
+/** Items bucketed by cell so a tone function only tests what is near it. */
+function bucket<T>(items: ReadonlyArray<T>, cell: number, bounds: (item: T) => readonly number[]) {
+  const cells = new Map<number, Array<T>>();
+  const key = (i: number, j: number) => (i + 512) * 4096 + (j + 512);
+  for (const item of items) {
+    const [x0, y0, x1, y1] = bounds(item) as [number, number, number, number];
+    for (let i = Math.floor(x0 / cell); i <= Math.floor(x1 / cell); i++) {
+      for (let j = Math.floor(y0 / cell); j <= Math.floor(y1 / cell); j++) {
+        const list = cells.get(key(i, j));
+        if (list) list.push(item);
+        else cells.set(key(i, j), [item]);
+      }
+    }
+  }
+  const empty: Array<T> = [];
+  return (x: number, y: number) =>
+    cells.get(key(Math.floor(x / cell), Math.floor(y / cell))) ?? empty;
+}
+
+/** Sakura: cherry boughs reaching in from the edges, blossom clusters and petals on the air. */
+const sakura: Scene = {
+  hues: [10, -25],
+  layers: ({ aspect, dot }) => {
+    const branches: Array<Capsule> = [];
+    const flowers: Array<{ x: number; y: number; r: number; turn: number }> = [];
+    let seed = 0;
+    const grow = (
+      x: number,
+      y: number,
+      angle: number,
+      length: number,
+      r: number,
+      level: number,
+    ) => {
+      // Each limb bends a little as it goes, in three steps.
+      let px = x;
+      let py = y;
+      let heading = angle;
+      for (let step = 0; step < 3; step++) {
+        heading += (hash(seed++, level, 91) - 0.5) * 0.5;
+        const nx = px + Math.cos(heading) * (length / 3);
+        const ny = py + Math.sin(heading) * (length / 3);
+        // Limbs stop short of the heading rather than grow across it.
+        if (clearOfHeading(nx, ny) < 0.75) return;
+        branches.push({ ax: px, ay: py, bx: nx, by: ny, r: r * (1 - step * 0.12) });
+        if (level >= 2) {
+          const count = level >= 3 ? 3 : 1;
+          for (let k = 0; k < count; k++) {
+            const spread = 0.012 + 0.016 * hash(seed++, k, 92);
+            const around = hash(seed++, k, 93) * Math.PI * 2;
+            const fx = nx + Math.cos(around) * spread;
+            const fy = ny + Math.sin(around) * spread;
+            if (clearOfHeading(fx, fy) < 0.85) continue;
+            flowers.push({
+              x: fx,
+              y: fy,
+              r: 0.0085 + 0.006 * hash(seed++, k, 94),
+              turn: hash(seed++, k, 95) * Math.PI,
+            });
+          }
+        }
+        px = nx;
+        py = ny;
+      }
+      if (level >= 4) return;
+      const children = level === 0 ? 3 : 2;
+      for (let k = 0; k < children; k++) {
+        const side = k % 2 === 0 ? 1 : -1;
+        const turn = side * (0.35 + 0.35 * hash(seed++, k, 96));
+        grow(
+          px,
+          py,
+          heading + turn,
+          length * (0.62 + 0.12 * hash(seed++, k, 97)),
+          r * 0.6,
+          level + 1,
+        );
+      }
+    };
+    const edge = aspect / 2;
+    // One bough over the top left, one hanging from the top right, one rising at the lower right.
+    grow(-edge - 0.04, 0.06, 0.32, 0.36, 0.011, 0);
+    grow(edge + 0.03, -0.03, Math.PI - 0.62, 0.26, 0.009, 0);
+    grow(edge + 0.04, 0.86, Math.PI + 0.78, 0.3, 0.01, 0);
+    const branchesNear = bucket(branches, 0.08, (c) => [
+      Math.min(c.ax, c.bx) - c.r,
+      Math.min(c.ay, c.by) - c.r,
+      Math.max(c.ax, c.bx) + c.r,
+      Math.max(c.ay, c.by) + c.r,
+    ]);
+    const flowersNear = bucket(flowers, 0.08, (f) => [f.x - f.r, f.y - f.r, f.x + f.r, f.y + f.r]);
+    // Five rounded petals with a notch at each tip; 1 inside, falling off over a dot at the edge.
+    const blossom = (x: number, y: number): readonly [number, number] => {
+      let petal = 0;
+      let heart = 0;
+      for (const f of flowersNear(x, y)) {
+        const dx = x - f.x;
+        const dy = y - f.y;
+        const d = Math.hypot(dx, dy);
+        if (d > f.r) continue;
+        const a = Math.atan2(dy, dx) * 2.5 + f.turn;
+        const lobe =
+          f.r * (0.72 + 0.28 * Math.abs(Math.cos(a)) - 0.12 * Math.abs(Math.sin(a)) ** 8);
+        if (d < lobe) petal = Math.max(petal, 0.55 + 0.35 * (d / lobe));
+        if (d < f.r * 0.22) heart = 1;
+      }
+      return [petal, heart];
+    };
+    return [
+      {
+        // Blush haze thickening towards a low line of far hills.
+        ink: 2,
+        depth: 0.1,
+        band: [0.3, 2],
+        tone: (x, y) => {
+          const hills = 0.86 - 0.1 * fbm1(x * 1.6, 98) - 0.03 * noise1(x * 7, 99);
+          const haze = 0.16 * smooth(0.5, 1, y) * (0.4 + 0.6 * clearOfHeading(x, y));
+          return y > hills ? 0.4 + 0.12 * smooth(hills, 1, y) : haze;
+        },
+      },
+      {
+        // A pale sun behind the blossom.
+        ink: 2,
+        depth: 0.05,
+        band: [0.1, 0.45],
+        tone: (x, y) => {
+          const d = Math.hypot(x + edge * 0.5, y - 0.27) - 0.075;
+          return d < 0 ? 0.4 : 0.14 * Math.exp(-d / 0.04);
+        },
+      },
+      {
+        // Petals drifting down and across, one or two dots each.
+        ink: 1,
+        depth: 0.35,
+        band: [0, 1.2],
+        tone: (x, y, i, j) => {
+          const cellI = Math.floor(i / 9);
+          const cellJ = Math.floor(j / 9);
+          if (hash(cellI, cellJ, 100) > 0.11 * (0.2 + 0.8 * clearOfHeading(x, y))) return 0;
+          const ci = cellI * 9 + 1 + Math.floor(hash(cellI, cellJ, 101) * 7);
+          const cj = cellJ * 9 + 1 + Math.floor(hash(cellI, cellJ, 102) * 7);
+          const long = hash(cellI, cellJ, 103) < 0.5;
+          const hit =
+            (i === ci && j === cj) || (long ? i === ci + 1 && j === cj : i === ci && j === cj + 1);
+          return hit ? 0.95 : 0;
+        },
+      },
+      {
+        ink: 0,
+        depth: 0.7,
+        solid: true,
+        band: [-0.2, 1.2],
+        tone: (x, y) => {
+          for (const c of branchesNear(x, y)) {
+            const d = capsuleDistance(c, x, y);
+            // Bark: dark through, with a lighter sheen down one side of the thicker limbs.
+            if (d < 0) return c.r > dot * 2.5 && d > -c.r * 0.4 && y < (c.ay + c.by) / 2 ? 0.7 : 1;
+          }
+          return OUTSIDE;
+        },
+      },
+      {
+        ink: 1,
+        depth: 0.75,
+        solid: true,
+        band: [-0.2, 1.2],
+        tone: (x, y) => {
+          const [petal, heart] = blossom(x, y);
+          return heart > 0 ? OUTSIDE : petal > 0 ? petal : OUTSIDE;
+        },
+      },
+      {
+        ink: 0,
+        depth: 0.75,
+        band: [-0.2, 1.2],
+        tone: (x, y) => (blossom(x, y)[1] > 0 ? 0.9 : 0),
+      },
+    ];
+  },
+};
+
+/** Shore: surf rolling onto a pale beach, foam lace on wet sand, open sea to the horizon. */
+const shore: Scene = {
+  hues: [-150, -28],
+  layers: ({ aspect, dot }) => {
+    const horizon = 0.25;
+    // The waterline wanders up and down the beach.
+    const shoreline = (x: number) =>
+      0.74 + 0.035 * Math.sin(x * 3.1 + 0.6) + 0.02 * fbm1(x * 5, 111);
+    // Breakers, far to near: each crest is a wavy line, closer ones larger and more spread.
+    const crests = [
+      { y: 0.565, amplitude: 0.008, seed: 112 },
+      { y: 0.615, amplitude: 0.012, seed: 113 },
+      { y: 0.672, amplitude: 0.016, seed: 114 },
+    ];
+    const crestAt = (k: number, x: number) => {
+      const c = crests[k]!;
+      return c.y + c.amplitude * (Math.sin(x * (9 - k * 2) + c.seed) + 0.8 * fbm1(x * 6, c.seed));
+    };
+    // Where along its length a crest is breaking; the rest is still a swell.
+    const breaking = (k: number, x: number) => smooth(0.35, 0.6, fbm1(x * 2.2 + k * 3.7, 115 + k));
+    const gulls = [
+      [-0.36, 0.12, 0.026],
+      [-0.315, 0.15, 0.018],
+      [0.4, 0.085, 0.022],
+    ] as const;
+    return [
+      {
+        // A soft sky, a few long streaks of cloud, deepening upwards.
+        ink: 2,
+        depth: 0,
+        band: [-1, horizon],
+        tone: (x, y) => {
+          const streak = smooth(0.55, 0.75, fbm2(x * 1.4, y * 22, 116));
+          return (
+            (0.12 * smooth(horizon, -0.1, y) + 0.22 * streak) * (0.4 + 0.6 * clearOfHeading(x, y))
+          );
+        },
+      },
+      {
+        ink: 0,
+        depth: 0.1,
+        band: [0, horizon],
+        tone: (x, y) => {
+          for (const [gx, gy, span] of gulls) {
+            const dx = (x - gx * aspect) / span;
+            if (Math.abs(dx) > 1) continue;
+            // A gull is two shallow arcs meeting at the body.
+            const wing =
+              gy - span * 0.32 * Math.sin(Math.PI * Math.abs(dx)) + span * 0.1 * Math.abs(dx);
+            if (Math.abs(y - wing) < dot * 0.75) return 0.9;
+          }
+          return 0;
+        },
+      },
+      {
+        // Open water: a dark line at the horizon, then swells that widen and part as they near.
+        ink: 0,
+        depth: 0.2,
+        solid: true,
+        band: [horizon, 2],
+        tone: (x, y) => {
+          if (y > shoreline(x)) return OUTSIDE;
+          const near = (y - horizon) / (crests[0]!.y - horizon);
+          if (y - horizon < dot * 1.2) return 0.7;
+          const swell = Math.sin((1 / (near + 0.08)) * 6 + 2.2 * fbm1(x * 3 + y * 9, 117));
+          const line = swell > 0.9 ? 0.5 - 0.25 * near : 0;
+          return (line + 0.04) * (0.08 + 0.92 * clearOfHeading(x, y));
+        },
+      },
+      {
+        ink: 2,
+        depth: 0.2,
+        band: [horizon, 2],
+        tone: (x, y) => {
+          if (y > shoreline(x)) return 0;
+          return (
+            (0.34 - 0.2 * smooth(horizon, crests[0]!.y, y)) * (0.12 + 0.88 * clearOfHeading(x, y))
+          );
+        },
+      },
+      {
+        // Each breaker: white foam on its lip, the face shadowed beneath, darkest under the curl.
+        ink: 0,
+        depth: 0.45,
+        solid: true,
+        band: [crests[0]!.y - 0.04, 0.82],
+        tone: (x, y, i, j) => {
+          if (y > shoreline(x)) return OUTSIDE;
+          for (let k = crests.length - 1; k >= 0; k--) {
+            const top = crestAt(k, x);
+            const size = 0.012 + 0.008 * k;
+            const breaks = breaking(k, x);
+            const below = y - top;
+            if (below < -size * 0.7 * breaks || below > size * 2.4) continue;
+            if (below < 0) {
+              // Foam: paper, flecked at its edges.
+              return hash(i, j, 118 + k) < 0.12 * (1 + below / size) ? 0.6 : 0;
+            }
+            if (below < dot * 1.2) return 0.35 + 0.55 * breaks;
+            return (0.55 * breaks + 0.18) * Math.exp(-below / (size * 0.9));
+          }
+          return OUTSIDE;
+        },
+      },
+      {
+        // The swash: a thin sheet running up the sand, a lace of foam at its edge.
+        ink: 2,
+        depth: 0.6,
+        solid: true,
+        band: [0.62, 0.86],
+        tone: (x, y, i, j) => {
+          const edge = shoreline(x);
+          const run = edge + 0.035 + 0.015 * fbm1(x * 11, 119);
+          if (y < edge || y > run) return OUTSIDE;
+          const lace = Math.abs(y - run) < dot * 1.5 || noise2(x * 140, y * 260, 120) > 0.78;
+          return lace ? (hash(i, j, 121) < 0.5 ? 0 : 0.2) : 0.42;
+        },
+      },
+      {
+        // Sand: darker where it is still wet, then dry and ribbed by the wind.
+        ink: 1,
+        depth: 0.8,
+        solid: true,
+        band: [0.6, 2],
+        tone: (x, y) => {
+          const run = shoreline(x) + 0.035 + 0.015 * fbm1(x * 11, 119);
+          if (y < run) return OUTSIDE;
+          const wet = Math.exp(-(y - run) / 0.05);
+          const ribs = smooth(0.55, 0.8, noise1((y + 0.04 * fbm1(x * 4, 122)) * 120, 123));
+          return 0.16 + 0.22 * wet + 0.12 * ribs * (1 - wet);
+        },
+      },
+    ];
+  },
+};
+
+/** Train Street: narrow shophouses shoulder to shoulder, the railway running past their doors. */
+const trainStreet: Scene = {
+  hues: [-62, -118],
+  layers: ({ aspect, dot }) => {
+    const street = 0.8;
+    const nearRail = 0.925;
+    const farRail = 0.862;
+    const storey = 0.085;
+    // Tube houses: narrow, uneven, and lower towards the middle so the heading has open sky.
+    const houses: Array<{ x0: number; x1: number; roof: number; seed: number }> = [];
+    for (let x = -aspect / 2 - 0.1, k = 0; x < aspect / 2 + 0.1; k++) {
+      const width = 0.09 + 0.06 * hash(k, 0, 131);
+      const centre = x + width / 2;
+      const out = Math.abs(centre);
+      const chance = hash(k, 17, 137);
+      const floors =
+        out < 0.36 ? 2 + (chance < 0.35 ? 1 : 0) : 3 + Math.floor(chance * 3) + (out > 0.6 ? 1 : 0);
+      houses.push({ x0: x, x1: x + width, roof: street - storey * floors - 0.03, seed: k });
+      x += width;
+    }
+    const houseAt = (x: number) => houses.find((h) => x >= h.x0 && x < h.x1) ?? houses[0]!;
+    // Power lines strung between poles, sagging; Hanoi has a great many.
+    const poles = [-0.62, 0.66].map((at) => at * aspect * 0.8);
+    const wire = (x: number, k: number) => {
+      const top = 0.2 + 0.035 * k;
+      const span = poles[1]! - poles[0]!;
+      const t = (x - poles[0]!) / span;
+      return top + (0.05 + 0.015 * k) * 4 * t * (1 - t);
+    };
+    const facade = (x: number, y: number, i: number, j: number) => {
+      const h = houseAt(x);
+      if (y < h.roof) return OUTSIDE;
+      const u = (x - h.x0) / (h.x1 - h.x0);
+      const across = (x - h.x0) / dot;
+      // A dark party wall between neighbours.
+      if (across < 1) return { ink: 0 as Ink, tone: 0.55 };
+      // Parapet cap.
+      if (y - h.roof < dot * 1.5) return { ink: 0 as Ink, tone: 0.75 };
+      const floor = Math.floor((street - y) / storey);
+      const inFloor = (street - y) / storey - floor;
+      if (floor === 0) {
+        // The shop front: an open roller door, dark inside, with a low stool or two.
+        if (u > 0.14 && u < 0.86 && inFloor < 0.78) {
+          const stool = inFloor < 0.14 && (Math.abs(u - 0.3) < 0.06 || Math.abs(u - 0.7) < 0.05);
+          const shelf = Math.abs(inFloor - 0.5) < 0.04 || Math.abs(inFloor - 0.28) < 0.04;
+          return { ink: 0 as Ink, tone: stool ? 0.95 : shelf ? 0.6 : 0.2 };
+        }
+        return { ink: 1 as Ink, tone: 0.42 };
+      }
+      // Balcony: a slab, then a railing of thin bars.
+      if (inFloor < 0.05) return { ink: 0 as Ink, tone: 0.85 };
+      if (inFloor < 0.28 && u > 0.06 && u < 0.94) {
+        if (inFloor > 0.24) return { ink: 0 as Ink, tone: 0.85 };
+        return { ink: 0 as Ink, tone: Math.round(across) % 3 === 0 ? 0.85 : -1 };
+      }
+      // Tall louvred shutters, some folded open on a dark room.
+      if (u > 0.2 && u < 0.8 && inFloor > 0.2 && inFloor < 0.86) {
+        const open = hash(h.seed, floor, 132) < 0.4;
+        if (open && u > 0.32 && u < 0.68) return { ink: 0 as Ink, tone: 0.5 };
+        return { ink: 0 as Ink, tone: j % 2 === 0 ? 0.72 : 0.38 };
+      }
+      return { ink: 1 as Ink, tone: 0.3 + 0.12 * hash(h.seed, 0, 133) + 0.04 * hash(i, j, 134) };
+    };
+    // Lanterns hang under some balconies, one per house at most.
+    const lantern = (x: number, y: number) => {
+      const h = houseAt(x);
+      if (hash(h.seed, 5, 135) > 0.55) return OUTSIDE;
+      const floor = 1 + Math.floor(hash(h.seed, 6, 135) * 2);
+      const cx = h.x0 + (h.x1 - h.x0) * (hash(h.seed, 7, 135) < 0.5 ? 0.16 : 0.84);
+      const cy = street - storey * floor - 0.026;
+      if (cy - 0.03 < h.roof) return OUTSIDE;
+      const e = Math.hypot((x - cx) / 0.013, (y - cy) / 0.016);
+      // Silk between ribs, with a tassel below.
+      if (e < 1) return Math.abs(y - cy) % (dot * 3) < dot ? 0.6 : 1;
+      if (Math.abs(x - cx) < dot * 0.6 && y > cy + 0.016 && y < cy + 0.026) return 1;
+      // The cord.
+      return Math.abs(x - cx) < dot * 0.5 && y < cy && y > cy - 0.022 ? 0.9 : OUTSIDE;
+    };
+    return [
+      {
+        // A warm noon haze over the roofs.
+        ink: 2,
+        depth: 0,
+        band: [-1, street],
+        tone: (x, y) => 0.07 * smooth(0.1, 0.6, y) * clearOfHeading(x, y),
+      },
+      {
+        ink: 0,
+        depth: 0.15,
+        band: [0.15, street],
+        tone: (x, y) => {
+          if (poles.some((p) => Math.abs(x - p) < dot * 1.2) && y > 0.18) return 0.9;
+          if (x < poles[0]! || x > poles[1]!) return 0;
+          for (let k = 0; k < 3; k++) {
+            // Thick enough on the slope that the line never breaks between columns.
+            const slope = Math.abs(wire(x + dot, k) - wire(x, k));
+            if (Math.abs(y - wire(x, k)) < dot * 0.55 + slope * 0.5) {
+              return 0.85 * (0.15 + 0.85 * clearOfHeading(x, y));
+            }
+          }
+          return 0;
+        },
+      },
+      {
+        ink: 0,
+        depth: 0.5,
+        solid: true,
+        band: [0.25, street],
+        tone: (x, y, i, j) => {
+          const f = facade(x, y, i, j);
+          return typeof f === "number" || f.ink !== 0 ? OUTSIDE : f.tone;
+        },
+      },
+      {
+        ink: 1,
+        depth: 0.5,
+        solid: true,
+        band: [0.25, street],
+        tone: (x, y, i, j) => {
+          const lit = lantern(x, y);
+          if (lit >= 0) return lit;
+          const f = facade(x, y, i, j);
+          return typeof f === "number" || f.ink !== 1 ? OUTSIDE : f.tone;
+        },
+      },
+      {
+        // The track: ballast, sleepers, then two rails right at the doorsteps.
+        ink: 0,
+        depth: 0.8,
+        solid: true,
+        band: [street, 2],
+        tone: (x, y, i, j) => {
+          if (Math.abs(y - farRail) < dot * 1.2 || Math.abs(y - nearRail) < dot * 1.6) return 0.95;
+          const between = y > farRail && y < nearRail;
+          // Sleepers lean with the view, so they read as lying across the line.
+          const along = (x + (y - farRail) * 0.45) / 0.034;
+          const sleeper = between && along - Math.floor(along) < 0.32;
+          if (sleeper) return 0.55;
+          if (y < street + dot * 1.5) return 0.6;
+          return y > farRail && hash(i, j, 136) < 0.06 ? 0.5 : -1;
+        },
+      },
+      {
+        ink: 2,
+        depth: 0.8,
+        band: [street, 2],
+        tone: (_x, y) => 0.22 + 0.1 * smooth(street, 1, y),
+      },
+    ];
+  },
+};
+
 const SCENE_BY_THEME_ID: Readonly<Record<string, Scene>> = {
   stellar: limb,
   "night-edit": city,
   darkroom: dunes,
   studio: soundstage,
   "drive-in": driveIn,
+  "long-bien": longBien,
+  sakura,
+  shore,
+  "train-street": trainStreet,
 };
 
 export const sceneForTheme = (themeId: string): Scene => SCENE_BY_THEME_ID[themeId] ?? orbit;
