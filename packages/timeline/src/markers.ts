@@ -366,6 +366,25 @@ export const rippleMarkers = (
   });
 };
 
+/** Sequence markers at or after `at` moved `by` frames: `rippleMarkers` when it closes up. */
+export const shiftMarkersFrom = (
+  markers: ReadonlyArray<Marker>,
+  at: number,
+  by: number,
+  rate: number,
+): ReadonlyArray<Marker> => {
+  if (by <= 0) return rippleMarkers(markers, at + by, at, rate);
+  return markers.map((marker) => {
+    const { start_time, duration } = marker.marked_range;
+    const from = Math.round((start_time.value / start_time.rate) * rate);
+    if (from < at) return marker;
+    return {
+      ...marker,
+      marked_range: timeRange(from + by, Math.round((duration.value / duration.rate) * rate), rate),
+    };
+  });
+};
+
 /** The timeline with no markers at all, for comparing cuts alone. */
 export const withoutMarkers = (timeline: Timeline): Timeline => {
   const { markers: _sequence, ...stack } = timeline.tracks;

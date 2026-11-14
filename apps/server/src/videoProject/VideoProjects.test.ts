@@ -1071,17 +1071,34 @@ it.live("reads a timeline for an agent and applies its edits, refusing a bad one
     assert.strictEqual(refused.message, "Edit 2 (trim): no clip #0:9. Nothing was changed.");
     assert.strictEqual(yield* fs.readFileString(file), before);
 
+    const unsized = yield* videoProjects
+      .editTimeline({ workspaceRoot, timeline, edits: [{ kind: "slip", clipId: "0:0" }] })
+      .pipe(Effect.flip);
+    assert.strictEqual(unsized.message, "Edit 1 (slip): needs frames. Nothing was changed.");
+    // A roll moves the cut on the picture and its linked sound together.
+    const rolled = yield* videoProjects.editTimeline({
+      workspaceRoot,
+      timeline,
+      edits: [{ kind: "roll", clipId: "0:0", edge: "end", frame: 130 }],
+    });
+    assert.deepStrictEqual(rolled.text.split("\n").slice(1), [
+      "V1 0-130 #0:0 a.MOV",
+      "V1 130-180 #0:1 b.MOV",
+      "A1 0-130 #1:0 a.MOV",
+      "A1 130-180 #1:1 b.MOV",
+    ]);
+
     const edited = yield* videoProjects.editTimeline({
       workspaceRoot,
       timeline,
-      edits: [{ kind: "removeRange", start: 0, end: 120, ripple: true }],
+      edits: [{ kind: "removeRange", start: 0, end: 130, ripple: true }],
     });
     assert.deepStrictEqual(
       edited.text
         .split("\n")
         .slice(1)
         .map((line) => line.replace(/#\S+/, "#id")),
-      ["V1 0-60 #id b.MOV", "A1 0-60 #id b.MOV"],
+      ["V1 0-50 #id b.MOV", "A1 0-50 #id b.MOV"],
     );
   }).pipe(
     Effect.provide(
