@@ -128,13 +128,16 @@ function readThemeInks(): ThemeInks {
   const [midTurn, deepTurn] = sceneForTheme(themeId).hues;
   const turn = (degrees: number) => accent[2] + (degrees * Math.PI) / 180;
   const between = (share: number) => paper[0] + (accent[0] - paper[0]) * share;
+  // Dots darker than the paper read far louder than lit dots on dark paper, so light themes print
+  // every ink closer to the paper.
+  const light = paper[0] > 0.6;
   return {
     themeId,
     key: `${themeId}|${paperValue}|${accentValue}`,
     inks: [
-      accentRgb,
-      fromOklch(between(0.66), accent[1] * 0.95, turn(midTurn)),
-      fromOklch(between(0.36), accent[1] * 0.6, turn(deepTurn)),
+      light ? fromOklch(between(0.72), accent[1] * 0.8, accent[2]) : accentRgb,
+      fromOklch(between(light ? 0.42 : 0.66), accent[1] * (light ? 0.7 : 0.95), turn(midTurn)),
+      fromOklch(between(light ? 0.22 : 0.36), accent[1] * 0.6, turn(deepTurn)),
     ],
   };
 }
