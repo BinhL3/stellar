@@ -49,12 +49,8 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { InlineButton } from "../ui/button";
 import { DraftProjectName } from "./DraftProjectName";
-import { DraftHeroProjectHeading } from "./DraftHeroProjectHeading";
 import { TriageDraftHero } from "./TriageDraftHero";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
-import { VideoStageSelect } from "../videoProject/VideoStageSelect";
-import { useVideoProject } from "~/hooks/useVideoProject";
-import { useIsCarouselProject } from "../carousel/useIsCarouselProject";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveProjectDefaultProviderModelSelection } from "../../providerInstances";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
@@ -146,7 +142,6 @@ export function DraftHeroHeadline({
   const activeProjectKey = activeProjectGroup?.projectKey ?? "";
   const hasResolvedProject = activeProjectTitle !== null;
   const canChooseProject = projectPickerEntries.length > 0;
-  const shouldShowProjectMenu = canChooseProject;
   const menuEntries = projectPickerEntries.filter(
     ({ targetProject }) =>
       !isScratchProject(targetProject, scratchWorkspaceRootFor(targetProject.environmentId)),
@@ -159,15 +154,6 @@ export function DraftHeroHeadline({
             project.environmentId === activeProjectRef.environmentId &&
             project.id === activeProjectRef.projectId,
         ) ?? null);
-  const { isVideoProject, timelinePaths } = useVideoProject(
-    activeProject?.environmentId ?? null,
-    activeProject?.workspaceRoot,
-  );
-  // A carousel has no script-to-timeline stages to pick between.
-  const isCarousel = useIsCarouselProject(
-    activeProject?.environmentId ?? null,
-    activeProject?.workspaceRoot,
-  );
   const scratchTargetEnvironmentId = scratchEnvironmentId(activeProjectRef?.environmentId ?? null);
   const isScratchDraft =
     activeProject !== null &&
@@ -245,7 +231,7 @@ export function DraftHeroHeadline({
     }
   };
 
-  const projectSelector = shouldShowProjectMenu ? (
+  const projectSelector = canChooseProject ? (
     <Combobox
       items={pickerItems}
       filteredItems={filteredPickerItems}
@@ -349,15 +335,7 @@ export function DraftHeroHeadline({
         </ComboboxList>
       </ComboboxPopup>
     </Combobox>
-  ) : (
-    <button
-      type="button"
-      onClick={openAddProject}
-      className="pointer-events-auto inline min-w-0 max-w-full cursor-pointer border-muted-foreground/35 border-b border-dotted text-muted-foreground/60 transition-colors hover:border-muted-foreground/60 hover:text-muted-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-    >
-      <DraftProjectName value={activeProjectTitle ?? "Add a project"} singleLine />
-    </button>
-  );
+  ) : null;
 
   // Video work starts from a Premiere project, so the hero offers that instead of a scratch thread.
   const videoProjectEnvironmentId = activeProject?.environmentId ?? scratchTargetEnvironmentId;
@@ -388,37 +366,17 @@ export function DraftHeroHeadline({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
-      {hasResolvedProject && !isScratchDraft ? (
-        <DraftHeroProjectHeading
-          projectName={activeProjectTitle ?? "Choose a project"}
-          lead={isVideoProject ? "What's next" : "What should we build"}
-          joiner={isVideoProject ? "for" : "in"}
-        >
-          {projectSelector}
-        </DraftHeroProjectHeading>
-      ) : (
-        <h1 className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
-          {isScratchDraft ? (
-            <>What should we work on?</>
-          ) : canChooseProject ? (
-            <>{projectSelector} to start</>
-          ) : (
-            <>Add a project to start</>
-          )}
-        </h1>
-      )}
-      {isScratchDraft || orNewVideoProject !== null ? (
+      <h1 className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
+        {isScratchDraft
+          ? "What should we work on?"
+          : canChooseProject
+            ? "What project are you working on today?"
+            : "Add a project to start"}
+      </h1>
+      {projectSelector !== null || orNewVideoProject !== null ? (
         <div className="mt-2 flex h-6 w-full items-center justify-center gap-3 text-sm">
-          {isVideoProject && activeProject !== null && !isScratchDraft && isCarousel === false ? (
-            <span className="pointer-events-auto">
-              <VideoStageSelect
-                environmentId={activeProject.environmentId}
-                workspaceRoot={activeProject.workspaceRoot}
-                hasTimeline={timelinePaths.length > 0}
-              />
-            </span>
-          ) : null}
-          {isScratchDraft ? projectSelector : orNewVideoProject}
+          {projectSelector ? <span className="min-w-0 max-w-[50%]">{projectSelector}</span> : null}
+          {orNewVideoProject}
         </div>
       ) : null}
       {videoProjectEnvironmentId !== null ? (
