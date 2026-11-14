@@ -15,6 +15,7 @@ import {
   type ReactNode,
   use,
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -24,6 +25,7 @@ import { Button } from "~/components/ui/button";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { Kbd } from "~/components/ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { observeResize } from "~/lib/observeResize";
 import { ChatDockContext, ChatSlot } from "./chatDock";
 import {
   defaultTimelineLayout,
@@ -139,7 +141,13 @@ const buildDefaultLayout = (api: DockviewApi, portrait: boolean, chat: boolean) 
   api.getPanel(chat ? "chat" : "monitor")?.api.setActive();
 };
 
-const restoreLayout = (api: DockviewApi, layoutKey: string, portrait: boolean, chat: boolean) => {
+/** Whether it fell back to the default layout. */
+const restoreLayout = (
+  api: DockviewApi,
+  layoutKey: string,
+  portrait: boolean,
+  chat: boolean,
+): boolean => {
   const saved = savedTimelineLayout(layoutKey);
   if (saved !== null) {
     try {
@@ -153,13 +161,14 @@ const restoreLayout = (api: DockviewApi, layoutKey: string, portrait: boolean, c
           ]),
         ),
       });
-      if (api.panels.length > 0) return;
+      if (api.panels.length > 0) return false;
     } catch {
       // A layout this build can't read; the default replaces it below.
     }
     api.clear();
   }
   buildDefaultLayout(api, portrait, chat);
+  return true;
 };
 
 const isTyping = (target: EventTarget | null) =>
@@ -181,6 +190,10 @@ export function TimelineWorkspace(props: {
   readonly panels: TimelineWorkspacePanels;
 }) {
   const [api, setApi] = useState<DockviewApi | null>(null);
+  // The size an untouched default was built for. The dock first mounts in the narrow right panel
+  // before it fills the view, so a default nobody has changed is rebuilt once its size settles.
+  const pristineSize = useRef<{ width: number; height: number } | null>(null);
+  const container = useRef<HTMLDivElement | null>(null);
   const [toolSlots, setToolSlots] = useState<ToolSlots>({});
   const [setToolSlot] = useState(
     () => (id: string, element: HTMLElement | null) =>
@@ -207,6 +220,7 @@ export function TimelineWorkspace(props: {
         if (api.hasMaximizedGroup()) api.exitMaximizedGroup();
         api.clear();
         buildDefaultLayout(api, portrait, chat);
+        pristineSize.current = { width: api.width, height: api.height };
       },
     };
     let published: { open: ReadonlyArray<string>; visible: ReadonlyArray<string> } | null = null;
@@ -245,7 +259,31 @@ export function TimelineWorkspace(props: {
       else group.api.maximize();
     };
     window.addEventListener("keydown", onMaximizeKey, true);
+    const touched = () => {
+      pristineSize.current = null;
+    };
+    const rebuildIfResized = () => {
+      const built = pristineSize.current;
+      const element = container.current;
+      if (built === null || element === null) return;
+      // Read the container: the observer runs before dockview has taken the new size.
+      const width = element.clientWidth;
+      const height = element.clientHeight;
+      const changed = (a: number, b: number) => Math.abs(a - b) > Math.max(a, b) * 0.1;
+      if (!changed(built.width, width) && !changed(built.height, height)) return;
+      api.layout(width, height);
+      api.clear();
+      buildDefaultLayout(api, portrait, chat);
+      pristineSize.current = { width, height };
+    };
+    // Dockview reports no event when only its container's size changes.
+    const stopObserving = container.current
+      ? observeResize(container.current, rebuildIfResized)
+      : () => {};
     const disposables = [
+      { dispose: stopObserving },
+      api.onDidMovePanel(touched),
+      api.onDidRemovePanel(touched),
       { dispose: () => window.removeEventListener("keydown", onMaximizeKey, true) },
       api.onDidLayoutChange(() => {
         publish();
@@ -270,7 +308,8 @@ export function TimelineWorkspace(props: {
   }, [api, projectKey, layoutKey, portrait, chat]);
 
   const onReady = (event: DockviewReadyEvent) => {
-    restoreLayout(event.api, layoutKey, portrait, chat);
+    const built = restoreLayout(event.api, layoutKey, portrait, chat);
+    pristineSize.current = built ? { width: event.api.width, height: event.api.height } : null;
     setApi(event.api);
   };
 
@@ -278,7 +317,7 @@ export function TimelineWorkspace(props: {
     <PanelsContext value={props.panels}>
       <SetToolSlotContext value={setToolSlot}>
         <ToolSlotsContext value={toolSlots}>
-          <div className="min-h-0 min-w-0 flex-1">
+          <div ref={container} className="min-h-0 min-w-0 flex-1">
             <DockviewReact
               key={layoutKey}
               theme={THEME}
