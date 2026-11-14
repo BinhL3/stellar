@@ -5,10 +5,18 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "~/lib/storage";
 
-export const TIMELINE_PANEL_IDS = ["monitor", "timeline", "markers", "edits", "history"] as const;
+export const TIMELINE_PANEL_IDS = [
+  "chat",
+  "monitor",
+  "timeline",
+  "markers",
+  "edits",
+  "history",
+] as const;
 export type TimelinePanelId = (typeof TIMELINE_PANEL_IDS)[number];
 
 export const TIMELINE_PANEL_TITLES: Record<TimelinePanelId, string> = {
+  chat: "Chat",
   monitor: "Monitor",
   timeline: "Timeline",
   markers: "Markers",
@@ -26,7 +34,11 @@ export const timelineProjectKey = (environmentId: EnvironmentId, workspaceRoot: 
 /** Where a panel goes when it is opened again, given the panels already open. */
 export type TimelinePanelPlacement =
   | { readonly direction: "left" | "right" }
-  | { readonly referencePanel: TimelinePanelId; readonly direction: "above" | "below" | "within" }
+  | { readonly direction: "above" | "below" }
+  | {
+      readonly referencePanel: TimelinePanelId;
+      readonly direction: "above" | "below" | "left" | "right" | "within";
+    }
   | null;
 
 export const timelinePanelPlacement = (
@@ -35,14 +47,17 @@ export const timelinePanelPlacement = (
 ): TimelinePanelPlacement => {
   if (open.length === 0) return null;
   switch (id) {
+    // The conversation goes back to the left edge, beside everything, as in the defaults.
+    case "chat":
+      return { direction: "left" };
     case "monitor":
-      return open.includes("timeline")
-        ? { referencePanel: "timeline", direction: "above" }
+      if (open.includes("timeline")) return { referencePanel: "timeline", direction: "above" };
+      return open.includes("chat")
+        ? { referencePanel: "chat", direction: "right" }
         : { direction: "left" };
     case "timeline":
-      return open.includes("monitor")
-        ? { referencePanel: "monitor", direction: "below" }
-        : { direction: "left" };
+      if (open.includes("monitor")) return { referencePanel: "monitor", direction: "below" };
+      return open.includes("chat") ? { direction: "below" } : { direction: "left" };
     // Lists to scan now and then: a tab beside the other side panels, so opening one never
     // takes room from the monitor or the tracks.
     case "markers":
@@ -131,7 +146,8 @@ interface TimelineLayoutState {
 }
 
 const TIMELINE_LAYOUT_STORAGE_KEY = "stellar:timeline-layout";
-const TIMELINE_LAYOUT_STORAGE_VERSION = 1;
+// 2: the chat became a dock panel; earlier layouts have no place for it and fall back to the default.
+const TIMELINE_LAYOUT_STORAGE_VERSION = 2;
 
 export const migratePersistedTimelineLayout = (
   persisted: unknown,
@@ -189,3 +205,89 @@ export const useTimelineLayoutStore = create<TimelineLayoutState>()(
 /** The saved layout for a project, or null to build the default. */
 export const savedTimelineLayout = (projectKey: string): SerializedDockview | null =>
   validTimelineLayout(useTimelineLayoutStore.getState().layoutByProjectKey[projectKey]);
+
+/** Below this width the dock stacks its panels instead of setting them side by side. */
+export const NARROW_DOCK_PX = 760;
+const PORTRAIT_MONITOR_MIN_PX = 240;
+// The most of the dock a tall monitor takes, so the tracks keep a workable width.
+const PORTRAIT_MONITOR_SHARE = 0.55;
+// Room around a tall picture so the column doesn't hug it.
+const PORTRAIT_MONITOR_MARGIN_PX = 48;
+const CHAT_COLUMN_SHARE = 0.3;
+const CHAT_COLUMN_MIN_PX = 320;
+const CHAT_COLUMN_MAX_PX = 480;
+
+export interface PlannedTimelinePanel {
+  readonly id: TimelinePanelId;
+  readonly position: TimelinePanelPlacement;
+  readonly initialWidth?: number;
+  readonly initialHeight?: number;
+}
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.round(Math.max(min, Math.min(max, value)));
+
+/**
+ * A fresh dock's panels, in the order they are added. A tall picture gets a full-height column
+ * beside chat-over-timeline; a wide one sits beside a chat column above a full-width timeline;
+ * a narrow dock stacks chat, monitor and timeline.
+ */
+export const defaultTimelineLayout = (dock: {
+  readonly portrait: boolean;
+  readonly chat: boolean;
+  readonly width: number;
+  readonly height: number;
+}): ReadonlyArray<PlannedTimelinePanel> => {
+  const { width, height } = dock;
+  const portraitMonitorWidth = clamp(
+    (height * 9) / 16 + PORTRAIT_MONITOR_MARGIN_PX,
+    PORTRAIT_MONITOR_MIN_PX,
+    Math.max(PORTRAIT_MONITOR_MIN_PX, width * PORTRAIT_MONITOR_SHARE),
+  );
+  if (!dock.chat) {
+    return dock.portrait
+      ? [
+          { id: "timeline", position: null },
+          { id: "monitor", position: { direction: "right" }, initialWidth: portraitMonitorWidth },
+        ]
+      : [
+          { id: "monitor", position: null },
+          { id: "timeline", position: { referencePanel: "monitor", direction: "below" } },
+        ];
+  }
+  if (width < NARROW_DOCK_PX) {
+    return [
+      { id: "chat", position: null },
+      {
+        id: "monitor",
+        position: { direction: "below" },
+        initialHeight: Math.round(height * (dock.portrait ? 0.35 : 0.3)),
+      },
+      {
+        id: "timeline",
+        position: { direction: "below" },
+        initialHeight: Math.round(height * 0.25),
+      },
+    ];
+  }
+  if (dock.portrait) {
+    return [
+      { id: "chat", position: null },
+      { id: "monitor", position: { direction: "right" }, initialWidth: portraitMonitorWidth },
+      {
+        id: "timeline",
+        position: { referencePanel: "chat", direction: "below" },
+        initialHeight: Math.round(height * 0.45),
+      },
+    ];
+  }
+  return [
+    { id: "monitor", position: null },
+    {
+      id: "chat",
+      position: { referencePanel: "monitor", direction: "left" },
+      initialWidth: clamp(width * CHAT_COLUMN_SHARE, CHAT_COLUMN_MIN_PX, CHAT_COLUMN_MAX_PX),
+    },
+    { id: "timeline", position: { direction: "below" }, initialHeight: Math.round(height * 0.36) },
+  ];
+};

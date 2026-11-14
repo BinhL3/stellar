@@ -24,7 +24,9 @@ import { Button } from "~/components/ui/button";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { Kbd } from "~/components/ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { ChatDockContext, ChatSlot } from "./chatDock";
 import {
+  defaultTimelineLayout,
   savedTimelineLayout,
   TIMELINE_PANEL_IDS,
   TIMELINE_PANEL_TITLES,
@@ -87,6 +89,7 @@ const THEME: DockviewTheme = {
 
 // Small enough that the three panels fit side by side in the right panel at its narrowest.
 const CONSTRAINTS: Record<TimelinePanelId, { minimumWidth: number; minimumHeight: number }> = {
+  chat: { minimumWidth: 260, minimumHeight: 160 },
   monitor: { minimumWidth: 120, minimumHeight: 120 },
   timeline: { minimumWidth: 160, minimumHeight: 100 },
   markers: { minimumWidth: 160, minimumHeight: 100 },
@@ -95,10 +98,8 @@ const CONSTRAINTS: Record<TimelinePanelId, { minimumWidth: number; minimumHeight
 };
 
 const SIDE_PANEL_WIDTH_PX = 320;
+const CHAT_PANEL_WIDTH_PX = 380;
 const SAVE_DELAY_MS = 400;
-const PORTRAIT_MONITOR_MIN_PX = 240;
-// The most of the dock a tall monitor takes, so the tracks keep a workable width.
-const PORTRAIT_MONITOR_SHARE = 0.55;
 
 const openPanels = (api: DockviewApi) =>
   TIMELINE_PANEL_IDS.filter((id) => api.getPanel(id) !== undefined);
@@ -106,48 +107,39 @@ const openPanels = (api: DockviewApi) =>
 const addTimelinePanel = (
   api: DockviewApi,
   id: TimelinePanelId,
-  placed?: { readonly position: TimelinePanelPlacement; readonly initialWidth?: number },
+  placed?: {
+    readonly position: TimelinePanelPlacement;
+    readonly initialWidth?: number;
+    readonly initialHeight?: number;
+  },
 ) => {
   const position = placed ? placed.position : timelinePanelPlacement(id, openPanels(api));
   const initialWidth =
     placed?.initialWidth ??
-    (id === "monitor" || id === "timeline" ? undefined : SIDE_PANEL_WIDTH_PX);
+    (id === "monitor" || id === "timeline"
+      ? undefined
+      : id === "chat"
+        ? CHAT_PANEL_WIDTH_PX
+        : SIDE_PANEL_WIDTH_PX);
+  const initialHeight = placed?.initialHeight;
   api.addPanel({
     id,
     component: id,
     title: TIMELINE_PANEL_TITLES[id],
     ...CONSTRAINTS[id],
     ...(initialWidth === undefined ? {} : { initialWidth }),
+    ...(initialHeight === undefined ? {} : { initialHeight }),
     ...(position === null ? {} : { position }),
   });
 };
 
-/**
- * A wide picture sits on top with the timeline under it. A tall picture gets a full-height
- * column on the right sized to it and the timeline fills the rest, so a vertical video isn't
- * a strip between two bars.
- */
-const buildDefaultLayout = (api: DockviewApi, portrait: boolean) => {
-  if (!portrait) {
-    addTimelinePanel(api, "monitor");
-    addTimelinePanel(api, "timeline");
-    api.getPanel("monitor")?.api.setActive();
-    return;
-  }
-  addTimelinePanel(api, "timeline", { position: null });
-  addTimelinePanel(api, "monitor", {
-    position: { direction: "right" },
-    initialWidth: Math.round(
-      Math.max(
-        PORTRAIT_MONITOR_MIN_PX,
-        Math.min(api.width * PORTRAIT_MONITOR_SHARE, (api.height * 9) / 16),
-      ),
-    ),
-  });
-  api.getPanel("monitor")?.api.setActive();
+const buildDefaultLayout = (api: DockviewApi, portrait: boolean, chat: boolean) => {
+  const planned = defaultTimelineLayout({ portrait, chat, width: api.width, height: api.height });
+  for (const panel of planned) addTimelinePanel(api, panel.id, panel);
+  api.getPanel(chat ? "chat" : "monitor")?.api.setActive();
 };
 
-const restoreLayout = (api: DockviewApi, layoutKey: string, portrait: boolean) => {
+const restoreLayout = (api: DockviewApi, layoutKey: string, portrait: boolean, chat: boolean) => {
   const saved = savedTimelineLayout(layoutKey);
   if (saved !== null) {
     try {
@@ -167,7 +159,7 @@ const restoreLayout = (api: DockviewApi, layoutKey: string, portrait: boolean) =
     }
     api.clear();
   }
-  buildDefaultLayout(api, portrait);
+  buildDefaultLayout(api, portrait, chat);
 };
 
 const isTyping = (target: EventTarget | null) =>
@@ -195,6 +187,8 @@ export function TimelineWorkspace(props: {
       setToolSlots((slots) => (slots[id] === element ? slots : { ...slots, [id]: element })),
   );
   const { projectKey, portrait } = props;
+  // Inside a thread's view the conversation is one of the panels.
+  const chat = use(ChatDockContext) !== null;
   // Each shape keeps its own arrangement, so a project with both doesn't fight over one.
   const layoutKey = portrait ? `${projectKey}:portrait` : projectKey;
 
@@ -212,7 +206,7 @@ export function TimelineWorkspace(props: {
       reset: () => {
         if (api.hasMaximizedGroup()) api.exitMaximizedGroup();
         api.clear();
-        buildDefaultLayout(api, portrait);
+        buildDefaultLayout(api, portrait, chat);
       },
     };
     let published: { open: ReadonlyArray<string>; visible: ReadonlyArray<string> } | null = null;
@@ -273,10 +267,10 @@ export function TimelineWorkspace(props: {
         useTimelineLayoutStore.getState().setActive(null);
       }
     };
-  }, [api, projectKey, layoutKey, portrait]);
+  }, [api, projectKey, layoutKey, portrait, chat]);
 
   const onReady = (event: DockviewReadyEvent) => {
-    restoreLayout(event.api, layoutKey, portrait);
+    restoreLayout(event.api, layoutKey, portrait, chat);
     setApi(event.api);
   };
 
@@ -303,6 +297,12 @@ export function TimelineWorkspace(props: {
   );
 }
 
+function ChatDockPanel() {
+  const dock = use(ChatDockContext);
+  // Outside a thread's view, or for the frame before the view hands the chat over, it stays empty.
+  return dock?.docked ? <ChatSlot host={dock.host} docked /> : null;
+}
+
 function MonitorPanel() {
   return usePanels().monitor;
 }
@@ -324,6 +324,7 @@ function HistoryDockPanel() {
 }
 
 const PANEL_COMPONENTS: Record<TimelinePanelId, React.FunctionComponent<IDockviewPanelProps>> = {
+  chat: ChatDockPanel,
   monitor: MonitorPanel,
   timeline: TimelineTracksPanel,
   markers: MarkersDockPanel,

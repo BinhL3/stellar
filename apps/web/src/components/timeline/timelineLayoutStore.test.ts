@@ -2,7 +2,9 @@ import type { SerializedDockview } from "dockview-react";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
+  defaultTimelineLayout,
   migratePersistedTimelineLayout,
+  NARROW_DOCK_PX,
   savedTimelineLayout,
   timelinePanelPlacement,
   useTimelineLayoutStore,
@@ -89,9 +91,65 @@ describe("timelineLayoutStore", () => {
     expect(migratePersistedTimelineLayout({ layoutByProjectKey: { a: layout() } }, 0)).toEqual({
       layoutByProjectKey: {},
     });
+    // Version 1 layouts predate the docked chat: they'd reopen without it, so the default wins.
+    expect(migratePersistedTimelineLayout({ layoutByProjectKey: { a: layout() } }, 1)).toEqual({
+      layoutByProjectKey: {},
+    });
     expect(
-      migratePersistedTimelineLayout({ layoutByProjectKey: { a: layout(), b: { grid: 1 } } }, 1),
+      migratePersistedTimelineLayout({ layoutByProjectKey: { a: layout(), b: { grid: 1 } } }, 2),
     ).toEqual({ layoutByProjectKey: { a: layout() } });
+    const withChat = layout({ top: ["chat", "monitor"], bottom: ["timeline"] });
+    expect(validTimelineLayout(withChat)).not.toBeNull();
+  });
+
+  it("opens the chat beside the picture and the timeline under them", () => {
+    const shape = (dock: Parameters<typeof defaultTimelineLayout>[0]) =>
+      defaultTimelineLayout(dock).map(({ id, position }) => [id, position]);
+    const wide = { chat: true, width: 1600, height: 900 };
+
+    // 9:16: chat over the timeline on the left, the monitor a full-height column on the right.
+    expect(shape({ ...wide, portrait: true })).toEqual([
+      ["chat", null],
+      ["monitor", { direction: "right" }],
+      ["timeline", { referencePanel: "chat", direction: "below" }],
+    ]);
+    const portrait = defaultTimelineLayout({ ...wide, portrait: true });
+    // The column fits a 9:16 picture at the dock's height, with a margin.
+    expect(portrait[1]?.initialWidth).toBe(Math.round((900 * 9) / 16 + 48));
+    expect(portrait[2]?.initialHeight).toBe(405);
+
+    // 16:9: chat a left column beside the monitor, the timeline across the whole bottom.
+    expect(shape({ ...wide, portrait: false })).toEqual([
+      ["monitor", null],
+      ["chat", { referencePanel: "monitor", direction: "left" }],
+      ["timeline", { direction: "below" }],
+    ]);
+    const landscape = defaultTimelineLayout({ ...wide, portrait: false });
+    expect(landscape[1]?.initialWidth).toBe(480);
+    expect(landscape[2]?.initialHeight).toBe(324);
+    expect(defaultTimelineLayout({ ...wide, width: 1000, portrait: false })[1]?.initialWidth).toBe(
+      320,
+    );
+
+    // Narrow: everything stacked, the chat on top, in either shape.
+    for (const portraitShape of [true, false]) {
+      expect(
+        shape({ chat: true, width: NARROW_DOCK_PX - 1, height: 900, portrait: portraitShape }),
+      ).toEqual([
+        ["chat", null],
+        ["monitor", { direction: "below" }],
+        ["timeline", { direction: "below" }],
+      ]);
+    }
+  });
+
+  it("keeps the monitor and timeline split where the chat can't dock", () => {
+    const shape = (portrait: boolean) =>
+      defaultTimelineLayout({ chat: false, width: 1600, height: 900, portrait }).map(
+        ({ id }) => id,
+      );
+    expect(shape(true)).toEqual(["timeline", "monitor"]);
+    expect(shape(false)).toEqual(["monitor", "timeline"]);
   });
 
   it("reopens a closed panel where it belongs among the open ones", () => {
@@ -101,6 +159,14 @@ describe("timelineLayoutStore", () => {
       direction: "above",
     });
     expect(timelinePanelPlacement("monitor", ["markers"])).toEqual({ direction: "left" });
+    expect(timelinePanelPlacement("monitor", ["chat"])).toEqual({
+      referencePanel: "chat",
+      direction: "right",
+    });
+    expect(timelinePanelPlacement("timeline", ["chat"])).toEqual({ direction: "below" });
+    // A closed chat comes back as the left column.
+    expect(timelinePanelPlacement("chat", ["monitor", "timeline"])).toEqual({ direction: "left" });
+    expect(timelinePanelPlacement("chat", [])).toBeNull();
     expect(timelinePanelPlacement("timeline", ["monitor"])).toEqual({
       referencePanel: "monitor",
       direction: "below",

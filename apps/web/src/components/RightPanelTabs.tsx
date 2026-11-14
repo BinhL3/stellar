@@ -117,6 +117,8 @@ export interface RightPanelTabsProps {
   defaultWidth?: number;
   inlineSize?: PreviewPanelInlineSize;
   layoutControls?: ReactNode;
+  /** Shown before the tabs, such as the thread's breadcrumb while the chat is docked here. */
+  leading?: ReactNode;
   surfaces: readonly RightPanelSurface[];
   environmentId: EnvironmentId | null;
   activeSurfaceId: string | null;
@@ -1400,6 +1402,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         )}
         data-right-panel-tabbar
       >
+        {props.leading}
         <ScrollArea
           radius="none"
           ref={attachTabList}
