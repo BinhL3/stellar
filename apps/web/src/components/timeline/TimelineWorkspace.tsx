@@ -24,6 +24,7 @@ import { Button } from "~/components/ui/button";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { Kbd } from "~/components/ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { maximizeKeyLabel, maximizesPanel } from "./timelineKeymap";
 import {
   savedTimelineLayout,
   TIMELINE_PANEL_IDS,
@@ -238,7 +239,7 @@ export function TimelineWorkspace(props: {
     };
     // Like Premiere, the key acts on the panel under the pointer, whichever panel has focus.
     const onMaximizeKey = (event: KeyboardEvent) => {
-      if (event.code !== "Backquote" || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (!maximizesPanel(event)) return;
       if (isTyping(event.target)) return;
       const hovered = [...document.querySelectorAll(":hover")].at(-1);
       const group =
@@ -372,7 +373,7 @@ function GroupActions(props: IDockviewHeaderActionsProps) {
             {maximized ? <Minimize2Icon /> : <Maximize2Icon />}
           </TooltipTrigger>
           <TooltipPopup side="bottom">
-            {label} <Kbd>`</Kbd>
+            {label} <Kbd>{maximizeKeyLabel()}</Kbd>
           </TooltipPopup>
         </Tooltip>
       </span>
