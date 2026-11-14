@@ -36,6 +36,15 @@ describe("inlineCodeFilePathCandidate", () => {
     ["/tmp/.../scratchpad/notes.md", null],
     ["~/projects/…/notes.md", null],
     ["src/.../main.ts", null],
+    [
+      "/Volumes/300k subs/Short-Form Projects/Jollibee/VO-Script.md",
+      "/Volumes/300k subs/Short-Form Projects/Jollibee/VO-Script.md",
+    ],
+    ["~/Movies/My Shorts/cut.prproj:3", "~/Movies/My Shorts/cut.prproj:3"],
+    ["/usr/bin/python3 script.py", null],
+    ["/bin/cp /a/x.txt /b/y.txt", null],
+    ["/Volumes/My Drive/run.sh --force", null],
+    ["/Volumes/My Drive/Footage", null],
   ])("distinguishes file paths from code and hostnames in %s", (source, candidate) => {
     expect(inlineCodeFilePathCandidate(source)).toBe(candidate);
   });

@@ -174,9 +174,24 @@ function looksLikeHostname(segment: string, hasPosition: boolean): boolean {
   return !hasPosition && COUNTRY_HOSTNAME_TLDS.has(lastLabel);
 }
 
+// Folders such as `/Volumes/300k subs/...` have spaces. A spaced span still reads as a command
+// when a later word is a flag or another path, or when the file name itself holds the space.
+function isSpacedAbsoluteFilePath(text: string): boolean {
+  if (/[`\t\n\r]/.test(text)) return false;
+  if (!(text.startsWith("/") || text.startsWith("~/") || isWindowsAbsolutePath(text))) return false;
+  if (/\s(?:-|\/|~\/|[A-Za-z]:[\\/])/.test(text)) return false;
+  const separator = Math.max(text.lastIndexOf("/"), text.lastIndexOf("\\"));
+  const directory = text.slice(0, separator);
+  const basename = text.slice(separator + 1).replace(POSITION_SUFFIX_PATTERN, "");
+  return /\s/.test(directory) && FILE_EXTENSION_PATTERN.test(basename);
+}
+
 export function inlineCodeFilePathCandidate(codeText: string): string | null {
   const trimmed = codeText.trim();
-  if (trimmed.length === 0 || INLINE_CODE_DISQUALIFIER_PATTERN.test(trimmed)) return null;
+  if (trimmed.length === 0) return null;
+  if (INLINE_CODE_DISQUALIFIER_PATTERN.test(trimmed) && !isSpacedAbsoluteFilePath(trimmed)) {
+    return null;
+  }
 
   const candidate = isWindowsAbsolutePath(trimmed) ? trimmed : trimmed.replaceAll("\\", "/");
   const hasPosition = POSITION_SUFFIX_PATTERN.test(candidate);
