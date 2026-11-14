@@ -44,12 +44,8 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
-import {
-  readAppearanceModePreference,
-  readThemeHalves,
-  readThemePreference,
-  useTheme,
-} from "../../hooks/useTheme";
+import { readThemePreference, useTheme } from "../../hooks/useTheme";
+import { DEFAULT_THEME_ID } from "../../themePalette";
 import {
   useScopedSettings,
   useScopedSettingsMixed,
@@ -424,15 +420,7 @@ function AboutVersionSection() {
 }
 
 export function useSettingsRestore(onRestored?: () => void) {
-  const {
-    theme,
-    setTheme,
-    followSystem,
-    setFollowSystem,
-    setThemeHalf,
-    clearThemeHalves,
-    themeHalves,
-  } = useTheme();
+  const { theme, setTheme } = useTheme();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
 
@@ -443,9 +431,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
 
   const changedSettingLabels = [
-    ...(theme !== "system" ? ["Theme"] : []),
-    ...(!followSystem ? ["Follow system"] : []),
-    ...(themeHalves !== null ? ["Theme mix"] : []),
+    ...(theme !== DEFAULT_THEME_ID ? ["Theme"] : []),
     ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
       ? ["Contrast"]
       : []),
@@ -594,11 +580,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     try {
       previousTheme = readThemePreference();
     } catch {}
-    const liveHalves = readThemeHalves();
-    const needsThemeReset = previousTheme !== "system";
-    const needsMixReset = liveHalves !== null;
-    const needsFollowSystemReset = readAppearanceModePreference(previousTheme) !== "system";
-    const notifyThemeRestoreFailure = () => {
+    if (previousTheme !== DEFAULT_THEME_ID && !setTheme(DEFAULT_THEME_ID)) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -606,26 +588,6 @@ export function useSettingsRestore(onRestored?: () => void) {
           description: "Try again.",
         }),
       );
-    };
-    // Restore the base preference before the mix because restoring the base clears the mix.
-    const previousHalves = liveHalves;
-    const rollbackThemeState = () => {
-      if (needsThemeReset) setTheme(previousTheme);
-      if (previousHalves?.light) setThemeHalf("light", previousHalves.light);
-      if (previousHalves?.dark) setThemeHalf("dark", previousHalves.dark);
-    };
-    if (needsThemeReset && !setTheme("system")) {
-      notifyThemeRestoreFailure();
-      return;
-    }
-    if (needsMixReset && !clearThemeHalves()) {
-      rollbackThemeState();
-      notifyThemeRestoreFailure();
-      return;
-    }
-    if (needsFollowSystemReset && !setFollowSystem(true)) {
-      rollbackThemeState();
-      notifyThemeRestoreFailure();
       return;
     }
     updateSettings({

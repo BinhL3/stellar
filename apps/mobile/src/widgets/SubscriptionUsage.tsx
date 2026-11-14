@@ -41,13 +41,8 @@ function SubscriptionUsage(
   const limit = family === "systemExtraLarge" ? 6 : family === "systemLarge" ? 4 : 2;
   const monochrome =
     widgetEnvironment.widgetRenderingMode !== "fullColor" || widgetEnvironment.isLuminanceReduced;
-  const mode = props.theme?.mode;
-  const appearance =
-    mode === "light" || mode === "dark"
-      ? mode
-      : widgetEnvironment.colorScheme === "dark"
-        ? "dark"
-        : "light";
+  // Stellar is dark-only, so the widget does not follow the home screen's scheme.
+  const appearance = "dark";
   // StandBy can remove the card even in full color; text must then follow the host.
   const palette =
     !accessory && !monochrome && widgetEnvironment.showsContainerBackground !== false
@@ -206,8 +201,7 @@ function SubscriptionUsage(
                   layoutPriority(1),
                   foregroundStyle(
                     window.remaining <= 10 && !monochrome
-                      ? (palette?.danger ??
-                          (widgetEnvironment.colorScheme === "light" ? "#dc2626" : "#fca5a5"))
+                      ? (palette?.danger ?? "#fca5a5")
                       : primary,
                   ),
                 ]}

@@ -133,7 +133,6 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     destroyAll: Effect.sync(() => {
       installSteps.push("destroyAll");
     }),
-    syncAllAppearance: () => Effect.void,
   } satisfies ElectronWindow.ElectronWindow["Service"]);
 
   let backendDesiredRunning = options.backendDesiredRunning ?? true;

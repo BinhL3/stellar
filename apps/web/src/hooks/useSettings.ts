@@ -32,9 +32,7 @@ import {
 } from "@t3tools/client-runtime/state/shared-settings";
 import { ensureLocalApi } from "~/localApi";
 import {
-  getThemeDefinition,
   getThemePreviewSidebarArtwork,
-  resolveThemeHalf,
   subscribeToThemePreview,
   themeAllowsSidebarArtwork,
 } from "~/themePalette";
@@ -386,37 +384,26 @@ export function useMergedSettings<T = UnifiedSettings>(
 function resolveEnvironmentIdentificationMode(input: {
   mode: EnvironmentIdentificationMode;
   settingsHydrated: boolean;
-  paletteThemeActive?: boolean;
-  paletteThemeAllowsArtwork?: boolean;
+  paletteThemeAllowsArtwork: boolean;
 }): EnvironmentIdentificationMode {
   if (!input.settingsHydrated) return "none";
   const isArtwork = input.mode !== "pill" && input.mode !== "none";
-  return input.paletteThemeActive && !input.paletteThemeAllowsArtwork && isArtwork
-    ? "pill"
-    : input.mode;
+  return !input.paletteThemeAllowsArtwork && isArtwork ? "pill" : input.mode;
 }
 
 export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMode {
   const settingsHydrated = useClientSettingsHydrated();
   const mode = useClientSettings((settings) => settings.environmentIdentificationMode);
-  const { resolvedTheme, theme, themeHalves } = useTheme();
+  const { theme } = useTheme();
   const previewSidebarArtwork = useSyncExternalStore(
     subscribeToThemePreview,
     getThemePreviewSidebarArtwork,
     () => null,
   );
-  const activeTheme = resolveThemeHalf(theme, themeHalves, resolvedTheme);
-  const activeThemeDefinition = getThemeDefinition(activeTheme);
   return resolveEnvironmentIdentificationMode({
     mode,
     settingsHydrated,
-    paletteThemeActive:
-      previewSidebarArtwork !== null ||
-      activeThemeDefinition !== null ||
-      activeTheme === "system" ||
-      activeTheme === "light" ||
-      activeTheme === "dark",
-    paletteThemeAllowsArtwork: previewSidebarArtwork ?? themeAllowsSidebarArtwork(activeTheme),
+    paletteThemeAllowsArtwork: previewSidebarArtwork ?? themeAllowsSidebarArtwork(theme),
   });
 }
 

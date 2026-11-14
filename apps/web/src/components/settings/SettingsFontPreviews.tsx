@@ -10,7 +10,7 @@ import {
 } from "../ComposerPromptEditorTiptap";
 import { EMPTY_COMPOSER_CONTEXT_RECORDS } from "../composerContextPresentation";
 import { terminalThemeFromApp } from "../ThreadTerminalDrawer";
-import { useRenderedAppearance, useTheme } from "../../hooks/useTheme";
+import { RENDERED_APPEARANCE, useTheme } from "../../hooks/useTheme";
 import { DEFAULT_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
 import { resolveDiffThemeName, type DiffThemeName } from "../../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
@@ -112,7 +112,7 @@ const diffPreviewHtmlAtom = Atom.family((theme: DiffThemeName) =>
 );
 
 export function CodeFontPreview() {
-  const resolvedTheme = useRenderedAppearance();
+  const resolvedTheme = RENDERED_APPEARANCE;
   const loadedHtml = AsyncResult.getOrElse(
     useAtomValue(diffPreviewHtmlAtom(resolveDiffThemeName(resolvedTheme))),
     () => null,

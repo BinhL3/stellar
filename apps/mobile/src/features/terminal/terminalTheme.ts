@@ -5,7 +5,8 @@ import {
   type MobileThemeId,
 } from "../../lib/mobileTheme";
 
-export type TerminalAppearanceScheme = "light" | "dark";
+/** Always "dark"; callers still pass the appearance they render in. */
+export type TerminalAppearanceScheme = "dark";
 
 export interface TerminalTheme {
   readonly background: string;
@@ -36,33 +37,6 @@ type TerminalPalette = readonly [
   string,
 ];
 
-const PIERRE_LIGHT_THEME: TerminalTheme = {
-  background: "#fcfcfc",
-  foreground: "#6C6C71",
-  mutedForeground: "#8E8E95",
-  border: "#eeeeef",
-  cursorForeground: "#009fff",
-  cursorBackground: "#fcfcfc",
-  palette: [
-    "#1F1F21",
-    "#ff2e3f",
-    "#0dbe4e",
-    "#ffca00",
-    "#009fff",
-    "#c635e4",
-    "#08c0ef",
-    "#c6c6c8",
-    "#1F1F21",
-    "#ff2e3f",
-    "#0dbe4e",
-    "#ffca00",
-    "#009fff",
-    "#c635e4",
-    "#08c0ef",
-    "#c6c6c8",
-  ],
-};
-
 const PIERRE_DARK_THEME: TerminalTheme = {
   background: "#0a0a0a",
   foreground: "#adadb1",
@@ -90,18 +64,14 @@ const PIERRE_DARK_THEME: TerminalTheme = {
   ],
 };
 
-function getPierreTerminalTheme(scheme: TerminalAppearanceScheme): TerminalTheme {
-  return scheme === "light" ? PIERRE_LIGHT_THEME : PIERRE_DARK_THEME;
-}
-
 export function getMobileTerminalTheme(
   themeId: MobileThemeId,
-  scheme: TerminalAppearanceScheme,
+  _scheme?: TerminalAppearanceScheme,
 ): TerminalTheme {
-  const base = getPierreTerminalTheme(scheme);
+  const base = PIERRE_DARK_THEME;
   const paletteId = themeId === "material-you" ? "t3-code" : themeId;
-  const palette = getMobileThemeColors(paletteId, scheme);
-  const colors = getMobileThemeVariables(paletteId, scheme);
+  const palette = getMobileThemeColors(paletteId);
+  const colors = getMobileThemeVariables(paletteId);
   const background = themeColorToNativeColor(palette.terminalBackground);
   return {
     ...base,

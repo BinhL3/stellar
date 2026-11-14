@@ -50,16 +50,7 @@ const EFFORT_DISPLAY_LABELS: Record<EffortDisplay, string> = {
 };
 
 export function AppearanceSettingsPanel() {
-  const {
-    appearanceMode,
-    refreshTheme,
-    resolvedTheme,
-    setAppearanceMode,
-    setTheme,
-    setThemeHalf,
-    theme,
-    themeHalves,
-  } = useTheme();
+  const { refreshTheme, setTheme, theme } = useTheme();
   const customThemes = useCustomThemes();
   const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
   const settings = useScopedSettings();
@@ -94,16 +85,11 @@ export function AppearanceSettingsPanel() {
       <SettingsSection id="appearance" title="Colors & themes" variant="plain" hideTitle>
         <div id={searchableSetting("theme").id}>
           <ThemeLibrary
-            appearanceMode={appearanceMode}
             customThemes={customThemes}
-            initialAppearance={resolvedTheme}
             refreshTheme={refreshTheme}
             isImportOpen={isImportThemeOpen}
-            setAppearanceMode={setAppearanceMode}
             setTheme={setTheme}
-            setThemeHalf={setThemeHalf}
             theme={theme}
-            themeHalves={themeHalves}
             onImportOpenChange={setIsImportThemeOpen}
           />
         </div>

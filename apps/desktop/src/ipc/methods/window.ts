@@ -3,7 +3,6 @@ import {
   DesktopAppBrandingSchema,
   DesktopEnvironmentBootstrapSchema,
   DesktopMediaReadSchema,
-  DesktopThemeSchema,
   EDITORS,
   EditorId,
   PickedThemeFileSchema,
@@ -36,7 +35,6 @@ import * as ElectronApp from "../../electron/ElectronApp.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronMenu from "../../electron/ElectronMenu.ts";
 import * as ElectronShell from "../../electron/ElectronShell.ts";
-import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as Electron from "electron";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
@@ -277,16 +275,6 @@ export const pickProjectFavicon = DesktopIpc.makeIpcMethod({
       ],
     });
     return paths[0] ?? null;
-  }),
-});
-
-export const setTheme = DesktopIpc.makeIpcMethod({
-  channel: IpcChannels.SET_THEME_CHANNEL,
-  payload: DesktopThemeSchema,
-  result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.window.setTheme")(function* (theme) {
-    const electronTheme = yield* ElectronTheme.ElectronTheme;
-    yield* electronTheme.setSource(theme);
   }),
 });
 

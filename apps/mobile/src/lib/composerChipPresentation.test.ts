@@ -63,12 +63,10 @@ function chipSurfaces(theme: MobileThemeVariables) {
   }));
 }
 
-const BUILT_IN_THEMES = MOBILE_THEME_IDS.filter((id) => id !== "material-you").flatMap((id) =>
-  (["light", "dark"] as const).map((appearance) => ({
-    name: `${id} ${appearance}`,
-    theme: getMobileThemeVariables(id, appearance),
-  })),
-);
+const BUILT_IN_THEMES = MOBILE_THEME_IDS.filter((id) => id !== "material-you").map((id) => ({
+  name: id,
+  theme: getMobileThemeVariables(id),
+}));
 
 describe("contextChipAccent", () => {
   it("draws one color per theme that reads at 5:1 in messages, replies and the composer", () => {
@@ -86,9 +84,9 @@ describe("contextChipAccent", () => {
     }
   });
 
-  it("reads on both a saturated Material You bubble and the light canvas beside it", () => {
+  it("reads on both a saturated Material You bubble and the canvas beside it", () => {
     const theme = {
-      ...getMobileThemeVariables("t3-code", "light"),
+      ...getMobileThemeVariables("t3-code"),
       "--color-user-bubble": "#6750a4",
       "--color-user-bubble-foreground": "#ffffff",
     };
@@ -104,7 +102,7 @@ describe("contextChipAccent", () => {
   });
 
   it("keeps an accent that already reads everywhere", () => {
-    const theme = getMobileThemeVariables("t3-code", "dark");
+    const theme = getMobileThemeVariables("t3-code");
     expect(contextChipAccent("#009f6e", theme, theme["--color-md-body"])).toBe("#009f6e");
   });
 });

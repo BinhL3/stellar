@@ -19,7 +19,7 @@ import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { isMicrophoneKind, type MicrophoneEntry } from "../lib/microphonePriority";
-import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
+import { MOBILE_THEME_IDS, type MobileThemeId } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
 import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-storage";
@@ -95,9 +95,7 @@ export interface Preferences {
   readonly pullRequestMergeMethod?: PullRequestMergeMethod;
   readonly liveActivitiesEnabled?: boolean;
   readonly themeId?: MobileThemeId;
-  readonly lightThemeId?: MobileThemeId;
   readonly darkThemeId?: MobileThemeId;
-  readonly themeMode?: MobileThemeMode;
   readonly androidNavigationStyle?: AndroidNavigationStyle;
   readonly baseFontSize?: number;
   readonly terminalFontSize?: number | null;
@@ -182,9 +180,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     pullRequestMergeMethod?: PullRequestMergeMethod;
     liveActivitiesEnabled?: boolean;
     themeId?: MobileThemeId;
-    lightThemeId?: MobileThemeId;
     darkThemeId?: MobileThemeId;
-    themeMode?: MobileThemeMode;
     androidNavigationStyle?: AndroidNavigationStyle;
     baseFontSize?: number;
     terminalFontSize?: number | null;
@@ -248,24 +244,12 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   ) {
     preferences.themeId = parsed.themeId as MobileThemeId;
   }
-  if (
-    typeof parsed.lightThemeId === "string" &&
-    (MOBILE_THEME_IDS as readonly string[]).includes(parsed.lightThemeId)
-  ) {
-    preferences.lightThemeId = parsed.lightThemeId as MobileThemeId;
-  }
+  // `lightThemeId` and `themeMode` from before the app went dark-only are left unread.
   if (
     typeof parsed.darkThemeId === "string" &&
     (MOBILE_THEME_IDS as readonly string[]).includes(parsed.darkThemeId)
   ) {
     preferences.darkThemeId = parsed.darkThemeId as MobileThemeId;
-  }
-  if (
-    parsed.themeMode === "system" ||
-    parsed.themeMode === "light" ||
-    parsed.themeMode === "dark"
-  ) {
-    preferences.themeMode = parsed.themeMode;
   }
   if (parsed.androidNavigationStyle === "one-ui" || parsed.androidNavigationStyle === "material") {
     preferences.androidNavigationStyle = parsed.androidNavigationStyle;

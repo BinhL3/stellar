@@ -10,7 +10,6 @@ import * as DesktopLifecycle from "../../app/DesktopLifecycle.ts";
 import * as DesktopShutdown from "../../app/DesktopShutdown.ts";
 import * as DesktopState from "../../app/DesktopState.ts";
 import * as ElectronApp from "../../electron/ElectronApp.ts";
-import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import {
@@ -30,7 +29,6 @@ const layerUnusedLifecycleRuntime = Layer.mergeAll(
   ),
   Layer.mock(DesktopWindow.DesktopWindow, {}),
   Layer.mock(ElectronApp.ElectronApp, {}),
-  Layer.mock(ElectronTheme.ElectronTheme, {}),
 );
 
 describe("local environment IPC", () => {

@@ -6,7 +6,6 @@ import {
   STUDIO_THEME,
   STELLAR_THEME,
   themeColorToHex,
-  type ThemeColors,
 } from "../../themePalette";
 import { clerkAppearance } from "./clerkAppearance";
 
@@ -39,9 +38,8 @@ function mixThemeColors(first: string, second: string, firstWeight: number): str
   return `#${mixed.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
-const builtInThemeModes = [STELLAR_THEME, NIGHT_EDIT_THEME, STUDIO_THEME, DARKROOM_THEME].flatMap(
-  (theme) =>
-    [theme.colors, theme.variants?.dark].filter((colors): colors is ThemeColors => !!colors),
+const builtInThemeModes = [STELLAR_THEME, NIGHT_EDIT_THEME, STUDIO_THEME, DARKROOM_THEME].map(
+  (theme) => theme.colors,
 );
 
 describe("clerkAppearance", () => {

@@ -1,4 +1,4 @@
-import { MousePointer2Icon, PaintbrushIcon, PlusIcon, XIcon } from "lucide-react";
+import { MousePointer2Icon, PaintbrushIcon, XIcon } from "lucide-react";
 import { ChevronDown, ChevronUp } from "lucide";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
@@ -7,9 +7,7 @@ import {
   THEME_FILE_VERSION,
   createVividThemeColors,
   getCustomThemes,
-  getStandardThemeColors,
-  getThemeColorsForMode,
-  getThemeModes,
+  getDefaultThemeColors,
   installCustomTheme,
   isThemeColor,
   parseThemeFile,
@@ -17,7 +15,6 @@ import {
   themeIdFromName,
   updateThemeColorFamily,
   updateCustomTheme,
-  type ThemeAppearance,
   type ThemeColors,
   type ThemeColorRole,
   type ThemeDefinition,
@@ -28,7 +25,6 @@ import { Button } from "../ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { getThemeRoleLabel, ThemeColorField } from "./ThemeColorPicker";
 import {
@@ -243,30 +239,13 @@ function getThemeEditorColorFamily(role: ThemeColorRole): ThemeEditorColorFamily
 }
 
 type ThemeEditorColors = ThemeColors;
-type ThemeEditorColorsByAppearance = Record<ThemeAppearance, ThemeEditorColors>;
-
-function getThemeEditorDefaults(appearance: ThemeAppearance): ThemeEditorColors {
-  return { ...getStandardThemeColors(appearance) };
-}
-
-function getThemeEditorColorsByAppearance(): ThemeEditorColorsByAppearance {
-  return {
-    light: getThemeEditorDefaults("light"),
-    dark: getThemeEditorDefaults("dark"),
-  };
-}
-
 function isThemeEditorColor(value: string): boolean {
   return isThemeColor(value.trim());
 }
 
-function getManagedEditorColors(
-  appearance: ThemeAppearance,
-  colors: ThemeEditorColors,
-): ThemeEditorColors {
-  const defaults = getStandardThemeColors(appearance);
+function getManagedEditorColors(colors: ThemeEditorColors): ThemeEditorColors {
+  const defaults = getDefaultThemeColors();
   return createVividThemeColors(
-    appearance,
     isThemeEditorColor(colors.canvas) ? colors.canvas : defaults.canvas,
     isThemeEditorColor(colors.accent) ? colors.accent : defaults.accent,
   );
@@ -294,54 +273,28 @@ function clampPanelPosition(
 
 const readWindowViewport = () => ({ width: window.innerWidth, height: window.innerHeight });
 
-// Kept out of the component: the compiler cannot lower a throw inside try/catch.
-function retireMergedTheme(retired: ThemeDefinition, mergeTarget: ThemeDefinition) {
-  try {
-    removeCustomTheme(retired.id);
-  } catch (cause) {
-    // Restore the pre-merge target on retirement failure; leaving the persisted merge would collide on retry.
-    try {
-      updateCustomTheme(mergeTarget);
-    } catch {}
-    throw cause;
-  }
-}
-
 export function ThemeEditorPanel({
   open,
   onOpenChange,
   onSaved,
   editingTheme,
-  initialAppearance,
   seedTheme,
   seedName,
   restoreTheme,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSaved: (
-    theme: ThemeDefinition,
-    context: {
-      created: boolean;
-      mergedAppearance?: ThemeAppearance;
-    },
-  ) => boolean;
+  onSaved: (theme: ThemeDefinition, context: { created: boolean }) => boolean;
   editingTheme: ThemeDefinition | null;
-  initialAppearance: ThemeAppearance;
   seedTheme?: ThemeDefinition | null;
   seedName?: string | undefined;
   restoreTheme: () => void;
 }) {
   const isEditing = editingTheme !== null;
   const [name, setName] = useState("");
-  const [activeAppearance, setActiveAppearance] = useState<ThemeAppearance>(initialAppearance);
   const [isAdvanced, setIsAdvanced] = useState(false);
-  const [colorsByAppearance, setColorsByAppearance] = useState<ThemeEditorColorsByAppearance>(() =>
-    getThemeEditorColorsByAppearance(),
-  );
-  const [simpleColorsDirtyByAppearance, setSimpleColorsDirtyByAppearance] = useState<
-    Record<ThemeAppearance, boolean>
-  >({ light: false, dark: false });
+  const [colors, setColors] = useState<ThemeEditorColors>(getDefaultThemeColors);
+  const [simpleColorsDirty, setSimpleColorsDirty] = useState(false);
   const [shouldRegenerateGuidedColors, setShouldRegenerateGuidedColors] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -355,8 +308,8 @@ export function ThemeEditorPanel({
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const colorEditSnapshotRef = useRef<{
-    colorsByAppearance: ThemeEditorColorsByAppearance;
-    simpleColorsDirtyByAppearance: Record<ThemeAppearance, boolean>;
+    colors: ThemeEditorColors;
+    simpleColorsDirty: boolean;
     shouldRegenerateGuidedColors: boolean;
   } | null>(null);
   const dragOffsetRef = useRef<{ dx: number; dy: number; width: number } | null>(null);
@@ -374,27 +327,12 @@ export function ThemeEditorPanel({
     setSeededOpen(open);
     if (open) {
       const sourceTheme = editingTheme ?? seedTheme ?? null;
-      const nextColors = getThemeEditorColorsByAppearance();
-      const nextAppearance = sourceTheme
-        ? getThemeColorsForMode(sourceTheme, initialAppearance)
-          ? initialAppearance
-          : sourceTheme.appearance
-        : initialAppearance;
-      if (sourceTheme) {
-        nextColors[sourceTheme.appearance] = { ...sourceTheme.colors };
-        for (const appearance of ["light", "dark"] as const) {
-          const variantColors = sourceTheme.variants?.[appearance];
-          if (variantColors) nextColors[appearance] = { ...variantColors };
-        }
-      }
-
       setName(editingTheme?.label ?? seedName ?? "");
-      setActiveAppearance(nextAppearance);
       // Open unmanaged themes in advanced mode to preserve imported or hand-tuned colors.
       setIsAdvanced(sourceTheme !== null && sourceTheme.managed !== true);
-      setSimpleColorsDirtyByAppearance({ light: false, dark: false });
+      setSimpleColorsDirty(false);
       setShouldRegenerateGuidedColors(sourceTheme !== null && sourceTheme.managed !== true);
-      setColorsByAppearance(nextColors);
+      setColors({ ...(sourceTheme?.colors ?? getDefaultThemeColors()) });
       setSelectedRole(null);
       setUsageCount(null);
       setIsInspecting(false);
@@ -404,7 +342,7 @@ export function ThemeEditorPanel({
 
   const nameTargetId = themeIdFromName(name);
   const normalizedName = name.trim().toLowerCase();
-  const mergeTarget =
+  const nameCollision =
     normalizedName === ""
       ? null
       : (getCustomThemes().find(
@@ -412,38 +350,12 @@ export function ThemeEditorPanel({
             theme.id !== editingTheme?.id &&
             (theme.id === nameTargetId || theme.label.trim().toLowerCase() === normalizedName),
         ) ?? null);
-  const takenAppearances = mergeTarget ? getThemeModes(mergeTarget) : [];
-  const editableAppearances = editingTheme ? getThemeModes(editingTheme) : null;
-
-  const appearanceLockReason = (appearance: ThemeAppearance): string | null => {
-    if (editableAppearances && !editableAppearances.includes(appearance)) {
-      return `“${editingTheme?.label}” has no ${appearance} palette. Create a theme with the same name to add one.`;
-    }
-    if (!isEditing && takenAppearances.includes(appearance)) {
-      return `“${mergeTarget?.label}” already has a ${appearance} palette.`;
-    }
-    return null;
-  };
-
-  const mergeKey =
-    isEditing || mergeTarget === null ? null : `${mergeTarget.id}:${takenAppearances.join(",")}`;
-  const [appliedMergeKey, setAppliedMergeKey] = useState<string | null>(null);
-  if (appliedMergeKey !== mergeKey) {
-    setAppliedMergeKey(mergeKey);
-    if (
-      mergeKey !== null &&
-      takenAppearances.length === 1 &&
-      takenAppearances.includes(activeAppearance)
-    ) {
-      setActiveAppearance(takenAppearances[0] === "light" ? "dark" : "light");
-    }
-  }
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- applies the edited colors to the document as a live theme preview while the editor is open
   useEffect(() => {
     if (!open) return;
-    applyThemeColorPreview(colorsByAppearance[activeAppearance], activeAppearance);
-  }, [activeAppearance, colorsByAppearance, open]);
+    applyThemeColorPreview(colors);
+  }, [colors, open]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restores the document theme when the editor closes or unmounts
   useEffect(() => {
@@ -454,26 +366,14 @@ export function ThemeEditorPanel({
   }, [open, restoreTheme]);
 
   const updateColor = (role: ThemeColorRole, value: string) => {
-    setColorsByAppearance((current) => {
-      const nextColors = { ...current[activeAppearance], [role]: value };
-      const shouldManageColors =
-        !isAdvanced && THEME_EDITOR_SIMPLE_ROLES.includes(role) && isThemeEditorColor(value);
-
-      return {
-        ...current,
-        [activeAppearance]: isAdvanced
-          ? updateThemeColorFamily(activeAppearance, current[activeAppearance], role, value)
-          : shouldManageColors
-            ? getManagedEditorColors(activeAppearance, nextColors)
-            : nextColors,
-      };
+    const managesColors =
+      !isAdvanced && THEME_EDITOR_SIMPLE_ROLES.includes(role) && isThemeEditorColor(value);
+    setColors((current) => {
+      if (isAdvanced) return updateThemeColorFamily(current, role, value);
+      const nextColors = { ...current, [role]: value };
+      return managesColors ? getManagedEditorColors(nextColors) : nextColors;
     });
-    if (!isAdvanced && THEME_EDITOR_SIMPLE_ROLES.includes(role) && isThemeEditorColor(value)) {
-      setSimpleColorsDirtyByAppearance((current) => ({
-        ...current,
-        [activeAppearance]: true,
-      }));
-    }
+    if (managesColors) setSimpleColorsDirty(true);
     if (isAdvanced) setShouldRegenerateGuidedColors(true);
   };
 
@@ -481,8 +381,8 @@ export function ThemeEditorPanel({
   // replaying the previous value through updateColor.
   const startColorEdit = () => {
     colorEditSnapshotRef.current = {
-      colorsByAppearance,
-      simpleColorsDirtyByAppearance,
+      colors,
+      simpleColorsDirty,
       shouldRegenerateGuidedColors,
     };
   };
@@ -491,8 +391,8 @@ export function ThemeEditorPanel({
     const snapshot = colorEditSnapshotRef.current;
     colorEditSnapshotRef.current = null;
     if (!snapshot) return;
-    setColorsByAppearance(snapshot.colorsByAppearance);
-    setSimpleColorsDirtyByAppearance(snapshot.simpleColorsDirtyByAppearance);
+    setColors(snapshot.colors);
+    setSimpleColorsDirty(snapshot.simpleColorsDirty);
     setShouldRegenerateGuidedColors(snapshot.shouldRegenerateGuidedColors);
   };
 
@@ -529,8 +429,7 @@ export function ThemeEditorPanel({
       : THEME_EDITOR_SIMPLE_ROLES.includes(selectedRole)
         ? THEME_COLOR_ROLES.filter(
             (role) =>
-              colorsByAppearance[activeAppearance][role].trim().toLowerCase() ===
-              colorsByAppearance[activeAppearance][selectedRole].trim().toLowerCase(),
+              colors[role].trim().toLowerCase() === colors[selectedRole].trim().toLowerCase(),
           )
         : [selectedRole]
     : [];
@@ -727,22 +626,8 @@ export function ThemeEditorPanel({
     }
     if (!shouldRegenerateGuidedColors) return;
 
-    const managedAppearances: ReadonlyArray<ThemeAppearance> =
-      editingTheme && getThemeModes(editingTheme).length > 1
-        ? ["light", "dark"]
-        : [activeAppearance];
-    setSimpleColorsDirtyByAppearance((current) => {
-      const next = { ...current };
-      for (const appearance of managedAppearances) next[appearance] = true;
-      return next;
-    });
-    setColorsByAppearance((current) => {
-      const next = { ...current };
-      for (const appearance of managedAppearances) {
-        next[appearance] = getManagedEditorColors(appearance, current[appearance]);
-      }
-      return next;
-    });
+    setSimpleColorsDirty(true);
+    setColors(getManagedEditorColors);
     setShouldRegenerateGuidedColors(false);
   };
 
@@ -753,110 +638,29 @@ export function ThemeEditorPanel({
     }
 
     try {
-      const colorsForSave = !isAdvanced
-        ? {
-            light: simpleColorsDirtyByAppearance.light
-              ? getManagedEditorColors("light", colorsByAppearance.light)
-              : colorsByAppearance.light,
-            dark: simpleColorsDirtyByAppearance.dark
-              ? getManagedEditorColors("dark", colorsByAppearance.dark)
-              : colorsByAppearance.dark,
-          }
-        : colorsByAppearance;
-
-      let savedTheme: ThemeDefinition;
-      let mergedAppearance: ThemeAppearance | null = null;
-      let retiredTheme: ThemeDefinition | null = null;
-      if (editingTheme && mergeTarget) {
-        const editedModes = getThemeModes(editingTheme);
-        const collision = editedModes.find((mode) => takenAppearances.includes(mode));
-        if (collision) {
-          setError(`“${mergeTarget.label}” already has a ${collision} palette. Pick another name.`);
-          return;
-        }
-        mergedAppearance = editedModes[0] ?? null;
-        savedTheme = updateCustomTheme({
-          ...parseThemeFile({
-            version: THEME_FILE_VERSION,
-            id: mergeTarget.id,
-            name: mergeTarget.label,
-            appearance: mergeTarget.appearance,
-            colors: mergeTarget.colors,
-            variants: {
-              ...mergeTarget.variants,
-              ...Object.fromEntries(editedModes.map((mode) => [mode, colorsForSave[mode]])),
-            },
-            ...(mergeTarget.managed === true && !isAdvanced ? { managed: true } : {}),
-          }),
-          ...(mergeTarget.collection ? { collection: mergeTarget.collection } : {}),
-        });
-        retiredTheme = editingTheme;
-        retireMergedTheme(editingTheme, mergeTarget);
-      } else if (editingTheme) {
-        const baseAppearance = editingTheme.appearance;
-        const variantAppearance = baseAppearance === "light" ? "dark" : "light";
-        savedTheme = updateCustomTheme({
-          ...parseThemeFile({
-            version: THEME_FILE_VERSION,
-            id: editingTheme.id,
-            name,
-            appearance: baseAppearance,
-            colors: colorsForSave[baseAppearance],
-            ...(getThemeModes(editingTheme).length > 1
-              ? { variants: { [variantAppearance]: colorsForSave[variantAppearance] } }
-              : {}),
-            ...(isAdvanced ? {} : { managed: true }),
-          }),
-          ...(editingTheme.collection ? { collection: editingTheme.collection } : {}),
-        });
-      } else if (mergeTarget) {
-        if (takenAppearances.includes(activeAppearance)) {
-          setError(
-            `“${mergeTarget.label}” already has light and dark palettes. Pick another name.`,
-          );
-          return;
-        }
-        mergedAppearance = activeAppearance;
-        savedTheme = updateCustomTheme({
-          ...parseThemeFile({
-            version: THEME_FILE_VERSION,
-            id: mergeTarget.id,
-            name: mergeTarget.label,
-            appearance: mergeTarget.appearance,
-            colors: mergeTarget.colors,
-            variants: {
-              ...mergeTarget.variants,
-              [activeAppearance]: colorsForSave[activeAppearance],
-            },
-            ...(mergeTarget.managed === true && !isAdvanced ? { managed: true } : {}),
-          }),
-          ...(mergeTarget.collection ? { collection: mergeTarget.collection } : {}),
-        });
-      } else {
-        savedTheme = installCustomTheme(
-          parseThemeFile({
-            version: THEME_FILE_VERSION,
-            name,
-            appearance: activeAppearance,
-            colors: colorsForSave[activeAppearance],
-            ...(isAdvanced ? {} : { managed: true }),
-          }),
-        );
+      if (nameCollision) {
+        setError(`“${nameCollision.label}” already exists. Pick another name.`);
+        return;
       }
-      if (
-        !onSaved(savedTheme, {
-          created: editingTheme === null && mergedAppearance === null,
-          ...(mergedAppearance ? { mergedAppearance } : {}),
-        })
-      ) {
-        if (!editingTheme && mergedAppearance === null) {
+      const colorsForSave =
+        !isAdvanced && simpleColorsDirty ? getManagedEditorColors(colors) : colors;
+      const file = parseThemeFile({
+        version: THEME_FILE_VERSION,
+        ...(editingTheme ? { id: editingTheme.id } : {}),
+        name,
+        colors: colorsForSave,
+        ...(isAdvanced ? {} : { managed: true }),
+      });
+      const savedTheme = editingTheme
+        ? updateCustomTheme({
+            ...file,
+            ...(editingTheme.collection ? { collection: editingTheme.collection } : {}),
+          })
+        : installCustomTheme(file);
+      if (!onSaved(savedTheme, { created: editingTheme === null })) {
+        if (!editingTheme) {
           try {
             removeCustomTheme(savedTheme.id);
-          } catch {}
-        } else if (mergeTarget && mergedAppearance !== null) {
-          try {
-            updateCustomTheme(mergeTarget);
-            if (retiredTheme) installCustomTheme(retiredTheme);
           } catch {}
         }
         setError("Theme saved, but it could not be made active. Try again.");
@@ -888,46 +692,6 @@ export function ThemeEditorPanel({
         value={name}
       />
     </label>
-  );
-
-  const renderAppearanceButton = (appearance: ThemeAppearance) => {
-    const lockReason = appearanceLockReason(appearance);
-    // Use aria-disabled so locked modes remain hoverable for explanatory tooltips.
-    const button = (
-      <Toggle aria-disabled={lockReason !== null} value={appearance}>
-        {appearance === "light" ? "Light" : "Dark"}
-      </Toggle>
-    );
-    if (lockReason === null) return button;
-    return (
-      <Tooltip>
-        <TooltipTrigger render={button} />
-        <TooltipPopup>{lockReason}</TooltipPopup>
-      </Tooltip>
-    );
-  };
-
-  const renderAppearanceButtons = () => (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-center gap-3">
-      <span className="text-sm font-medium">Appearance</span>
-      <ToggleGroup
-        aria-label="Theme appearance"
-        variant="segmented"
-        value={[activeAppearance]}
-        onValueChange={(next) => {
-          const appearance = next[0];
-          if (
-            (appearance === "light" || appearance === "dark") &&
-            appearanceLockReason(appearance) === null
-          ) {
-            setActiveAppearance(appearance);
-          }
-        }}
-      >
-        {renderAppearanceButton("light")}
-        {renderAppearanceButton("dark")}
-      </ToggleGroup>
-    </div>
   );
 
   const renderColorsHeader = () => (
@@ -977,7 +741,7 @@ export function ThemeEditorPanel({
           onToggleSelected={toggleThemeRole}
           role={family.role}
           selected={selectedRole === family.role}
-          value={colorsByAppearance[activeAppearance][family.role]}
+          value={colors[family.role]}
         />
       ))}
     </div>
@@ -1019,7 +783,7 @@ export function ThemeEditorPanel({
             role={role}
             label={role === "canvas" ? "Background" : "Accent"}
             selected={selectedRole === role}
-            value={colorsByAppearance[activeAppearance][role]}
+            value={colors[role]}
           />
         ))}
       </div>
@@ -1197,7 +961,6 @@ export function ThemeEditorPanel({
                 {error}
               </p>
             ) : null}
-            {renderAppearanceButtons()}
             <div className="space-y-3">
               {renderColorsHeader()}
               {renderColorFields()}
@@ -1209,16 +972,7 @@ export function ThemeEditorPanel({
             </Button>
             <Button disabled={!name.trim()} size="sm" onClick={handleSubmit}>
               {isEditing ? (
-                mergeTarget ? (
-                  `Merge into “${mergeTarget.label}”`
-                ) : (
-                  "Save changes"
-                )
-              ) : mergeTarget ? (
-                <>
-                  <PlusIcon />
-                  {`Add ${activeAppearance} palette`}
-                </>
+                "Save changes"
               ) : (
                 <>
                   <PaintbrushIcon />

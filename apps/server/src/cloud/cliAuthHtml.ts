@@ -22,14 +22,14 @@ export function renderLoopbackAuthorizationCompleteHtml(
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="dark" />
     <title>T3 Connect authorization complete</title>
     <style>
       :root {
-        color-scheme: light dark;
+        color-scheme: dark;
         font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f6f7f9;
-        color: #17191f;
+        background: #101115;
+        color: #f1f3f7;
       }
       * { box-sizing: border-box; }
       body {
@@ -39,15 +39,15 @@ export function renderLoopbackAuthorizationCompleteHtml(
         place-items: center;
         padding: 32px 16px;
         background:
-          radial-gradient(48rem 22rem at 50% -8rem, rgba(47, 119, 235, 0.15), transparent),
-          #f6f7f9;
+          radial-gradient(48rem 22rem at 50% -8rem, rgba(55, 102, 210, 0.2), transparent),
+          #101115;
       }
       main {
         width: min(100%, 576px);
         overflow: hidden;
-        border: 1px solid rgba(23, 25, 31, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 20px;
-        background: rgba(255, 255, 255, 0.94);
+        background: rgba(25, 27, 33, 0.96);
         box-shadow: 0 24px 64px rgba(16, 24, 40, 0.16);
       }
       .stage {
@@ -120,21 +120,14 @@ export function renderLoopbackAuthorizationCompleteHtml(
       .content { padding: 30px 32px 34px; }
       .eyebrow {
         margin: 0 0 8px;
-        color: #2866cc;
+        color: #77a8ff;
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.18em;
         text-transform: uppercase;
       }
       h1 { margin: 0; font-size: clamp(26px, 5vw, 34px); line-height: 1.12; letter-spacing: -0.035em; }
-      .description { margin: 12px 0 0; color: #646975; font-size: 15px; line-height: 1.6; }
-      @media (prefers-color-scheme: dark) {
-        :root { background: #101115; color: #f1f3f7; }
-        body { background: radial-gradient(48rem 22rem at 50% -8rem, rgba(55, 102, 210, 0.2), transparent), #101115; }
-        main { border-color: rgba(255, 255, 255, 0.1); background: rgba(25, 27, 33, 0.96); }
-        .eyebrow { color: #77a8ff; }
-        .description { color: #a8adb8; }
-      }
+      .description { margin: 12px 0 0; color: #a8adb8; font-size: 15px; line-height: 1.6; }
     </style>
   </head>
   <body>

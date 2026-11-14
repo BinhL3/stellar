@@ -18,7 +18,6 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cn } from "../../lib/cn";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { AppText as Text, AppTextInput, type AppTextInputProps } from "../../components/ui/AppText";
 import { FrostedCutout } from "../../components/ui/FrostedCutout";
@@ -268,24 +267,20 @@ function PairingScanCard(props: {
   readonly onScan: (result: { readonly data: string }) => void;
   readonly onScanPress: () => void;
 }) {
-  const light = useAppearancePreferences().themeAppearance === "light";
   return (
     <Pressable
       accessibilityRole={props.cameraActive ? undefined : "button"}
       accessibilityLabel={props.cameraActive ? undefined : "Scan QR code"}
       disabled={props.cameraActive}
       onPress={props.onScanPress}
-      className={cn(
-        "overflow-hidden rounded-[26px] border-continuous",
-        light ? "bg-white" : "bg-black",
-      )}
+      className="overflow-hidden rounded-[26px] border-continuous bg-black"
       style={{ height: SCAN_CARD_HEIGHT }}
     >
       <Svg accessibilityElementsHidden height="100%" style={StyleSheet.absoluteFill} width="100%">
         <Defs>
           <RadialGradient id="pairing-scan-backdrop" cx="50%" cy="50%" r="50%">
-            <Stop offset="0%" stopColor={light ? "#f4f4f5" : "#2e2e2e"} />
-            <Stop offset="100%" stopColor={light ? "#d9d9dc" : "#0e0e0e"} />
+            <Stop offset="0%" stopColor={"#2e2e2e"} />
+            <Stop offset="100%" stopColor={"#0e0e0e"} />
           </RadialGradient>
         </Defs>
         <Rect fill="url(#pairing-scan-backdrop)" height="100%" width="100%" />
@@ -304,7 +299,7 @@ function PairingScanCard(props: {
             cutoutWidth={SCAN_RETICLE_SIZE}
             cutoutHeight={SCAN_RETICLE_SIZE}
             cutoutRadius={SCAN_RETICLE_RADIUS}
-            appearance={light ? "light" : "dark"}
+            appearance="dark"
           />
         </>
       ) : null}
@@ -315,10 +310,7 @@ function PairingScanCard(props: {
         style={{ top: SCAN_RETICLE_TOP }}
       >
         <View
-          className={cn(
-            "items-center justify-center gap-2 border-continuous border-[3px]",
-            light ? "border-black/70" : "border-white/80",
-          )}
+          className="items-center justify-center gap-2 border-continuous border-[3px] border-white/80"
           style={{
             borderRadius: SCAN_RETICLE_RADIUS,
             height: SCAN_RETICLE_SIZE,
@@ -330,19 +322,15 @@ function PairingScanCard(props: {
               <SymbolView
                 name="qrcode.viewfinder"
                 size={44}
-                tintColorClassName={light ? "accent-black/60" : "accent-white/70"}
+                tintColorClassName={"accent-white/70"}
                 type="monochrome"
                 weight="light"
               />
-              <Text
-                className={cn("font-t3-medium text-sm", light ? "text-black/70" : "text-white/80")}
-              >
-                Tap to scan
-              </Text>
+              <Text className="font-t3-medium text-sm text-white/80">Tap to scan</Text>
             </>
           )}
         </View>
-        <Text className={cn("text-center text-sm", light ? "text-black/70" : "text-white/80")}>
+        <Text className="text-center text-sm text-white/80">
           Scan the code from t3 pair or desktop Connections settings
         </Text>
       </View>

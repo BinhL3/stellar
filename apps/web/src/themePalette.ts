@@ -7,18 +7,18 @@ import { Atom } from "effect/reactivity";
 import "culori/css";
 import { converter, parse } from "culori/fn";
 import {
+  BOREALIS_THEME,
   BUILT_IN_THEMES,
   DARKROOM_THEME,
+  DEFAULT_THEME_ID,
   NIGHT_EDIT_THEME,
   STUDIO_THEME,
   STELLAR_THEME,
   RESERVED_THEME_IDS,
   THEME_COLOR_ROLES,
-  type ThemeAppearance,
   type ThemeColorRole,
   type ThemeColors,
   type ThemeDefinition,
-  type ThemeVariants,
 } from "@t3tools/shared/themePalettes";
 import {
   CONTEXT_CHIP_ACCENTS,
@@ -29,32 +29,34 @@ import {
 import { appAtomRegistry, subscribeAtomChanges } from "./rpc/atomRegistry";
 import { themeServerEnvironmentThemesAtom } from "./state/server";
 
-export { DARKROOM_THEME, NIGHT_EDIT_THEME, STUDIO_THEME, STELLAR_THEME, THEME_COLOR_ROLES };
-export type { ThemeAppearance, ThemeColorRole, ThemeColors, ThemeDefinition, ThemeVariants };
+export {
+  DARKROOM_THEME,
+  DEFAULT_THEME_ID,
+  NIGHT_EDIT_THEME,
+  STUDIO_THEME,
+  STELLAR_THEME,
+  THEME_COLOR_ROLES,
+};
+export type { ThemeColorRole, ThemeColors, ThemeDefinition };
 
 export const THEME_FILE_VERSION = 1 as const;
 export const CUSTOM_THEMES_STORAGE_KEY = "t3code:themes:v1";
-export const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "t3code:theme-follow-system";
-export const THEME_APPEARANCE_MODE_STORAGE_KEY = "t3code:theme-appearance-mode";
-export const THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
-
-const LEGACY_T3_CHAT_DARK_THEME_ID = "t3-chat-dark";
+/** Written while themes could be paired per appearance; only its dark half is still read. */
+export const LEGACY_THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
 
 export const ThemePreference = Schema.String;
 export type ThemePreference = typeof ThemePreference.Type;
 
 const THEME_COLOR_ROLE_SET: ReadonlySet<string> = new Set(THEME_COLOR_ROLES);
 export type ThemeColorOverrides = Readonly<Partial<Record<ThemeColorRole, string>>>;
-export type ThemeVariantOverrides = Readonly<Partial<Record<ThemeAppearance, ThemeColorOverrides>>>;
-export type ThemePreferenceMode = ThemeAppearance | "system";
 export type ThemeCollection = Readonly<{ id: string; label: string }>;
 export type ThemeFile = Readonly<{
   version: typeof THEME_FILE_VERSION;
   id: string;
   name: string;
-  appearance: ThemeAppearance;
+  /** Always "dark"; kept so files stay readable by versions that had a light appearance. */
+  appearance: "dark";
   colors: ThemeColorOverrides;
-  variants?: ThemeVariantOverrides;
   collection?: ThemeCollection;
   managed?: boolean;
 }>;
@@ -71,14 +73,10 @@ type CustomThemeLibrarySnapshot =
 
 let customThemeLibrarySnapshot: CustomThemeLibrarySnapshot | null = null;
 const themePreviewListeners = new Set<() => void>();
-let themePreviewAppearance: ThemeAppearance | null = null;
-
-export function getThemePreviewAppearance(): ThemeAppearance | null {
-  return themePreviewAppearance;
-}
+let themePreviewActive = false;
 
 export function getThemePreviewSidebarArtwork(): boolean | null {
-  return themePreviewAppearance === null ? null : false;
+  return themePreviewActive ? false : null;
 }
 
 export function subscribeToThemePreview(listener: () => void): () => void {
@@ -86,9 +84,9 @@ export function subscribeToThemePreview(listener: () => void): () => void {
   return () => themePreviewListeners.delete(listener);
 }
 
-function setThemePreviewAppearance(appearance: ThemeAppearance | null): void {
-  if (themePreviewAppearance === appearance) return;
-  themePreviewAppearance = appearance;
+function setThemePreviewActive(active: boolean): void {
+  if (themePreviewActive === active) return;
+  themePreviewActive = active;
   for (const listener of themePreviewListeners) listener();
 }
 
@@ -96,8 +94,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isThemeAppearance(value: unknown): value is ThemeAppearance {
-  return value === "light" || value === "dark";
+/**
+ * Themes written before the app went dark-only may be light with a dark variant. Returns the
+ * colors to read, or null when the theme only ever had a light palette.
+ */
+function darkColorsOf(value: {
+  readonly appearance?: unknown;
+  readonly colors?: unknown;
+  readonly variants?: unknown;
+}): unknown {
+  if (value.appearance === undefined || value.appearance === "dark") return value.colors;
+  if (value.appearance !== "light" || !isRecord(value.variants)) return null;
+  return value.variants.dark ?? null;
 }
 
 export function isThemeColor(value: unknown): value is string {
@@ -134,46 +142,23 @@ function lenientThemeColorOverrides(
   return overrides;
 }
 
-function parseStoredThemeColors(value: unknown, appearance: ThemeAppearance): ThemeColors | null {
+function parseStoredThemeColors(value: unknown): ThemeColors | null {
   if (!isRecord(value)) return null;
-  return { ...getDefaultThemeColors(appearance), ...lenientThemeColorOverrides(value) };
-}
-
-function parseStoredThemeVariants(
-  value: unknown,
-  baseAppearance: ThemeAppearance,
-): ThemeVariants | null | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) return null;
-
-  const variants: Partial<Record<ThemeAppearance, ThemeColors>> = {};
-  for (const [appearance, colors] of Object.entries(value)) {
-    if (!isThemeAppearance(appearance)) return null;
-    // Base colors shadow a matching variant; drop it for parseThemeFile round-trips.
-    if (appearance === baseAppearance) continue;
-    const parsedColors = parseStoredThemeColors(colors, appearance);
-    if (!parsedColors) return null;
-    variants[appearance] = parsedColors;
-  }
-  return Object.keys(variants).length > 0 ? variants : undefined;
+  return { ...getDefaultThemeColors(), ...lenientThemeColorOverrides(value) };
 }
 
 function parseStoredTheme(value: unknown): ThemeDefinition | null {
   if (!isRecord(value)) return null;
   if (!isThemeId(value.id) || RESERVED_THEME_IDS.has(value.id)) return null;
-  if (!isThemeLabel(value.label) || !isThemeAppearance(value.appearance)) return null;
-  const colors = parseStoredThemeColors(value.colors, value.appearance);
+  if (!isThemeLabel(value.label)) return null;
+  const colors = parseStoredThemeColors(darkColorsOf(value));
   if (!colors) return null;
-  const variants = parseStoredThemeVariants(value.variants, value.appearance);
-  if (value.variants !== undefined && variants === null) return null;
   const collection = parseThemeCollection(value.collection);
 
   return {
     id: value.id,
     label: value.label.trim(),
-    appearance: value.appearance,
     colors,
-    ...(variants ? { variants } : {}),
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
   };
@@ -237,71 +222,43 @@ export function getCustomThemes(): ReadonlyArray<ThemeDefinition> {
   return snapshot.status === "ready" ? snapshot.themes : EMPTY_CUSTOM_THEMES;
 }
 
-function publishedThemeColors(
-  theme: EnvironmentTheme,
-  appearance: ThemeAppearance,
-  colors: Readonly<Record<string, string>> | undefined,
-): ThemeColors {
-  // A variant builds on that appearance's stock defaults: the generator follows
-  // the seed canvas's luminance, so dark seeds would give a light variant
-  // unreadable colors.
-  const base =
-    appearance === theme.appearance && theme.canvas !== undefined && theme.accent !== undefined
-      ? createVividThemeColors(appearance, theme.canvas, theme.accent)
-      : getDefaultThemeColors(appearance);
-  return { ...base, ...lenientThemeColorOverrides(colors ?? {}) };
-}
-
-function environmentThemeDefinition(theme: EnvironmentTheme): ThemeDefinition {
-  const variants: Partial<Record<ThemeAppearance, ThemeColors>> = {};
-  for (const [variantAppearance, variantColors] of Object.entries(theme.variants ?? {})) {
-    if (variantAppearance === theme.appearance) continue;
-    variants[variantAppearance as ThemeAppearance] = publishedThemeColors(
-      theme,
-      variantAppearance as ThemeAppearance,
-      variantColors,
-    );
-  }
+function environmentThemeDefinition(theme: EnvironmentTheme): ThemeDefinition | null {
+  const seeded =
+    theme.appearance === "dark" && theme.canvas !== undefined && theme.accent !== undefined;
+  const overrides = darkColorsOf(theme);
+  const colors = lenientThemeColorOverrides(isRecord(overrides) ? overrides : {});
+  if (!seeded && Object.keys(colors).length === 0) return null;
 
   return {
     id: theme.id,
     label: theme.name,
-    appearance: theme.appearance,
-    colors: publishedThemeColors(theme, theme.appearance, theme.colors),
-    ...(Object.keys(variants).length > 0 ? { variants } : {}),
+    colors: {
+      ...(seeded ? createVividThemeColors(theme.canvas!, theme.accent!) : getDefaultThemeColors()),
+      ...colors,
+    },
     // Only the pure seeded form is guided-generator output. An exported file,
     // or seeds carrying explicit role overrides, must open Duplicate in the
     // advanced editor -- the guided one regenerates from canvas and accent and
     // would discard whatever the machine hand-tuned.
-    ...(theme.canvas !== undefined &&
-    theme.accent !== undefined &&
-    theme.colors === undefined &&
-    theme.variants === undefined
+    ...(seeded && theme.colors === undefined && theme.variants === undefined
       ? { managed: true }
       : {}),
   };
 }
 
 /**
- * Published palettes this client can render. Reserved ids are dropped here rather
- * than rendered: a published `t3-iris.json` would show this palette on its
- * card while "Use" resolved the built-in, and a published `dark.json` would
- * capture everyone whose stored preference is the stock `"dark"`.
+ * Published palettes this client can render: ones with a dark palette. Reserved ids are
+ * dropped here rather than rendered: a published `t3-iris.json` would show this palette
+ * on its card while "Use" resolved the built-in.
  */
 export function publishedThemeDefinitions(
   themes: ReadonlyArray<EnvironmentTheme>,
 ): ReadonlyArray<ThemeDefinition> {
-  return themes
-    .filter((theme) => {
-      if (isReservedThemeId(theme.id)) return false;
-      if (theme.canvas !== undefined && theme.accent !== undefined) return true;
-      const otherAppearance = theme.appearance === "dark" ? "light" : "dark";
-      return [theme.colors, theme.variants?.[otherAppearance]].some(
-        (colors) =>
-          colors !== undefined && Object.keys(lenientThemeColorOverrides(colors)).length > 0,
-      );
-    })
-    .map(environmentThemeDefinition);
+  return themes.flatMap((theme) => {
+    if (isReservedThemeId(theme.id)) return [];
+    const definition = environmentThemeDefinition(theme);
+    return definition ? [definition] : [];
+  });
 }
 
 // Every reconnect snapshot delivers a fresh but usually identical array; keeping the
@@ -383,25 +340,16 @@ function normalizeThemeId(themeId: string): string {
 }
 
 export function canonicalThemePreference(theme: string): string {
-  return theme === LEGACY_T3_CHAT_DARK_THEME_ID ? theme : normalizeThemeId(theme);
+  return normalizeThemeId(theme);
 }
 
 function themeIdFromPreference(theme: ThemePreference): string {
   return normalizeThemeId(theme);
 }
 
-function legacyThemeMode(theme: ThemePreference): ThemeAppearance | null {
-  return theme === LEGACY_T3_CHAT_DARK_THEME_ID ? "dark" : null;
-}
-
-export function getStandardThemeColors(appearance: ThemeAppearance): ThemeColors {
-  return appearance === "dark"
-    ? (standardDarkThemeColors ??= decodeThemeColors(STELLAR_THEME.variants!.dark!))
-    : (standardLightThemeColors ??= decodeThemeColors(STELLAR_THEME.colors));
-}
-
-export function getStandardPaintedThemeColors(appearance: ThemeAppearance): ThemeColors {
-  return getStandardThemeColors(appearance);
+/** Completes a palette that omits roles, so a partial custom theme keeps the neutral base it was drawn on. */
+export function getDefaultThemeColors(): ThemeColors {
+  return (defaultThemeColors ??= decodeThemeColors(STELLAR_THEME.colors));
 }
 
 type ThemeRgbColor = {
@@ -413,8 +361,7 @@ type ThemeRgbColor = {
 type ThemeOklch = { L: number; C: number; h: number };
 type ParsedThemeColor = { color: ThemeOklch; alpha: number };
 
-let standardLightThemeColors: ThemeColors | undefined;
-let standardDarkThemeColors: ThemeColors | undefined;
+let defaultThemeColors: ThemeColors | undefined;
 
 const THEME_LIGHT_FOREGROUND: ThemeRgbColor = { r: 255, g: 250, b: 255 };
 const THEME_DARK_FOREGROUND: ThemeRgbColor = { r: 36, g: 21, b: 35 };
@@ -508,20 +455,7 @@ function decodeThemeColors(colors: ThemeColors): ThemeColors {
 }
 
 function canonicalizeThemeDefinition(theme: ThemeDefinition): ThemeDefinition {
-  return {
-    ...theme,
-    colors: decodeThemeColors(theme.colors),
-    ...(theme.variants
-      ? {
-          variants: Object.fromEntries(
-            Object.entries(theme.variants).map(([appearance, colors]) => [
-              appearance,
-              decodeThemeColors(colors),
-            ]),
-          ) as ThemeVariants,
-        }
-      : {}),
-  };
+  return { ...theme, colors: decodeThemeColors(theme.colors) };
 }
 
 function mixThemeRgbColors(
@@ -739,17 +673,17 @@ function standardStatusColors(canvas: ThemeRgbColor): {
   warningForeground: string;
   warningSurface: string;
 } {
-  const appearance: ThemeAppearance = themeRelativeLuminance(canvas) < 0.179 ? "dark" : "light";
-  const standard = STANDARD_STATUS_COLORS[appearance];
-  const surfaceMix = appearance === "dark" ? 0.16 : 0.08;
+  // Follows the canvas a custom theme picked, which the editor does not hold to a dark value.
+  const darkCanvas = themeRelativeLuminance(canvas) < 0.179;
+  const standard = STANDARD_STATUS_COLORS[darkCanvas ? "dark" : "light"];
+  const surfaceMix = darkCanvas ? 0.16 : 0.08;
   const surfaceOf = (value: string) =>
     mixThemeRgbColors(canvas, parseThemeRgbColor(value, canvas), surfaceMix);
   const readableOn = (foreground: string, surface: ThemeRgbColor) =>
     pipe(
       parseThemeRgbColor(foreground, canvas),
       themeRgbToOklch,
-      (color) =>
-        solveOklchLightness(color, [surface], 4.6, appearance === "dark" ? "lighter" : "darker"),
+      (color) => solveOklchLightness(color, [surface], 4.6, darkCanvas ? "lighter" : "darker"),
       themeOklchToThemeColor,
     );
   const errorSurface = surfaceOf(standard.error);
@@ -764,16 +698,11 @@ function standardStatusColors(canvas: ThemeRgbColor): {
   };
 }
 
-export function createVividThemeColors(
-  appearance: ThemeAppearance,
-  backgroundValue: string,
-  accentValue: string,
-): ThemeColors {
-  const defaults = getDefaultThemeColors(appearance);
-  const canvasRgb = parseThemeRgbColor(
-    backgroundValue,
-    appearance === "dark" ? { r: 24, g: 15, b: 27 } : { r: 250, g: 245, b: 250 },
-  );
+const FALLBACK_CANVAS: ThemeRgbColor = { r: 24, g: 15, b: 27 };
+
+export function createVividThemeColors(backgroundValue: string, accentValue: string): ThemeColors {
+  const defaults = getDefaultThemeColors();
+  const canvasRgb = parseThemeRgbColor(backgroundValue, FALLBACK_CANVAS);
   const accentRgb = parseThemeRgbColor(accentValue, { r: 168, g: 67, b: 112 });
   const canvas = themeRgbToOklch(canvasRgb);
   const accent = themeRgbToOklch(accentRgb);
@@ -960,12 +889,7 @@ function standardMutedThemeText(
   return readableThemeText(background, foreground, 1, target);
 }
 
-export function getDefaultThemeColors(appearance: ThemeAppearance): ThemeColors {
-  return getStandardThemeColors(appearance);
-}
-
 export function updateThemeColorFamily(
-  appearance: ThemeAppearance,
   colors: ThemeColors,
   role: ThemeColorRole,
   value: string,
@@ -974,10 +898,7 @@ export function updateThemeColorFamily(
   if (!parsedSelected) return { ...colors, [role]: value };
   const normalized = formatOklchThemeColor(parsedSelected.color, parsedSelected.alpha);
 
-  const canvas = parseThemeRgbColor(
-    colors.canvas,
-    appearance === "dark" ? { r: 24, g: 15, b: 27 } : { r: 250, g: 245, b: 250 },
-  );
+  const canvas = parseThemeRgbColor(colors.canvas, FALLBACK_CANVAS);
   const selected = themeOklchToRgb(parsedSelected.color);
   const selectedOn = (background: ThemeRgbColor) =>
     mixThemeRgbColors(background, selected, parsedSelected.alpha);
@@ -1174,38 +1095,17 @@ export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | nu
   );
 }
 
+/** The theme on screen: an unknown preference, including the retired "system" and "light", shows the default. */
+export function getActiveThemeDefinition(theme: ThemePreference): ThemeDefinition {
+  return getThemeDefinition(theme) ?? BOREALIS_THEME;
+}
+
 export function themeAllowsSidebarArtwork(theme: ThemePreference): boolean {
   const themeId = themeIdFromPreference(theme);
   return (
     BUILT_IN_THEME_DEFINITIONS.find((definition) => definition.id === themeId)?.sidebarArtwork ===
     true
   );
-}
-
-/** Every selection path must check single-appearance themes to keep mix and appearance tiles in sync. */
-export function singleAppearanceOf(theme: ThemeDefinition): ThemeAppearance | null {
-  const modes = getThemeModes(theme);
-  return modes.length === 1 ? modes[0]! : null;
-}
-
-export function getThemeColorsForMode(
-  theme: ThemeDefinition,
-  mode: ThemeAppearance,
-): ThemeColors | null {
-  if (mode === theme.appearance) return theme.colors;
-  return theme.variants?.[mode] ?? null;
-}
-
-export function getThemeModes(theme: ThemeDefinition): ReadonlyArray<ThemeAppearance> {
-  return (["light", "dark"] as const).filter((mode) => getThemeColorsForMode(theme, mode) !== null);
-}
-
-export function getThemePreferenceMode(theme: ThemePreference): ThemeAppearance | null {
-  if (theme === "system") return null;
-  if (theme === "light" || theme === "dark") return theme;
-  const legacyMode = legacyThemeMode(theme);
-  if (legacyMode) return legacyMode;
-  return getThemeDefinition(theme)?.appearance ?? null;
 }
 
 export function themeIdFromName(name: string): string {
@@ -1303,13 +1203,17 @@ export function installCustomTheme(theme: ThemeDefinition): ThemeDefinition {
   const library = getWritableCustomThemeLibrary();
   if (
     BUILT_IN_THEME_DEFINITIONS.some((existing) => existing.id === theme.id) ||
-    library.storedThemes.some((storedTheme) => storedThemeHasId(storedTheme, theme.id))
+    library.themes.some((existing) => existing.id === theme.id)
   ) {
     throw new Error(`A theme named "${theme.label}" is already installed.`);
   }
   const canonicalTheme = canonicalizeThemeDefinition(theme);
   const themes = [...library.themes, canonicalTheme];
-  saveCustomThemes([...library.storedThemes, canonicalTheme], themes);
+  // A stored entry this client cannot show, such as a light-only theme, gives up its id.
+  const keptStoredThemes = library.storedThemes.filter(
+    (storedTheme) => !storedThemeHasId(storedTheme, theme.id),
+  );
+  saveCustomThemes([...keptStoredThemes, canonicalTheme], themes);
   return canonicalTheme;
 }
 
@@ -1452,11 +1356,20 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
   }
 
   const name = value.name;
-  const appearance = value.appearance;
-  const rawColors = value.colors;
   if (!isThemeLabel(name)) throw new Error("Theme files need a name (48 characters or fewer).");
-  if (!isThemeAppearance(appearance)) {
-    throw new Error('Theme files need an appearance of "light" or "dark".');
+  if (
+    value.appearance !== undefined &&
+    value.appearance !== "dark" &&
+    value.appearance !== "light"
+  ) {
+    throw new Error('Theme files may only set appearance to "dark".');
+  }
+  if (value.variants !== undefined && !isRecord(value.variants)) {
+    throw new Error("Theme variants must be an object.");
+  }
+  const rawColors = darkColorsOf(value);
+  if (rawColors === null) {
+    throw new Error(`"${name.trim()}" only has a light palette, and Stellar is dark.`);
   }
   if (!isRecord(rawColors)) throw new Error("Theme files need a colors object.");
 
@@ -1474,31 +1387,10 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
     throw new Error("Theme collections need a valid id and label.");
   }
 
-  const fallback = getDefaultThemeColors(appearance);
-  const variants: Partial<Record<ThemeAppearance, ThemeColors>> = {};
-  if (value.variants !== undefined) {
-    if (!isRecord(value.variants)) throw new Error("Theme variants must be an object.");
-    for (const [variantAppearance, variantColors] of Object.entries(value.variants)) {
-      if (!isThemeAppearance(variantAppearance)) {
-        throw new Error('Theme variants may only be named "light" or "dark".');
-      }
-      if (variantAppearance === appearance) {
-        throw new Error(`Theme variants must not repeat the base appearance "${appearance}".`);
-      }
-      const variantFallback = getDefaultThemeColors(variantAppearance);
-      variants[variantAppearance] = {
-        ...variantFallback,
-        ...parseThemeColorOverrides(variantColors),
-      };
-    }
-  }
-
   return {
     id,
     label: name.trim(),
-    appearance,
-    colors: { ...fallback, ...overrides },
-    ...(Object.keys(variants).length > 0 ? { variants } : {}),
+    colors: { ...getDefaultThemeColors(), ...overrides },
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
   };
@@ -1510,9 +1402,8 @@ export function serializeThemeFile(theme: ThemeDefinition): string {
     version: THEME_FILE_VERSION,
     id: canonicalTheme.id,
     name: canonicalTheme.label,
-    appearance: canonicalTheme.appearance,
+    appearance: "dark",
     colors: canonicalTheme.colors,
-    ...(canonicalTheme.variants ? { variants: canonicalTheme.variants } : {}),
     ...(canonicalTheme.collection ? { collection: canonicalTheme.collection } : {}),
     ...(canonicalTheme.managed ? { managed: true } : {}),
   };
@@ -1590,131 +1481,46 @@ export function getThemeColorVariable(role: ThemeColorRole): string {
 export const THEME_PREVIEW_ID = "__preview";
 
 /** Callers must restore the stored theme with refreshTheme when the draft closes. */
-export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeAppearance): void {
+export function applyThemeColorPreview(colors: ThemeColors): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   if (!root?.style) return;
 
   root.dataset.themeId = THEME_PREVIEW_ID;
-  root.classList.toggle("dark", appearance === "dark");
   for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
     if (isThemeColor(value)) root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
   applyContextChipVariables(root, colors);
-  setThemePreviewAppearance(appearance);
+  setThemePreviewActive(true);
 }
 
-export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppearance): void {
+export function applyThemePalette(theme: ThemePreference): void {
   if (typeof document === "undefined") return;
 
   const root = document.documentElement;
   if (!root?.style) return;
 
-  setThemePreviewAppearance(null);
-  const palette = getThemeDefinition(theme);
-
-  if (palette) {
-    root.dataset.themeId = palette.id;
-    const mode = appearance ?? legacyThemeMode(theme) ?? palette.appearance;
-    const colors = getThemeColorsForMode(palette, mode) ?? palette.colors;
-    for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
-      root.style.setProperty(APP_THEME_VARIABLES[role], value);
-    }
-    applyContextChipVariables(root, colors);
-    return;
+  setThemePreviewActive(false);
+  const palette = getActiveThemeDefinition(theme);
+  root.dataset.themeId = palette.id;
+  for (const [role, value] of Object.entries(palette.colors) as Array<[ThemeColorRole, string]>) {
+    root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
-
-  delete root.dataset.themeId;
-  for (const variable of Object.values(APP_THEME_VARIABLES)) {
-    root.style.removeProperty(variable);
-  }
-  applyContextChipVariables(root, getStandardPaintedThemeColors(appearance ?? "light"));
-}
-
-export function resolveThemeAppearance(
-  theme: ThemePreference,
-  systemDark: boolean,
-  followSystem?: boolean,
-  appearanceMode?: ThemePreferenceMode,
-  halves?: ThemeHalves | null,
-): "light" | "dark" {
-  const systemAppearance = systemDark ? "dark" : "light";
-  const mode = appearanceMode ?? ((followSystem ?? theme === "system") ? "system" : null);
-  if (mode === "system") {
-    if (halves?.[systemAppearance]) return systemAppearance;
-    const definition = getThemeDefinition(theme);
-    return definition && getThemeColorsForMode(definition, systemAppearance) === null
-      ? definition.appearance
-      : systemAppearance;
-  }
-  if (mode === "light" || mode === "dark") {
-    if (halves?.[mode]) return mode;
-    const definition = getThemeDefinition(theme);
-    return definition && getThemeColorsForMode(definition, mode) === null
-      ? definition.appearance
-      : mode;
-  }
-  return getThemePreferenceMode(theme) ?? "light";
-}
-
-export function resolveDesktopTheme(
-  theme: ThemePreference,
-  followSystem?: boolean,
-  appearanceMode?: ThemePreferenceMode,
-  halves?: ThemeHalves | null,
-): "light" | "dark" | "system" {
-  const mode = appearanceMode ?? ((followSystem ?? theme === "system") ? "system" : null);
-  if (mode === "system") {
-    const definition = getThemeDefinition(theme);
-    const hasLightMode =
-      halves?.light !== undefined ||
-      (definition !== null && getThemeColorsForMode(definition, "light") !== null);
-    const hasDarkMode =
-      halves?.dark !== undefined ||
-      (definition !== null && getThemeColorsForMode(definition, "dark") !== null);
-    return definition && (!hasLightMode || !hasDarkMode) ? definition.appearance : "system";
-  }
-  if (mode === "light" || mode === "dark") {
-    if (halves?.[mode]) return mode;
-    const definition = getThemeDefinition(theme);
-    return definition && getThemeColorsForMode(definition, mode) === null
-      ? definition.appearance
-      : mode;
-  }
-  return getThemePreferenceMode(theme) ?? "system";
+  applyContextChipVariables(root, palette.colors);
 }
 
 export function isKnownThemePreference(theme: string): boolean {
-  if (theme === "light" || theme === "dark" || theme === "system") return true;
   return getThemeDefinition(theme) !== null;
 }
 
-export type ThemeHalves = Readonly<{ light?: string; dark?: string }>;
-
-export function parseThemeHalves(raw: string | null): ThemeHalves | null {
+/** The dark half of a retired light/dark pairing, when it still names a theme. */
+export function legacyDarkThemeHalf(raw: string | null): string | null {
   if (!raw) return null;
   try {
     const value: unknown = JSON.parse(raw);
-    if (!isRecord(value)) return null;
-    const halves: { light?: string; dark?: string } = {};
-    for (const appearance of ["light", "dark"] as const) {
-      const themeId = value[appearance];
-      if (typeof themeId !== "string") continue;
-      const definition = getThemeDefinition(themeId);
-      if (definition && getThemeColorsForMode(definition, appearance) !== null) {
-        halves[appearance] = definition.id;
-      }
-    }
-    return halves.light !== undefined || halves.dark !== undefined ? halves : null;
+    if (!isRecord(value) || typeof value.dark !== "string") return null;
+    return getThemeDefinition(value.dark)?.id ?? null;
   } catch {
     return null;
   }
-}
-
-export function resolveThemeHalf(
-  theme: ThemePreference,
-  halves: ThemeHalves | null,
-  appearance: ThemeAppearance,
-): ThemePreference {
-  return halves?.[appearance] ?? theme;
 }

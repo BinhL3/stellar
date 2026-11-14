@@ -321,17 +321,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
-    id: "color-scheme",
-    title: "Color scheme",
-    to: "/settings/appearance",
-    searchTerms: ["appearance light dark system mode"],
-    targetId: "appearance",
-  },
-  {
     id: "theme",
     title: "Themes",
     to: "/settings/appearance",
-    searchTerms: ["appearance colors palette custom import Stellar Night Edit Darkroom Studio"],
+    searchTerms: [
+      "appearance colors palette custom import Borealis Stellar Night Edit Darkroom Studio",
+    ],
     targetId: "appearance",
   },
   {

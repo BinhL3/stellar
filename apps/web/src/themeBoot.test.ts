@@ -1,23 +1,21 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import indexHtml from "../index.html?raw";
+import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
+
+import { readThemePreference } from "./hooks/useTheme";
 import {
   CUSTOM_THEMES_STORAGE_KEY,
-  getThemeColorsForMode,
+  DEFAULT_THEME_ID,
+  getActiveThemeDefinition,
   invalidateCustomThemes,
-  isKnownThemePreference,
-  resolveThemeAppearance,
-  STELLAR_THEME,
-  DARKROOM_THEME,
+  LEGACY_THEME_HALVES_STORAGE_KEY,
   NIGHT_EDIT_THEME,
-  STUDIO_THEME,
-  THEME_APPEARANCE_MODE_STORAGE_KEY,
-  THEME_FOLLOW_SYSTEM_STORAGE_KEY,
+  STELLAR_THEME,
   toCanonicalThemeColor,
 } from "./themePalette";
 
 const THEME_STORAGE_KEY = "t3code:theme";
-const DEFAULT_DARK_CHROME = STELLAR_THEME.variants!.dark!.chrome;
 
 const bootScript = (() => {
   const match = indexHtml.match(/<script>([\s\S]*?)<\/script>/);
@@ -26,9 +24,7 @@ const bootScript = (() => {
 })();
 
 type BootResult = {
-  isDark: boolean;
   themeId: string | undefined;
-  themeSelected: string | undefined;
   backgroundColor: string;
   bootVariables: Record<string, string>;
   metaContent: string | null;
@@ -37,9 +33,7 @@ type BootResult = {
 function runBootScript(options: {
   storage?: Record<string, string>;
   storageThrows?: boolean;
-  prefersDark: boolean;
 }): BootResult {
-  const classes = new Set<string>();
   const bootVariables: Record<string, string> = {};
   const meta = {
     content: null as string | null,
@@ -49,16 +43,6 @@ function runBootScript(options: {
   };
   const documentElement = {
     dataset: {} as Record<string, string | undefined>,
-    classList: {
-      add: (name: string) => void classes.add(name),
-      remove: (name: string) => void classes.delete(name),
-      toggle: (name: string, force?: boolean) => {
-        const next = force ?? !classes.has(name);
-        if (next) classes.add(name);
-        else classes.delete(name);
-        return next;
-      },
-    },
     style: {
       backgroundColor: "",
       setProperty: (name: string, value: string) => {
@@ -77,7 +61,8 @@ function runBootScript(options: {
         return options.storage?.[key] ?? null;
       },
     },
-    matchMedia: () => ({ matches: options.prefersDark }),
+    // A light OS: the boot script must not ask, and must not follow it if it does.
+    matchMedia: () => ({ matches: false }),
   };
 
   const fakeCss = {
@@ -88,190 +73,142 @@ function runBootScript(options: {
   new Function("window", "document", "CSS", bootScript)(fakeWindow, fakeDocument, fakeCss);
 
   return {
-    isDark: classes.has("dark"),
     themeId: documentElement.dataset.themeId,
-    themeSelected: documentElement.dataset.themeSelected,
     backgroundColor: documentElement.style.backgroundColor,
     bootVariables,
     metaContent: meta.content,
   };
 }
 
-function runtimeResolvedAppearance(
-  storage: Record<string, string>,
-  prefersDark: boolean,
-): "light" | "dark" {
+function runtimeThemeId(storage: Record<string, string>): string {
   vi.stubGlobal("window", {
     localStorage: { getItem: (key: string) => storage[key] ?? null },
-    matchMedia: () => ({ matches: prefersDark }),
   });
   invalidateCustomThemes();
   try {
-    const raw = storage[THEME_STORAGE_KEY] ?? null;
-    const theme = raw !== null && isKnownThemePreference(raw) ? raw : "system";
-    const followRaw = storage[THEME_FOLLOW_SYSTEM_STORAGE_KEY] ?? null;
-    const appearanceRaw = storage[THEME_APPEARANCE_MODE_STORAGE_KEY] ?? null;
-    const appearanceMode =
-      appearanceRaw === "light" || appearanceRaw === "dark" || appearanceRaw === "system"
-        ? appearanceRaw
-        : followRaw === "true"
-          ? "system"
-          : followRaw === "false"
-            ? null
-            : theme === "system"
-              ? "system"
-              : null;
-    const followSystem = appearanceMode === "system";
-    return resolveThemeAppearance(theme, prefersDark, followSystem, appearanceMode ?? undefined);
+    return getActiveThemeDefinition(readThemePreference()).id;
   } finally {
     vi.unstubAllGlobals();
     invalidateCustomThemes();
   }
 }
 
-const AURORA_DUAL = {
+const AURORA_LIGHT_WITH_DARK_VARIANT = {
   id: "aurora",
   label: "Aurora",
   appearance: "light",
   colors: { canvas: "#f8fbff", text: "#10243d", accent: "#5b6cff" },
   variants: { dark: { canvas: "#101827", text: "#eef5ff", accent: "#7c93ff" } },
 };
-const CHARCOAL_DARK_ONLY = {
+const PAPER_LIGHT_ONLY = {
+  id: "paper",
+  label: "Paper",
+  appearance: "light",
+  colors: { canvas: "#f8fbff", text: "#10243d", accent: "#5b6cff" },
+};
+const CHARCOAL = {
   id: "charcoal",
   label: "Charcoal",
   appearance: "dark",
   colors: { canvas: "#1c1210", text: "#ffe8d9", accent: "#ff7a45" },
 };
+const CUSTOM_THEMES = JSON.stringify([AURORA_LIGHT_WITH_DARK_VARIANT, PAPER_LIGHT_ONLY, CHARCOAL]);
 
 describe("index.html boot script", () => {
   const parityCases: ReadonlyArray<{
     name: string;
     storage: Record<string, string>;
-    prefersDark: boolean;
+    themeId: string;
   }> = [
-    { name: "no stored preference on a dark OS", storage: {}, prefersDark: true },
-    {
-      name: "T3 Chat follows a dark OS",
-      storage: { [THEME_STORAGE_KEY]: "t3-chat", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "true" },
-      prefersDark: true,
-    },
-    {
-      name: "an explicit global dark mode applies to T3 Chat",
+    { name: "no stored preference", storage: {}, themeId: DEFAULT_THEME_ID },
+    ...["system", "light", "dark"].map((retired) => ({
+      name: `the retired "${retired}" preference`,
       storage: {
-        [THEME_STORAGE_KEY]: "t3-chat",
-        [THEME_APPEARANCE_MODE_STORAGE_KEY]: "dark",
-        [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "false",
+        [THEME_STORAGE_KEY]: retired,
+        "t3code:theme-appearance-mode": "light",
+        "t3code:theme-follow-system": "true",
       },
-      prefersDark: false,
+      themeId: DEFAULT_THEME_ID,
+    })),
+    {
+      name: "a built-in stays selected under a stored light mode",
+      storage: { [THEME_STORAGE_KEY]: "studio", "t3code:theme-appearance-mode": "light" },
+      themeId: "studio",
     },
     {
-      name: "Grove follows a dark OS",
-      storage: { [THEME_STORAGE_KEY]: "grove", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "true" },
-      prefersDark: true,
-    },
-    {
-      name: "Ocean follows a dark OS",
-      storage: { [THEME_STORAGE_KEY]: "ocean", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "true" },
-      prefersDark: true,
-    },
-    {
-      name: "Ember follows a dark OS",
-      storage: { [THEME_STORAGE_KEY]: "ember", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "true" },
-      prefersDark: true,
-    },
-    {
-      name: "Iris follows a dark OS",
-      storage: { [THEME_STORAGE_KEY]: "iris", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "true" },
-      prefersDark: true,
-    },
-    {
-      name: "a legacy t3-grove preference resolves through the alias",
-      storage: { [THEME_STORAGE_KEY]: "t3-grove", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "true" },
-      prefersDark: true,
-    },
-    {
-      name: "legacy t3-chat-dark resolves to dark T3 Chat",
+      name: "a legacy theme id resolves through its alias",
       storage: { [THEME_STORAGE_KEY]: "t3-chat-dark" },
-      prefersDark: true,
+      themeId: "stellar",
     },
     {
-      name: "a dual-mode custom theme follows the OS",
-      storage: {
-        [THEME_STORAGE_KEY]: "aurora",
-        [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "true",
-        [CUSTOM_THEMES_STORAGE_KEY]: JSON.stringify([AURORA_DUAL]),
-      },
-      prefersDark: true,
+      name: "a light custom theme with a dark variant",
+      storage: { [THEME_STORAGE_KEY]: "aurora", [CUSTOM_THEMES_STORAGE_KEY]: CUSTOM_THEMES },
+      themeId: "aurora",
     },
     {
-      name: "a dark-only custom theme stays dark on a light OS",
-      storage: {
-        [THEME_STORAGE_KEY]: "charcoal",
-        [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "true",
-        [CUSTOM_THEMES_STORAGE_KEY]: JSON.stringify([CHARCOAL_DARK_ONLY]),
-      },
-      prefersDark: false,
+      name: "a light-only custom theme",
+      storage: { [THEME_STORAGE_KEY]: "paper", [CUSTOM_THEMES_STORAGE_KEY]: CUSTOM_THEMES },
+      themeId: DEFAULT_THEME_ID,
     },
     {
-      name: "a legacy mode-suffixed preference is treated as unknown",
-      storage: {
-        [THEME_STORAGE_KEY]: "aurora:dark",
-        [CUSTOM_THEMES_STORAGE_KEY]: JSON.stringify([AURORA_DUAL]),
-      },
-      prefersDark: true,
+      name: "a dark custom theme",
+      storage: { [THEME_STORAGE_KEY]: "charcoal", [CUSTOM_THEMES_STORAGE_KEY]: CUSTOM_THEMES },
+      themeId: "charcoal",
     },
     {
-      name: "a removed custom theme falls back to system",
+      name: "a removed custom theme",
       storage: { [THEME_STORAGE_KEY]: "gone-theme" },
-      prefersDark: true,
+      themeId: DEFAULT_THEME_ID,
     },
     {
-      name: "a corrupted follow-system value falls back to inference",
-      storage: { [THEME_STORAGE_KEY]: "system", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "1" },
-      prefersDark: true,
+      name: "the dark half of a retired pairing",
+      storage: {
+        [THEME_STORAGE_KEY]: "studio",
+        [LEGACY_THEME_HALVES_STORAGE_KEY]: JSON.stringify({
+          light: "darkroom",
+          dark: "night-edit",
+        }),
+      },
+      themeId: NIGHT_EDIT_THEME.id,
     },
     {
-      name: "follow-system off keeps an explicit light preference on a dark OS",
-      storage: { [THEME_STORAGE_KEY]: "light", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "false" },
-      prefersDark: true,
-    },
-    {
-      name: "a bare dark preference stays dark on a light OS",
-      storage: { [THEME_STORAGE_KEY]: "dark" },
-      prefersDark: false,
-    },
-    {
-      name: "follow-system off keeps a bare dark preference on a light OS",
-      storage: { [THEME_STORAGE_KEY]: "dark", [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "false" },
-      prefersDark: false,
+      name: "a retired pairing with only a light half",
+      storage: {
+        [THEME_STORAGE_KEY]: "studio",
+        [LEGACY_THEME_HALVES_STORAGE_KEY]: JSON.stringify({ light: "darkroom" }),
+      },
+      themeId: "studio",
     },
   ];
 
-  it.each(parityCases)("matches the runtime appearance: $name", ({ storage, prefersDark }) => {
-    const boot = runBootScript({ storage, prefersDark });
-    expect(boot.isDark).toBe(runtimeResolvedAppearance(storage, prefersDark) === "dark");
+  it.each(parityCases)("resolves like the runtime: $name", ({ storage, themeId }) => {
+    expect(runBootScript({ storage }).themeId).toBe(themeId);
+    expect(runtimeThemeId(storage)).toBe(themeId);
+  });
+
+  it("paints the dark variant of a stored light theme", () => {
+    const boot = runBootScript({
+      storage: { [THEME_STORAGE_KEY]: "aurora", [CUSTOM_THEMES_STORAGE_KEY]: CUSTOM_THEMES },
+    });
+    expect(boot.bootVariables["--boot-background"]).toBe(
+      AURORA_LIGHT_WITH_DARK_VARIANT.variants.dark.canvas,
+    );
   });
 
   it("accepts exponent-form OKLCH before the runtime mounts", () => {
     const colors = {
-      canvas: "oklch(9.5e-1 1e-2 2.8e2)",
-      chrome: "oklch(9.4e-1 1e-2 2.8e2)",
-      text: "oklch(2e-1 0 0 / 9e-1)",
+      canvas: "oklch(1.5e-1 1e-2 2.8e2)",
+      chrome: "oklch(1.4e-1 1e-2 2.8e2)",
+      text: "oklch(9e-1 0 0 / 9e-1)",
       accent: "oklch(6.2e-1 0.2 2.8e2)",
     };
     const boot = runBootScript({
       storage: {
         [THEME_STORAGE_KEY]: "scientific",
         [CUSTOM_THEMES_STORAGE_KEY]: JSON.stringify([
-          {
-            id: "scientific",
-            label: "Scientific",
-            appearance: "light",
-            colors,
-          },
+          { id: "scientific", label: "Scientific", colors },
         ]),
       },
-      prefersDark: false,
     });
 
     expect(boot.bootVariables["--boot-background"]).toBe(colors.canvas);
@@ -282,73 +219,21 @@ describe("index.html boot script", () => {
   });
 
   it("keeps every built-in boot splash in sync with the real palettes", () => {
-    for (const theme of [STELLAR_THEME, NIGHT_EDIT_THEME, STUDIO_THEME, DARKROOM_THEME]) {
-      expect(theme.appearance).toBe("light");
-      for (const mode of ["light", "dark"] as const) {
-        const colors = getThemeColorsForMode(theme, mode);
-        expect(colors).not.toBeNull();
-        const boot = runBootScript({
-          storage: {
-            [THEME_STORAGE_KEY]: theme.id,
-            [THEME_APPEARANCE_MODE_STORAGE_KEY]: mode,
-          },
-          prefersDark: mode === "dark",
-        });
-        expect(boot.themeId).toBe(theme.id);
-        expect(boot.isDark).toBe(mode === "dark");
-        expect(boot.bootVariables["--boot-background"]).toBe(colors!.canvas);
-        expect(boot.bootVariables["--boot-foreground"]).toBe(colors!.text);
-        expect(boot.bootVariables["--boot-accent"]).toBe(colors!.accent);
-        expect(boot.backgroundColor).toBe(colors!.chrome);
-        expect(boot.metaContent).toBe(colors!.chrome);
-      }
+    for (const theme of BUILT_IN_THEMES) {
+      const boot = runBootScript({ storage: { [THEME_STORAGE_KEY]: theme.id } });
+      expect(boot.themeId).toBe(theme.id);
+      expect(boot.bootVariables["--boot-background"]).toBe(theme.colors.canvas);
+      expect(boot.bootVariables["--boot-foreground"]).toBe(theme.colors.text);
+      expect(boot.bootVariables["--boot-accent"]).toBe(theme.colors.accent);
+      expect(boot.backgroundColor).toBe(theme.colors.chrome);
+      expect(boot.metaContent).toBe(theme.colors.chrome);
     }
-  });
-
-  it("applies the matching half of an automatic mix to the splash", () => {
-    const storage = {
-      [THEME_STORAGE_KEY]: "t3-chat",
-      [THEME_APPEARANCE_MODE_STORAGE_KEY]: "system",
-      "t3code:theme-halves:v1": JSON.stringify({ dark: NIGHT_EDIT_THEME.id }),
-    };
-
-    const dark = runBootScript({ storage, prefersDark: true });
-    expect(dark.isDark).toBe(true);
-    expect(dark.themeId).toBe(NIGHT_EDIT_THEME.id);
-    expect(dark.bootVariables["--boot-background"]).toBe(
-      getThemeColorsForMode(NIGHT_EDIT_THEME, "dark")!.canvas,
-    );
-
-    const light = runBootScript({ storage, prefersDark: false });
-    expect(light.isDark).toBe(false);
-    expect(light.themeId).toBe("stellar");
-    expect(light.bootVariables["--boot-background"]).toBe(
-      getThemeColorsForMode(STELLAR_THEME, "light")!.canvas,
-    );
-  });
-
-  it("paints the half's splash when the base theme no longer exists", () => {
-    const boot = runBootScript({
-      storage: {
-        [THEME_STORAGE_KEY]: "gone-theme",
-        [THEME_APPEARANCE_MODE_STORAGE_KEY]: "system",
-        "t3code:theme-halves:v1": JSON.stringify({ dark: NIGHT_EDIT_THEME.id }),
-      },
-      prefersDark: true,
-    });
-    expect(boot.isDark).toBe(true);
-    expect(boot.themeId).toBe(NIGHT_EDIT_THEME.id);
-    expect(boot.themeSelected).toBe("true");
-    expect(boot.bootVariables["--boot-background"]).toBe(
-      getThemeColorsForMode(NIGHT_EDIT_THEME, "dark")!.canvas,
-    );
   });
 
   it("uses runtime defaults for malformed custom roles", () => {
     const boot = runBootScript({
       storage: {
         [THEME_STORAGE_KEY]: "partial",
-        [THEME_FOLLOW_SYSTEM_STORAGE_KEY]: "true",
         [CUSTOM_THEMES_STORAGE_KEY]: JSON.stringify([
           {
             id: "partial",
@@ -358,23 +243,24 @@ describe("index.html boot script", () => {
           },
         ]),
       },
-      prefersDark: true,
     });
 
     expect(boot.themeId).toBe("partial");
-    expect(boot.bootVariables["--boot-background"]).toBe(STELLAR_THEME.variants!.dark!.canvas);
+    expect(boot.bootVariables["--boot-background"]).toBe(STELLAR_THEME.colors.canvas);
     expect(boot.bootVariables["--boot-foreground"]).toBe("#fffaff");
-    expect(boot.bootVariables["--boot-accent"]).toBe(STELLAR_THEME.variants!.dark!.accent);
-    expect(boot.backgroundColor).toBe(DEFAULT_DARK_CHROME);
-    expect(boot.metaContent).toBe(DEFAULT_DARK_CHROME);
+    expect(boot.bootVariables["--boot-accent"]).toBe(STELLAR_THEME.colors.accent);
+    expect(boot.backgroundColor).toBe(STELLAR_THEME.colors.chrome);
+    expect(boot.metaContent).toBe(STELLAR_THEME.colors.chrome);
   });
 
-  it("follows the OS appearance when storage is unavailable", () => {
-    const light = runBootScript({ storageThrows: true, prefersDark: false });
-    expect(light.isDark).toBe(false);
-    expect(light.themeId).toBeUndefined();
+  it("paints the default theme when storage is unavailable", () => {
+    const boot = runBootScript({ storageThrows: true });
+    expect(boot.themeId).toBe(DEFAULT_THEME_ID);
+    expect(boot.bootVariables["--boot-background"]).toBe(BUILT_IN_THEMES[0]!.colors.canvas);
+  });
 
-    const dark = runBootScript({ storageThrows: true, prefersDark: true });
-    expect(dark.isDark).toBe(true);
+  it("ships the dark class in the markup instead of resolving an appearance", () => {
+    expect(indexHtml).toMatch(/<html lang="en" class="dark">/);
+    expect(bootScript).not.toContain("prefers-color-scheme");
   });
 });

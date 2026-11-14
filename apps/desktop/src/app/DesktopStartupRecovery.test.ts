@@ -12,7 +12,6 @@ import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopState from "./DesktopState.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
-import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 
@@ -159,9 +158,6 @@ it.effect.each([
               ElectronShell.ElectronShell,
               {} as ElectronShell.ElectronShell["Service"],
             ),
-            Layer.succeed(ElectronTheme.ElectronTheme, {
-              shouldUseDarkColors: Effect.succeed(false),
-            } as ElectronTheme.ElectronTheme["Service"]),
             Layer.succeed(ElectronWindow.ElectronWindow, {
               main: Ref.get(mainRef),
               create: () => Effect.succeed(recovery),

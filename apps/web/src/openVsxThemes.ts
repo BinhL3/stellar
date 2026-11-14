@@ -5,7 +5,7 @@ import { parse, type ParseError } from "jsonc-parser";
 import type { ThemeDefinition } from "./themePalette";
 import {
   isVsCodeThemeFile,
-  pairVsCodeThemes,
+  isLightThemeError,
   parseVsCodeThemeFile,
   resolveThemeLabelCollisions,
 } from "./vscodeThemeImport";
@@ -740,6 +740,8 @@ export async function importOpenVsxThemeExtension(
       });
     } catch (cause) {
       signal?.throwIfAborted();
+      // An extension's light themes are left out; its dark ones still import.
+      if (isLightThemeError(cause)) continue;
       failures.push(cause instanceof Error ? cause.message : "theme could not be read");
     }
   }
@@ -747,7 +749,7 @@ export async function importOpenVsxThemeExtension(
     throw new Error("One or more color themes in that extension could not be imported safely.");
   }
   if (parsed.length === 0) {
-    throw new Error("That extension has no compatible color themes.");
+    throw new Error("That extension has no dark color themes.");
   }
   const extensionId = extension.id.toLowerCase();
   const sourcePathCounts = new Map<string, number>();
@@ -765,10 +767,7 @@ export async function importOpenVsxThemeExtension(
     ...theme,
     id: openVsxThemeId(extensionId, sourceIdentities[index]!),
   }));
-  const paired = pairVsCodeThemes(resolved, {
-    pairedId: (light, dark) => openVsxThemeId(extensionId, [light.id, dark.id].sort().join(":")),
-  });
-  const themes = resolveThemeLabelCollisions(paired.map((theme) => ({ theme })));
+  const themes = resolveThemeLabelCollisions(resolved.map((theme) => ({ theme })));
   const collection = {
     id: extension.collectionId,
     label: extension.name.slice(0, 48),

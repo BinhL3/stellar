@@ -4,7 +4,6 @@ import { useTheme } from "../../hooks/useTheme";
 import {
   getThemeDefinition,
   subscribeToCustomThemes,
-  type ThemeAppearance,
   type ThemeDefinition,
 } from "../../themePalette";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -25,40 +24,13 @@ function useThemeDefinition(id: string | null | undefined) {
 export function ThemeEditorHost() {
   const session = useThemeEditorStore((store) => store.session);
   const closeThemeEditor = useThemeEditorStore((store) => store.closeThemeEditor);
-  const { theme, setTheme, themeHalves, refreshTheme } = useTheme();
+  const { theme, setTheme, refreshTheme } = useTheme();
   const editingTheme = useThemeDefinition(session?.editingThemeId);
   const seedTheme = useThemeDefinition(session?.seedThemeId);
 
-  const handleSaved = (
-    savedTheme: ThemeDefinition,
-    { created, mergedAppearance }: { created: boolean; mergedAppearance?: ThemeAppearance },
-  ) => {
-    if (mergedAppearance) {
-      if (!setTheme(savedTheme.id)) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not save your theme",
-            description: "Browser storage is unavailable, so the change was not kept.",
-          }),
-        );
-        return false;
-      }
-      toastManager.add(
-        stackedThreadToast({
-          type: "success",
-          title: `${savedTheme.label} updated`,
-          description: `Its ${mergedAppearance} palette was added.`,
-        }),
-      );
-      return true;
-    }
+  const handleSaved = (savedTheme: ThemeDefinition, { created }: { created: boolean }) => {
     if (!created) {
-      // Reapply the palette without setTheme, which would clear a mix containing the edited theme.
-      const wasActive =
-        getThemeDefinition(theme)?.id === savedTheme.id ||
-        themeHalves?.light === savedTheme.id ||
-        themeHalves?.dark === savedTheme.id;
+      const wasActive = getThemeDefinition(theme)?.id === savedTheme.id;
       if (wasActive) refreshTheme();
       toastManager.add(
         stackedThreadToast({
@@ -96,7 +68,6 @@ export function ThemeEditorHost() {
     <Suspense fallback={null}>
       <ThemeEditorPanel
         editingTheme={editingTheme}
-        initialAppearance={session.initialAppearance}
         key={session.id}
         onOpenChange={(open) => {
           if (!open) closeThemeEditor();

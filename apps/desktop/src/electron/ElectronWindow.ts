@@ -123,9 +123,6 @@ export class ElectronWindow extends Context.Service<
     readonly reveal: (window: Electron.BrowserWindow) => Effect.Effect<void>;
     readonly sendAll: (channel: string, ...args: readonly unknown[]) => Effect.Effect<void>;
     readonly destroyAll: Effect.Effect<void>;
-    readonly syncAllAppearance: <E, R>(
-      sync: (window: Electron.BrowserWindow) => Effect.Effect<void, E, R>,
-    ) => Effect.Effect<void, E, R>;
   }
 >()("@t3tools/desktop/electron/ElectronWindow") {}
 
@@ -379,17 +376,6 @@ export const make = Effect.gen(function* () {
       }
       if (firstFailure !== undefined) {
         return yield* Effect.failCause(firstFailure);
-      }
-    }),
-    syncAllAppearance: Effect.fn("desktop.electron.window.syncAllAppearance")(function* <E, R>(
-      sync: (window: Electron.BrowserWindow) => Effect.Effect<void, E, R>,
-    ) {
-      const windows = yield* listWindows;
-      for (const window of windows) {
-        if (yield* isWindowDestroyed(window)) {
-          continue;
-        }
-        yield* sync(window);
       }
     }),
   });

@@ -12,8 +12,8 @@ import { requireOptionalNativeModule } from "expo";
 
 import { connectPairingUrl } from "../../connection/onboarding";
 import {
-  createMobileThemePairPatch,
-  resolveMobileThemeIds,
+  createMobileThemePatch,
+  resolveMobileThemeId,
   type MobileThemeId,
 } from "../../lib/mobileTheme";
 import { rootNavigationRef } from "../../lib/rootNavigation";
@@ -24,7 +24,6 @@ import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
 import { environmentThreadShells } from "../../state/threads";
 import { holdEditingQueuedMessage } from "../../state/use-thread-outbox";
 import { workspaceConnections } from "../../state/workspace";
-import { resolveThemeAppearance } from "../settings/appearance/AppearancePreferencesProvider";
 import {
   applyNativeShowcaseOrientation,
   getNativeShowcaseOrientation,
@@ -282,15 +281,14 @@ export function installShowcaseCapture(
 
     const preferences = appAtomRegistry.get(mobilePreferencesAtom);
     const storedPreferences = AsyncResult.isSuccess(preferences) ? preferences.value : null;
-    const themeIds = resolveMobileThemeIds(storedPreferences ?? {});
-    const themeApplied = isShowcaseThemeApplied({ launchRequestRead, requestedTheme, themeIds });
+    const themeId = resolveMobileThemeId(storedPreferences ?? {});
+    const themeApplied = isShowcaseThemeApplied({ launchRequestRead, requestedTheme, themeId });
     // The write patches preferences optimistically, so the step it triggers
     // already sees the theme applied. A failed save rolls the patch back, and
     // the next step writes again.
     if (requestedTheme !== null && !themeApplied && storedPreferences) {
-      appAtomRegistry.set(updateMobilePreferencesAtom, createMobileThemePairPatch(requestedTheme));
+      appAtomRegistry.set(updateMobilePreferencesAtom, createMobileThemePatch(requestedTheme));
     }
-    const themeId = themeIds[resolveThemeAppearance(storedPreferences)];
 
     const projects = appAtomRegistry.get(environmentProjects.projectsAtom);
     const threads = appAtomRegistry.get(environmentThreadShells.threadShellsAtom);

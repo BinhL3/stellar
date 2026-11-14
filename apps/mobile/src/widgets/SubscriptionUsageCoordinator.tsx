@@ -20,15 +20,9 @@ const snapshotAtom = Atom.make((get) =>
 ).pipe(Atom.withEquality((a, b) => JSON.stringify(a) === JSON.stringify(b)));
 
 export function SubscriptionUsageCoordinator() {
-  const {
-    themeMode,
-    themeAppearance,
-    themeVariablesByAppearance,
-    isReady: appearanceReady,
-  } = useAppearancePreferences();
+  const { themeVariables, isReady: appearanceReady } = useAppearancePreferences();
   const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
   const snapshot = useAtomValue(snapshotAtom);
-  const androidAppearance = Platform.OS === "android" ? themeAppearance : null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes subscription usage and theme to the native home screen widget
   useEffect(() => {
     if (!catalog.isReady || !appearanceReady) return;
@@ -36,20 +30,12 @@ export function SubscriptionUsageCoordinator() {
       .then(() =>
         publishSubscriptionUsage({
           ...snapshot,
-          theme: createWidgetTheme(themeMode, themeVariablesByAppearance),
+          theme: createWidgetTheme(themeVariables),
         }),
       )
       .catch((error: unknown) => {
         console.warn("Could not update subscription usage widget", error);
       });
-  }, [
-    catalog.isReady,
-    appearanceReady,
-    snapshot,
-    themeMode,
-    themeVariablesByAppearance,
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Android stores resolved colors; System appearance changes must republish them.
-    androidAppearance,
-  ]);
+  }, [catalog.isReady, appearanceReady, snapshot, themeVariables]);
   return null;
 }
