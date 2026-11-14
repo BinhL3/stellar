@@ -397,7 +397,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                         <h3
                           aria-hidden="true"
                           className={cn(
-                            "px-2 text-xs font-medium text-sidebar-muted-foreground/80",
+                            "label-caps px-2 text-sidebar-muted-foreground/80",
                             !compactSearchOpen && "max-md:hidden",
                           )}
                         >

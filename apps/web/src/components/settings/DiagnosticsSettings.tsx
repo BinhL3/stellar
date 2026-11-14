@@ -80,7 +80,7 @@ function StatBlock({
 }) {
   return (
     <div className="min-w-0 border-border/60 px-4 py-3 sm:px-5">
-      <div className="flex min-w-0 items-center gap-1.5 text-2xs font-medium uppercase tracking-widest text-muted-foreground/70">
+      <div className="flex min-w-0 items-center gap-1.5 label-caps text-muted-foreground/70">
         <span className="min-w-0 truncate">{label}</span>
         {tooltip ? (
           <Tooltip>
@@ -169,7 +169,7 @@ function DiagnosticsTable({
             ))}
           </colgroup>
         ) : null}
-        <thead className="border-b border-border/60 text-2xs uppercase tracking-widest text-muted-foreground/70">
+        <thead className="border-b border-border/60 label-caps text-muted-foreground/70">
           <tr>
             {headers.map((header, index) => (
               <th
@@ -354,7 +354,7 @@ function ProcessDiagnosticsTable({
             <col className="w-[11%]" />
             <col className="w-[6%]" />
           </colgroup>
-          <thead className="sticky top-0 z-10 border-b border-border/60 bg-card text-2xs uppercase tracking-widest text-muted-foreground/70">
+          <thead className="sticky top-0 z-10 border-b border-border/60 bg-card label-caps text-muted-foreground/70">
             <tr>
               <th className="px-4 py-2 font-semibold sm:pl-5">Name</th>
               <th className="px-3 py-2 text-right font-semibold">CPU</th>
@@ -580,7 +580,7 @@ function ProcessResourceHistoryTable({
             <col className="w-[16%]" />
             <col className="w-[10%]" />
           </colgroup>
-          <thead className="sticky top-0 z-10 border-b border-border/60 bg-card text-2xs uppercase tracking-widest text-muted-foreground/70">
+          <thead className="sticky top-0 z-10 border-b border-border/60 bg-card label-caps text-muted-foreground/70">
             <tr>
               <th className="px-4 py-2 font-semibold sm:pl-5">Process</th>
               <th className="px-3 py-2 text-right font-semibold">CPU Time</th>
@@ -1238,7 +1238,7 @@ function DiagnosticsSettingsBody() {
                 <col className="w-[26%]" />
                 <col className="w-[30%]" />
               </colgroup>
-              <thead className="border-b border-border/60 text-2xs uppercase tracking-widest text-muted-foreground/70">
+              <thead className="border-b border-border/60 label-caps text-muted-foreground/70">
                 <tr>
                   <th className="whitespace-nowrap px-4 py-2.5 font-semibold sm:pl-5">Time</th>
                   <th className="whitespace-nowrap px-4 py-2.5 font-semibold">Level</th>

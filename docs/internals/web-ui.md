@@ -21,6 +21,21 @@ Style with Tailwind classes in the component that renders the element.
   runtime are fine.
 - Theme-only rules use `@variant dark` and `@variant light`, not `.dark` selectors.
 
+## Shell look
+
+The shell is flat and tool-like, and the tokens in [`index.css`](../../apps/web/src/index.css)
+enforce it, so a component gets the look by using the ordinary utilities.
+
+- Corners stop at 6px: every `rounded-*` step above `lg` resolves to 6px. `rounded-full` is for
+  true circles (avatars, status dots), not for pills.
+- No drop shadows and no backdrop blur. The `shadow-*` steps resolve to nothing; separate layers
+  with a surface step (`background`, `card`, `popover`, `accent`) and a border.
+- Labels, tabs, section headers and small metadata use `label-caps`.
+- A panel edge that ends uses `dither-rule-{b,t,s,e}` instead of a border. Dividers inside a
+  panel stay hairlines.
+- The active item carries the accent checker: `dither-marker` where it can sit in the flow,
+  `dither-marker-start` on rows whose content must not shift.
+
 ## Composition
 
 The composer banners are the reference.

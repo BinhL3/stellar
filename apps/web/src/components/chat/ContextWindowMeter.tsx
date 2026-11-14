@@ -116,7 +116,7 @@ export function ContextWindowMeter(props: {
           </div>
           {usage.maxTokens !== null ? (
             <div
-              className="h-1.5 w-full overflow-hidden rounded-full bg-muted/60"
+              className="h-1.5 w-full overflow-hidden rounded-none bg-muted/60"
               role="progressbar"
               aria-valuemin={0}
               aria-valuemax={100}

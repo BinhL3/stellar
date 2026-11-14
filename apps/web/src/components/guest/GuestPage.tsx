@@ -729,7 +729,7 @@ function GuestComposer({
   };
   return (
     <form
-      className="flex flex-col gap-2 rounded-3xl border border-border bg-card px-4 pt-3 pb-2.5 shadow-composer dark:shadow-composer-dark"
+      className="flex flex-col gap-2 rounded-3xl border border-border bg-card px-4 pt-3 pb-2.5"
       onSubmit={(event) => {
         event.preventDefault();
         void send();
@@ -819,7 +819,7 @@ function GuestComposer({
           type="submit"
           aria-label="Send"
           disabled={sending || (text.trim() === "" && files.length === 0)}
-          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs hover:bg-message-action-hover focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-64"
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-(--control-radius) bg-message-action text-message-action-foreground shadow-xs hover:bg-message-action-hover focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-64"
         >
           <ArrowUpIcon aria-hidden className="size-4" />
         </button>
