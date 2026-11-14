@@ -72,6 +72,18 @@ change. Export your theme as JSON to share it.
 A theme with a light canvas is a light theme, whether you made it or imported it. A Stellar theme
 file saved with both a light and a dark palette keeps its dark one.
 
+## Project themes
+
+A project can carry its own theme, so moving between projects changes the look: a Hanoi short in
+Long Biên, a brand video in its brand colors. Pick it in **Settings → Projects → Theme**, or ask an
+agent to set it. Its threads, new-thread screen, video workspace and project settings show that
+theme; everywhere else shows yours. **Use my theme** clears it. Choosing a theme while in the
+project saves it as your own, which comes back when you leave.
+
+Every device that opens the project sees its theme. A custom theme that exists only on another
+device, or a theme that was deleted, shows your own instead. The mobile app shows built-in project
+themes only.
+
 ## Environment themes
 
 Environment themes and defaults come from the server serving your web app or the desktop app's

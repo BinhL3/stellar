@@ -150,6 +150,13 @@ export const ReceivedProjectIcon = ForwardCompatibleUnion(projectIconMembers, "k
   ),
 );
 
+/** A built-in, custom or published theme id; clients fall back to the user's theme when it does not resolve. */
+export const ProjectThemeId = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(64),
+  Schema.isPattern(/^[a-z0-9][a-z0-9-]*$/),
+);
+export type ProjectThemeId = typeof ProjectThemeId.Type;
+
 export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -161,6 +168,7 @@ export const Project = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   // Opt-in because background sync performs network I/O and may move the checkout.
   autoPull: Schema.optional(Schema.Boolean),
+  themeId: Schema.optional(Schema.NullOr(ProjectThemeId)),
   scripts: Schema.Array(ProjectScript),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
@@ -193,6 +201,11 @@ export const ProjectUpdatePayload = Schema.Struct({
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  themeId: Schema.optional(
+    Schema.NullOr(ProjectThemeId).annotate({
+      description: "Theme id shown in this project, e.g. `long-bien`. Null: viewer's own.",
+    }),
+  ),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   pinned: Schema.optional(Schema.Boolean),
   archived: Schema.optional(

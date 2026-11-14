@@ -85,6 +85,13 @@ export function resolveMobileThemeId(preferences: {
   return normalizeMobileThemeId(preferences.darkThemeId ?? preferences.themeId);
 }
 
+/** A project's theme when this app has it; custom and published themes show the user's own. */
+export function projectMobileThemeId(themeId: string | null | undefined): MobileThemeId | null {
+  if (!themeId) return null;
+  const id = RENAMED_THEME_IDS[themeId] ?? themeId;
+  return (SHARED_MOBILE_THEME_IDS as readonly string[]).includes(id) ? (id as MobileThemeId) : null;
+}
+
 /** Writes `darkThemeId` too, since a value saved there outranks `themeId` on read. */
 export function createMobileThemePatch(value: MobileThemeId) {
   return { darkThemeId: value, themeId: value };

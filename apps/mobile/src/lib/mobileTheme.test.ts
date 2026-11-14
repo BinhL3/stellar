@@ -20,6 +20,7 @@ import {
   flattenThemeColor,
   getMobileThemeAppearance,
   getMobileThemeVariables,
+  projectMobileThemeId,
   resolveMobileThemeId,
   themeColorWithAlpha,
   themeColorToNativeColor,
@@ -230,6 +231,12 @@ describe("mobile themes", () => {
     expect(
       resolveMobileThemeId({ ...pairedPreferences, ...createMobileThemePatch("darkroom") }),
     ).toBe("darkroom");
+  });
+
+  it("shows a project's theme only when it is one this app has", () => {
+    expect(projectMobileThemeId("long-bien")).toBe("long-bien");
+    expect(projectMobileThemeId("my-custom-theme")).toBe(null);
+    expect(projectMobileThemeId(null)).toBe(null);
   });
 
   it("converts OKLCH colors to React Native sRGB ColorValues", () => {

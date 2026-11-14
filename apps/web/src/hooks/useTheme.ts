@@ -1,11 +1,12 @@
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
-import { useSyncExternalStore } from "react";
+import { useLayoutEffect, useSyncExternalStore } from "react";
 import {
   applyThemePalette,
   CUSTOM_THEMES_STORAGE_KEY,
   DEFAULT_THEME_ID,
   getActiveThemeDefinition,
+  getThemeDefinition,
   getThemePreviewAppearance,
   invalidateCustomThemes,
   canonicalThemePreference,
@@ -21,11 +22,19 @@ import {
 } from "../themePalette";
 
 type Theme = ThemePreference;
-/** `resolvedTheme` is the active theme's appearance, for syntax highlighting and file icons. */
-type ThemeSnapshot = { theme: Theme; resolvedTheme: ThemeAppearance };
+/**
+ * `theme` is the user's saved choice; `activeTheme` is the one on screen, which a project's
+ * theme can replace. `resolvedTheme` is the active theme's appearance, for syntax highlighting
+ * and file icons.
+ */
+type ThemeSnapshot = { theme: Theme; activeTheme: Theme; resolvedTheme: ThemeAppearance };
 
 const STORAGE_KEY = "t3code:theme";
-const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = { theme: DEFAULT_THEME_ID, resolvedTheme: "dark" };
+const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
+  theme: DEFAULT_THEME_ID,
+  activeTheme: DEFAULT_THEME_ID,
+  resolvedTheme: "dark",
+};
 
 const resolveAppearance = (theme: Theme): ThemeAppearance =>
   themeAppearance(getActiveThemeDefinition(theme));
@@ -54,6 +63,7 @@ let lastSnapshot: ThemeSnapshot | null = null;
 let snapshotStale = true;
 let lastAppliedTheme: Theme | null = null;
 let themeStorageReadFailure: ThemeStorageError | null = null;
+let projectThemeOverride: Theme | null = null;
 
 function emitChange() {
   snapshotStale = true;
@@ -126,6 +136,17 @@ function getStored(): Theme {
     });
     return DEFAULT_THEME_SNAPSHOT.theme;
   }
+}
+
+/** A project theme that no longer resolves, such as a deleted custom theme, shows the user's own. */
+function activeThemeFor(stored: Theme): Theme {
+  return projectThemeOverride !== null && getThemeDefinition(projectThemeOverride) !== null
+    ? projectThemeOverride
+    : stored;
+}
+
+function getActive(): Theme {
+  return activeThemeFor(getStored());
 }
 
 function ensureThemeColorMetaTag(): HTMLMetaElement {
@@ -233,7 +254,7 @@ function syncDesktopWindowAppearance(theme: Theme) {
 }
 
 if (typeof document !== "undefined" && typeof window !== "undefined") {
-  applyTheme(getStored());
+  applyTheme(getActive());
 }
 
 function getSnapshot(): ThemeSnapshot {
@@ -242,11 +263,16 @@ function getSnapshot(): ThemeSnapshot {
   if (!snapshotStale && lastSnapshot) return lastSnapshot;
   snapshotStale = false;
   const theme = getStored();
-  const resolvedTheme = resolveAppearance(theme);
-  if (lastSnapshot?.theme === theme && lastSnapshot.resolvedTheme === resolvedTheme) {
+  const activeTheme = activeThemeFor(theme);
+  const resolvedTheme = resolveAppearance(activeTheme);
+  if (
+    lastSnapshot?.theme === theme &&
+    lastSnapshot.activeTheme === activeTheme &&
+    lastSnapshot.resolvedTheme === resolvedTheme
+  ) {
     return lastSnapshot;
   }
-  lastSnapshot = { theme, resolvedTheme };
+  lastSnapshot = { theme, activeTheme, resolvedTheme };
   return lastSnapshot;
 }
 
@@ -257,16 +283,16 @@ function getServerSnapshot() {
 function handleStorageChange(e: StorageEvent) {
   if (e.key === STORAGE_KEY) {
     themeStorageReadFailure = null;
-    applyTheme(getStored(), { suppressTransitions: true });
+    applyTheme(getActive(), { suppressTransitions: true });
     emitChange();
   } else if (e.key === LEGACY_THEME_HALVES_STORAGE_KEY) {
-    applyTheme(getStored(), { suppressTransitions: true });
+    applyTheme(getActive(), { suppressTransitions: true });
     emitChange();
   } else if (e.key === CUSTOM_THEMES_STORAGE_KEY || e.key === null) {
     if (e.key === null) themeStorageReadFailure = null;
     invalidateCustomThemes();
     lastAppliedTheme = null;
-    applyTheme(getStored(), { suppressTransitions: true });
+    applyTheme(getActive(), { suppressTransitions: true });
     emitChange();
   }
 }
@@ -317,19 +343,63 @@ export function setTheme(next: Theme): boolean {
     });
     return false;
   }
-  applyTheme(next, { suppressTransitions: true });
+  applyTheme(activeThemeFor(next), { suppressTransitions: true });
   emitChange();
   return true;
+}
+
+/** Whether a project's theme is on screen instead of the user's own. */
+export function isProjectThemeActive(): boolean {
+  return getSnapshot().activeTheme !== getSnapshot().theme;
+}
+
+const projectThemeClaims: Array<{ readonly themeId: Theme | null }> = [];
+let projectThemeSyncScheduled = false;
+
+// Coalesced so a view that swaps one claim for another in a commit applies once, still before paint.
+function scheduleProjectThemeSync(): void {
+  if (projectThemeSyncScheduled) return;
+  projectThemeSyncScheduled = true;
+  queueMicrotask(() => {
+    projectThemeSyncScheduled = false;
+    const next = projectThemeClaims.at(-1)?.themeId ?? null;
+    if (next === projectThemeOverride) return;
+    projectThemeOverride = next;
+    applyTheme(getActive(), { suppressTransitions: true });
+    emitChange();
+  });
+}
+
+/**
+ * Shows a project's theme in place of the user's own while the caller is mounted, without saving
+ * it; the latest mounted claim wins. Null claims the user's own theme.
+ */
+export function useProjectThemeClaim(themeId: Theme | null): void {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- paints the document's theme for as long as the claiming view is mounted, before the browser paints
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const claim = { themeId };
+    projectThemeClaims.push(claim);
+    scheduleProjectThemeSync();
+    return () => {
+      projectThemeClaims.splice(projectThemeClaims.indexOf(claim), 1);
+      scheduleProjectThemeSync();
+    };
+  }, [themeId]);
 }
 
 export function refreshTheme({ preservePreview = false } = {}): void {
   if (typeof window === "undefined") return;
   lastAppliedTheme = null;
-  applyTheme(getStored(), { suppressTransitions: true, preservePreview });
+  applyTheme(getActive(), { suppressTransitions: true, preservePreview });
   emitChange();
 }
 
 export function useTheme() {
-  const { theme, resolvedTheme } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  return { theme, setTheme, refreshTheme, resolvedTheme } as const;
+  const { theme, activeTheme, resolvedTheme } = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
+  );
+  return { theme, activeTheme, setTheme, refreshTheme, resolvedTheme } as const;
 }

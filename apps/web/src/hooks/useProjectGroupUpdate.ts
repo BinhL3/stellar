@@ -20,6 +20,7 @@ export type ProjectGroupUpdate = Partial<{
   title: string;
   faviconPath: string | null;
   projectIcon: ProjectIconOverride | null;
+  themeId: string | null;
   pinned: boolean;
   archived: boolean;
 }>;

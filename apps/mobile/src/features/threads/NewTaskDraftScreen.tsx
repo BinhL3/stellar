@@ -6,6 +6,7 @@ import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorksp
 import { submittedThreadParams } from "./thread-route-state";
 import { ThreadScreenBinding, ThreadScreenFallback } from "./ThreadScreenHost";
 import { draftThreadShell } from "./draft-thread-shell";
+import { useProjectThemeClaim } from "../settings/appearance/projectTheme";
 import { useRememberThreadProject } from "./useRememberThreadProject";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { connectionTone } from "../connection/connectionTone";
@@ -168,6 +169,7 @@ export function NewTaskDraftScreen(props: {
       ? selectedProject
       : null,
   );
+  useProjectThemeClaim(selectedProject);
   const selectedProjectLabel = (() => {
     if (!selectedProject) return null;
     const scope = projectScopes.find((candidate) =>

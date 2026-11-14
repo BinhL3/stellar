@@ -488,6 +488,14 @@ describe("requiredScopesForProjectMutation", () => {
         type: "project.update",
         commandId,
         projectId,
+        themeId: "long-bien",
+      }),
+    ).toEqual(["orchestration:operate"]);
+    expect(
+      requiredScopesForProjectMutation({
+        type: "project.update",
+        commandId,
+        projectId,
         scripts: [],
       }),
     ).toEqual(["orchestration:operate", "settings:write"]);
