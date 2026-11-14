@@ -243,7 +243,7 @@ function ProviderSettingsPlaceholder({
           "scrollbar-gutter-both flex overflow-x-hidden overflow-y-auto",
         )}
       >
-        <Empty>
+        <Empty backdrop="ambient">
           <EmptyMedia variant="icon">{icon}</EmptyMedia>
           <EmptyHeader>
             <EmptyTitle>{title}</EmptyTitle>

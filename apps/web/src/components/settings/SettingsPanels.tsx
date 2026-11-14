@@ -436,6 +436,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Contrast"]
       : []),
     ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
+    ...(settings.backdropTreatment !== DEFAULT_UNIFIED_SETTINGS.backdropTreatment ||
+    settings.backdropStrength !== DEFAULT_UNIFIED_SETTINGS.backdropStrength ||
+    Object.keys(settings.backdropParams).length > 0
+      ? ["Backdrop"]
+      : []),
     ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
       ? ["Diff colors"]
       : []),
@@ -612,6 +617,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+      backdropTreatment: DEFAULT_UNIFIED_SETTINGS.backdropTreatment,
+      backdropStrength: DEFAULT_UNIFIED_SETTINGS.backdropStrength,
+      backdropParams: DEFAULT_UNIFIED_SETTINGS.backdropParams,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,

@@ -456,7 +456,7 @@ export function ScheduledTasksSettings(target: {
             <SettingsRow title={scope.message} />
           </SettingsSection>
         ) : environments.length === 0 ? (
-          <Empty>
+          <Empty backdrop="ambient">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <Clock3Icon />

@@ -4,6 +4,7 @@ import {
   STELLAR_THEME,
   T3_CODE_DARK_THEME_COLORS,
   MOBILE_DEFAULT_THEME_ID,
+  RENAMED_THEME_IDS,
   MOBILE_THEME_IDS as SHARED_MOBILE_THEME_IDS,
   type MobileThemeId as SharedMobileThemeId,
   type ThemeColors,
@@ -48,6 +49,7 @@ function normalizeMobileThemeId(value: unknown): MobileThemeId {
     ].includes(value)
   )
     return "stellar";
+  if (typeof value === "string" && value in RENAMED_THEME_IDS) return RENAMED_THEME_IDS[value]!;
   return typeof value === "string" && (MOBILE_THEME_IDS as readonly string[]).includes(value)
     ? (value as MobileThemeId)
     : DEFAULT_THEME_ID;

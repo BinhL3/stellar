@@ -341,7 +341,7 @@ function EmptySourceControlDiscovery({
 
   return (
     <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
-      <Empty>
+      <Empty backdrop="ambient">
         <EmptyMedia variant="icon">
           <PullRequestGlyph.pullRequest />
         </EmptyMedia>

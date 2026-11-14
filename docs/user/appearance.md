@@ -3,9 +3,22 @@
 Stellar is dark on every device. It does not follow your system's light or dark setting, and
 every theme is a dark palette.
 
-On web and desktop, open **Settings → Appearance** to choose a theme. Borealis is the default;
+On web and desktop, open **Settings → Appearance** to choose a theme. Drive-In is the default;
 Stellar, Night Edit, Darkroom, and Studio are also built in. Appearance preferences are saved
 separately on each device or browser.
+
+## Backdrop
+
+Each built-in theme has its own scene behind new threads, empty screens and the pairing page,
+drawn in that theme's colors: a drive-in for Drive-In, a planet's edge for Stellar, a city for
+Night Edit, dunes for Darkroom and a soundstage for Studio. A custom or imported theme gets a
+ringed planet in its own colors. Behind a conversation the scene fades back so text stays easy to
+read.
+
+**Settings → Appearance → Backdrop** chooses how the scene is printed: dithered dots, halftone
+dots, halftone CMYK, fluted glass, paper texture, or none. Each treatment has its own sliders, and
+**Strength** fades the scene everywhere. The scene shifts slightly with the pointer on a new
+thread, except when your system asks for reduced motion.
 
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.
@@ -66,7 +79,7 @@ it. app.t3.codes and other connections do not use them.
 Select a published theme in **Settings → Appearance** to follow its palette as the server updates
 it. **Duplicate** makes an independent copy you can edit. A saved custom theme with the same ID
 takes precedence. If the server stops publishing the selected theme, Stellar falls back to
-Borealis.
+Drive-In.
 
 Run this on the server to set a default and switch connected clients to it:
 

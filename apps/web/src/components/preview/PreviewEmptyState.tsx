@@ -34,7 +34,7 @@ export function PreviewEmptyState({
 
   if (servers.length === 0 && recents.length === 0) {
     return (
-      <Empty>
+      <Empty backdrop="ambient">
         <EmptyMedia variant="icon">
           <Globe className="size-4.5 text-muted-foreground" />
         </EmptyMedia>

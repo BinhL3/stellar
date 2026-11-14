@@ -9,7 +9,11 @@ import {
   environmentThemeFileHasColors,
 } from "@t3tools/contracts";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
-import { BUILT_IN_THEME_IDS, UNPUBLISHABLE_THEME_IDS } from "@t3tools/shared/themePalettes";
+import {
+  BUILT_IN_THEME_IDS,
+  RENAMED_THEME_IDS,
+  UNPUBLISHABLE_THEME_IDS,
+} from "@t3tools/shared/themePalettes";
 import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
@@ -425,10 +429,11 @@ const themeSetCommand = Command.make("set", {
         return yield* new ThemeFileUnreadableError({ filePath: target });
       } else if (isEnvironmentThemeId(target)) {
         const known = yield* resolvableThemeIds(paths.themesDir);
-        if (!known.includes(target)) {
+        const resolved = RENAMED_THEME_IDS[target] ?? target;
+        if (!known.includes(resolved)) {
           return yield* new ThemeIdUnknownError({ themeId: target, known });
         }
-        themeId = target;
+        themeId = resolved;
       } else {
         return yield* new ThemeIdInvalidError({ themeId: target });
       }

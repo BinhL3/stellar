@@ -3,14 +3,19 @@ export const BUILT_IN_THEME_IDS = [
   "night-edit",
   "darkroom",
   "studio",
-  "borealis",
+  "drive-in",
 ] as const;
 
-export const DEFAULT_THEME_ID = "borealis" satisfies (typeof BUILT_IN_THEME_IDS)[number];
+export const DEFAULT_THEME_ID = "drive-in" satisfies (typeof BUILT_IN_THEME_IDS)[number];
 
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
 
 export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...BUILT_IN_THEME_IDS] as const;
+
+/** Built-in ids that were renamed; stored preferences and `t3 theme set` still name the old one. */
+export const RENAMED_THEME_IDS: Readonly<Record<string, BuiltInThemeId>> = {
+  borealis: "drive-in",
+};
 
 /** Reserve the retired appearance keywords, built-ins, and legacy aliases so custom themes cannot capture stored preferences. */
 export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
@@ -18,6 +23,7 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "light",
   "dark",
   ...BUILT_IN_THEME_IDS,
+  ...Object.keys(RENAMED_THEME_IDS),
   "t3-code",
   "t3-chat",
   "grove",
@@ -324,15 +330,15 @@ export const STUDIO_THEME: ThemeDefinition = {
   colors: editorPalette("#252525", "#303030", "#3b3b3b", "#555555", "#dedede"),
 };
 
-// Near-black indigo with a mint accent. After Borealis by Adolanium (MIT).
-export const BOREALIS_THEME: ThemeDefinition = {
+// A field after dark, lit by the screen: blue-black with one lime ink.
+export const DRIVE_IN_THEME: ThemeDefinition = {
   id: DEFAULT_THEME_ID,
-  label: "Borealis",
-  colors: editorPalette("#08080d", "#111019", "#17161f", "#24222f", "#6ff0c4"),
+  label: "Drive-In",
+  colors: editorPalette("#070a0e", "#0f131a", "#161b24", "#232a36", "#d0f26a"),
 };
 
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
-  BOREALIS_THEME,
+  DRIVE_IN_THEME,
   STELLAR_THEME,
   NIGHT_EDIT_THEME,
   DARKROOM_THEME,

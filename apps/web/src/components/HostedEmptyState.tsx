@@ -33,7 +33,7 @@ export function HostedEmptyState() {
           </div>
         </WorkspacePageHeader>
 
-        <Empty className="flex-1">
+        <Empty backdrop="ambient" className="flex-1">
           <EmptyHeader>
             <EmptyTitle>
               {localEnvironmentOff ? "This computer is off" : "No computer connected"}

@@ -72,6 +72,9 @@ describe("t3 theme", () => {
       writeSettings(baseDir, { enableProviderUpdateChecks: false });
 
       yield* runCli(["theme", "set", "studio", "--base-dir", baseDir]);
+      // A built-in's old id still sets it, under the id it has now.
+      yield* runCli(["theme", "set", "borealis", "--base-dir", baseDir]);
+      assert.equal(readSettings(baseDir).defaultTheme, "drive-in");
       yield* runCli(["theme", "clear", "--base-dir", baseDir]);
 
       const settings = readSettings(baseDir);

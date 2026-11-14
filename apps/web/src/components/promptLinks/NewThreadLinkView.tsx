@@ -447,7 +447,7 @@ function LinkPage({
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
       {isElectron ? <WorkspacePageHeader electron /> : null}
-      <Empty className="flex-1">
+      <Empty backdrop="ambient" className="flex-1">
         <EmptyHeader className="max-w-md">
           <EmptyTitle>{title}</EmptyTitle>
           {description ? <EmptyDescription>{description}</EmptyDescription> : null}

@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 
+import { Backdrop } from "../backdrop/Backdrop";
 import { StellarMark } from "../StellarMark";
 
 export function StandalonePage({ children }: { readonly children: ReactNode }) {
   return (
     // The page owns scrolling because root cannot scroll; safe centering keeps oversized cards top-aligned.
-    <div className="flex h-full items-center-safe justify-center overflow-y-auto scrollbar-gutter-both bg-background px-4 py-10 text-foreground sm:px-6">
+    <div className="relative isolate flex h-full items-center-safe justify-center overflow-y-auto scrollbar-gutter-both bg-background px-4 py-10 text-foreground sm:px-6">
+      <Backdrop variant="hero" className="fixed" />
       <section className="dialog-glass w-full max-w-xl rounded-2xl border p-6">{children}</section>
     </div>
   );

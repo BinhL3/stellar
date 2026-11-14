@@ -19,7 +19,7 @@ export function NoActiveThreadState() {
           )}
         </WorkspacePageHeader>
 
-        <Empty className="flex-1">
+        <Empty backdrop="hero" className="flex-1">
           <div className="w-full max-w-lg px-8 py-12">
             <EmptyHeader className="max-w-none">
               <EmptyTitle>Pick a thread to continue</EmptyTitle>

@@ -1,5 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 
+import { Backdrop } from "~/components/backdrop/Backdrop";
 import { cn } from "~/lib/utils";
 
 const emptySizeClassName = {
@@ -12,18 +13,28 @@ const emptySizeClassName = {
 function Empty({
   className,
   size = "default",
+  backdrop,
+  children,
   ...props
-}: React.ComponentProps<"div"> & { size?: keyof typeof emptySizeClassName }) {
+}: React.ComponentProps<"div"> & {
+  size?: keyof typeof emptySizeClassName;
+  /** Puts the theme's scene behind the state: `hero` at full strength, `ambient` faded for text. */
+  backdrop?: "hero" | "ambient";
+}) {
   return (
     <div
       className={cn(
         "flex min-w-0 flex-1 flex-col items-center justify-center text-balance text-center",
+        backdrop && "relative isolate",
         emptySizeClassName[size],
         className,
       )}
       data-slot="empty"
       {...props}
-    />
+    >
+      {backdrop ? <Backdrop variant={backdrop} className="bg-transparent" /> : null}
+      {children}
+    </div>
   );
 }
 

@@ -141,6 +141,11 @@ describe("index.html boot script", () => {
       themeId: "stellar",
     },
     {
+      name: "a renamed built-in resolves to its new id",
+      storage: { [THEME_STORAGE_KEY]: "borealis" },
+      themeId: "drive-in",
+    },
+    {
       name: "a light custom theme with a dark variant",
       storage: { [THEME_STORAGE_KEY]: "aurora", [CUSTOM_THEMES_STORAGE_KEY]: CUSTOM_THEMES },
       themeId: "aurora",
