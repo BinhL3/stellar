@@ -18,8 +18,8 @@ vi.mock("~/branding", async (original) => ({
   SHOW_GIT_SURFACES: true,
 }));
 vi.mock("../hooks/useTheme", () => ({
-  useRenderedAppearance: () => "light",
-  useTheme: () => ({ theme: "t3-chat", resolvedTheme: "light", appearanceMode: "light" }),
+  RENDERED_APPEARANCE: "dark",
+  useTheme: () => ({ theme: "stellar", resolvedTheme: "dark" }),
 }));
 vi.mock("../hooks/useCustomThemes", () => ({ useCustomThemes: () => [] }));
 vi.mock("../hooks/useEnvironmentTheme", () => ({ useEnvironmentThemeDefinitions: () => [] }));

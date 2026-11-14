@@ -7,7 +7,7 @@ export function readPreviewAnnotationTheme(): DesktopPreviewAnnotationTheme {
   const root = document.documentElement;
   const styles = getComputedStyle(root);
   return {
-    colorScheme: root.classList.contains("dark") ? "dark" : "light",
+    colorScheme: "dark",
     radius: readVariable(styles, "--radius", "0.625rem"),
     background: readVariable(styles, "--background", "white"),
     foreground: readVariable(styles, "--contrast-foreground", "oklch(0.269 0 0)"),

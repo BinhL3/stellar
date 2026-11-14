@@ -61,7 +61,6 @@ async function renderPanel() {
         onOpenChange={() => {}}
         onSaved={() => true}
         editingTheme={null}
-        initialAppearance="dark"
         restoreTheme={() => {}}
       />,
     ),
@@ -105,7 +104,6 @@ describe("ThemeEditorPanel", () => {
         onOpenChange={() => {}}
         onSaved={() => true}
         editingTheme={null}
-        initialAppearance="dark"
         restoreTheme={() => {}}
       />,
     );

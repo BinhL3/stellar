@@ -82,7 +82,6 @@ function layerPool(labelRef: Ref.Ref<string>): Layer.Layer<DesktopBackendPool.De
           dispatchSnapShotEvent: () => Effect.void,
           zoomMain: () => Effect.die("unexpected zoom"),
           runMainContentsCommand: () => Effect.die("unexpected main contents command"),
-          syncAppearance: Effect.void,
         } satisfies DesktopWindow.DesktopWindow["Service"]),
       ),
     ),

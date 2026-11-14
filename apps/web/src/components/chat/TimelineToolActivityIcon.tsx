@@ -83,7 +83,7 @@ export function ToolActivityIconView(props: {
   muted: boolean;
 }) {
   const { resolvedTheme } = use(TimelineRowCtx);
-  const fallbackClassName = cn(props.className, props.muted && "opacity-70 light:brightness-60");
+  const fallbackClassName = cn(props.className, props.muted && "opacity-70");
   if (!props.icon) {
     return <WorkEntryIcon name={props.fallbackName} className={fallbackClassName} />;
   }
@@ -103,10 +103,7 @@ export function ToolActivityIconView(props: {
     );
   }
   if (props.icon._tag === "themed-logo") {
-    const src =
-      resolvedTheme === "dark"
-        ? (props.icon.logoUrlDark ?? props.icon.logoUrl)
-        : props.icon.logoUrl;
+    const src = props.icon.logoUrlDark ?? props.icon.logoUrl;
     return (
       <ToolActivityImageIcon
         key={src}
@@ -143,7 +140,7 @@ function NativeAppToolActivityIcon(props: {
     return (
       <WorkEntryIcon
         name={props.fallbackName}
-        className={cn(props.className, props.muted && "opacity-70 light:brightness-60")}
+        className={cn(props.className, props.muted && "opacity-70")}
       />
     );
   }
@@ -188,7 +185,7 @@ function ToolActivityImageIcon(props: {
       {displayedSrc === null ? (
         <WorkEntryIcon
           name={props.fallbackName}
-          className={cn(props.className, props.muted && "opacity-70 light:brightness-60")}
+          className={cn(props.className, props.muted && "opacity-70")}
         />
       ) : null}
       {displayedSrc ? (
@@ -205,7 +202,7 @@ function ToolActivityImageIcon(props: {
             aria-hidden
             decoding="async"
             referrerPolicy="no-referrer"
-            className={cn("block size-full object-contain", props.muted && "light:brightness-70")}
+            className="block size-full object-contain"
             onError={() => handleLoadError(displayedSrc)}
           />
         </span>

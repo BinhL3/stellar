@@ -35,75 +35,64 @@ function expectVisibleSelection(colors: ReturnType<typeof androidWorkspaceNaviga
 
 describe("Android workspace navigation colors", () => {
   it.each(MOBILE_THEME_IDS)("keeps %s selection visible in every navigation layout", (themeId) => {
-    for (const appearance of ["light", "dark"] as const) {
-      const variables = getMobileThemeRuntimeVariables(themeId, appearance, "android");
-      const snapshot = { ...variables };
+    const variables = getMobileThemeRuntimeVariables(themeId, "android");
+    const snapshot = { ...variables };
+    for (const [rail, floating] of [
+      [false, false],
+      [true, false],
+      [false, true],
+    ] as const) {
+      expectVisibleSelection(androidWorkspaceNavigationColors(variables, rail, floating));
+    }
+    const pill = androidWorkspaceNavigationColors(variables, false, true).containerColor;
+    for (const surface of ["--color-screen", "--color-grouped-card"] as const) {
+      expect(contrast(pill, variables[surface]), surface).toBeGreaterThanOrEqual(1.25);
+    }
+    expect(variables).toEqual(snapshot);
+  });
+
+  it.each(["#6750a4", "#9c4146"])(
+    "keeps Material You selection visible for system seed %s",
+    (seed) => {
+      const scheme = new SchemeTonalSpot(Hct.fromInt(argbFromHex(seed)), true, 0);
+      const roles = [
+        "primary",
+        "onPrimary",
+        "primaryContainer",
+        "onPrimaryContainer",
+        "inversePrimary",
+        "secondaryContainer",
+        "onSecondaryContainer",
+        "tertiary",
+        "tertiaryContainer",
+        "onTertiaryContainer",
+        "surface",
+        "onSurface",
+        "onSurfaceVariant",
+        "surfaceContainer",
+        "surfaceContainerHigh",
+        "surfaceContainerHighest",
+        "surfaceContainerLow",
+        "surfaceContainerLowest",
+        "errorContainer",
+        "onErrorContainer",
+        "outline",
+        "outlineVariant",
+        "scrim",
+      ] as const satisfies ReadonlyArray<keyof MaterialYouPalette>;
+      const palette = Object.fromEntries(
+        roles.map((role) => [role, `${hexFromArgb(scheme[role])}ff`]),
+      ) as Record<(typeof roles)[number], string>;
+      const variables = materialYouPaletteToMobileThemeVariables(
+        palette,
+        getMobileThemeRuntimeVariables("material-you", "android"),
+      );
       for (const [rail, floating] of [
         [false, false],
         [true, false],
         [false, true],
       ] as const) {
         expectVisibleSelection(androidWorkspaceNavigationColors(variables, rail, floating));
-      }
-      if (appearance === "dark") {
-        const pill = androidWorkspaceNavigationColors(variables, false, true).containerColor;
-        for (const surface of ["--color-screen", "--color-grouped-card"] as const) {
-          expect(contrast(pill, variables[surface]), surface).toBeGreaterThanOrEqual(1.25);
-        }
-      }
-      expect(variables).toEqual(snapshot);
-    }
-  });
-
-  it.each(["#6750a4", "#9c4146"])(
-    "keeps Material You selection visible for system seed %s",
-    (seed) => {
-      for (const appearance of ["light", "dark"] as const) {
-        const scheme = new SchemeTonalSpot(
-          Hct.fromInt(argbFromHex(seed)),
-          appearance === "dark",
-          0,
-        );
-        const roles = [
-          "primary",
-          "onPrimary",
-          "primaryContainer",
-          "onPrimaryContainer",
-          "inversePrimary",
-          "secondaryContainer",
-          "onSecondaryContainer",
-          "tertiary",
-          "tertiaryContainer",
-          "onTertiaryContainer",
-          "surface",
-          "onSurface",
-          "onSurfaceVariant",
-          "surfaceContainer",
-          "surfaceContainerHigh",
-          "surfaceContainerHighest",
-          "surfaceContainerLow",
-          "surfaceContainerLowest",
-          "errorContainer",
-          "onErrorContainer",
-          "outline",
-          "outlineVariant",
-          "scrim",
-        ] as const satisfies ReadonlyArray<keyof MaterialYouPalette>;
-        const palette = Object.fromEntries(
-          roles.map((role) => [role, `${hexFromArgb(scheme[role])}ff`]),
-        ) as Record<(typeof roles)[number], string>;
-        const variables = materialYouPaletteToMobileThemeVariables(
-          palette,
-          appearance,
-          getMobileThemeRuntimeVariables("material-you", appearance, "android"),
-        );
-        for (const [rail, floating] of [
-          [false, false],
-          [true, false],
-          [false, true],
-        ] as const) {
-          expectVisibleSelection(androidWorkspaceNavigationColors(variables, rail, floating));
-        }
       }
     },
   );

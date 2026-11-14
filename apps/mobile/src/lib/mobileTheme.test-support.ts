@@ -3,20 +3,17 @@ import * as NodeFS from "node:fs";
 import {
   createMobileThemeVariables,
   type MobileThemeVariable,
-  type MobileThemeAppearance,
   type MobileThemeVariables,
 } from "./mobileTheme";
 
 import { STELLAR_THEME } from "@t3tools/shared/themePalettes";
 
 const MOBILE_THEME_VARIABLE_NAMES = Object.keys(
-  createMobileThemeVariables(STELLAR_THEME.colors, "light"),
+  createMobileThemeVariables(STELLAR_THEME.colors),
 ) as ReadonlyArray<MobileThemeVariable>;
 
-export function readDefaultMobileThemeVariables(
-  appearance: MobileThemeAppearance,
-): MobileThemeVariables {
-  return readGeneratedMobileThemeVariables(appearance);
+export function readDefaultMobileThemeVariables(): MobileThemeVariables {
+  return readGeneratedMobileThemeVariables("dark");
 }
 
 export function readGeneratedMobileThemeVariables(themeName: string): MobileThemeVariables {

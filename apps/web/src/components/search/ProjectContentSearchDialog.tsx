@@ -4,7 +4,7 @@ import { AuthFilesystemReadScope, type ProjectContentMatch } from "@t3tools/cont
 import { useState, type ReactNode } from "react";
 
 import { useActiveProjectTarget, type ActiveProjectTarget } from "~/hooks/useActiveProjectTarget";
-import { useRenderedAppearance, useTheme } from "~/hooks/useTheme";
+import { RENDERED_APPEARANCE, useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { useProjectContentSearch } from "~/state/queries";
@@ -107,7 +107,7 @@ function OpenContentSearchDialog(props: {
 }) {
   const { target } = props;
   const { resolvedTheme } = useTheme();
-  const renderedAppearance = useRenderedAppearance();
+  const renderedAppearance = RENDERED_APPEARANCE;
   const [query, setQuery] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);

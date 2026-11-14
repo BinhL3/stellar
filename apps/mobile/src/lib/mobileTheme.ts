@@ -1,13 +1,11 @@
 import {
   BUILT_IN_THEMES,
+  DEFAULT_THEME_ID,
   STELLAR_THEME,
-  T3_CODE_LIGHT_THEME_COLORS,
   T3_CODE_DARK_THEME_COLORS,
-  getThemeColorsForAppearance,
   MOBILE_DEFAULT_THEME_ID,
   MOBILE_THEME_IDS as SHARED_MOBILE_THEME_IDS,
   type MobileThemeId as SharedMobileThemeId,
-  type ThemeAppearance,
   type ThemeColors,
 } from "@t3tools/shared/themePalettes";
 import {
@@ -18,9 +16,8 @@ import {
 export const DEFAULT_MOBILE_THEME_ID = MOBILE_DEFAULT_THEME_ID;
 export const MOBILE_THEME_IDS = [...SHARED_MOBILE_THEME_IDS, "material-you"] as const;
 export type MobileThemeId = SharedMobileThemeId | "material-you";
-export type MobileThemeAppearance = ThemeAppearance;
-export type MobileThemeMode = MobileThemeAppearance | "system";
-export type MobileThemeIds = Readonly<Record<MobileThemeAppearance, MobileThemeId>>;
+/** The app is dark-only. The name stays for the native views that take an appearance. */
+export type MobileThemeAppearance = "dark";
 
 export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
   readonly id: MobileThemeId;
@@ -53,54 +50,23 @@ function normalizeMobileThemeId(value: unknown): MobileThemeId {
     return "stellar";
   return typeof value === "string" && (MOBILE_THEME_IDS as readonly string[]).includes(value)
     ? (value as MobileThemeId)
-    : DEFAULT_MOBILE_THEME_ID;
+    : DEFAULT_THEME_ID;
 }
 
-export function normalizeMobileThemeMode(value: unknown): MobileThemeMode {
-  return value === "light" || value === "dark" || value === "system" ? value : "system";
-}
-
-export function resolveMobileThemeIds(preferences: {
+/**
+ * Preferences saved while the app had a light scheme hold a theme per appearance and a
+ * mode. The dark theme is the one kept; `lightThemeId` and `themeMode` are ignored.
+ */
+export function resolveMobileThemeId(preferences: {
   readonly themeId?: unknown;
-  readonly lightThemeId?: unknown;
   readonly darkThemeId?: unknown;
-}): MobileThemeIds {
-  const legacyThemeId = normalizeMobileThemeId(preferences.themeId);
-  return {
-    light:
-      preferences.lightThemeId === undefined
-        ? legacyThemeId
-        : normalizeMobileThemeId(preferences.lightThemeId),
-    dark:
-      preferences.darkThemeId === undefined
-        ? legacyThemeId
-        : normalizeMobileThemeId(preferences.darkThemeId),
-  };
+}): MobileThemeId {
+  return normalizeMobileThemeId(preferences.darkThemeId ?? preferences.themeId);
 }
 
-export function createMobileThemeSelectionPatch(
-  themeIds: MobileThemeIds,
-  activeAppearance: MobileThemeAppearance,
-  selectedAppearance: MobileThemeAppearance,
-  value: MobileThemeId,
-) {
-  const nextThemeIds: MobileThemeIds = {
-    light: selectedAppearance === "light" ? value : themeIds.light,
-    dark: selectedAppearance === "dark" ? value : themeIds.dark,
-  };
-  return {
-    lightThemeId: nextThemeIds.light,
-    darkThemeId: nextThemeIds.dark,
-    themeId: nextThemeIds[activeAppearance],
-  };
-}
-
-export function createMobileThemePairPatch(value: MobileThemeId) {
-  return {
-    lightThemeId: value,
-    darkThemeId: value,
-    themeId: value,
-  };
+/** Writes `darkThemeId` too, since a value saved there outranks `themeId` on read. */
+export function createMobileThemePatch(value: MobileThemeId) {
+  return { darkThemeId: value, themeId: value };
 }
 
 const OKLCH_PATTERN = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+(-?[\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)$/;
@@ -341,7 +307,6 @@ export function themeColorWithAlpha(color: string, alpha: number): string {
 
 export function createMobileThemeVariables(
   colors: ThemeColors,
-  appearance: MobileThemeAppearance,
   groupedCardColor = colors.surface,
   prominentAction: readonly [string, string] = [colors.text, colors.canvas],
 ) {
@@ -373,14 +338,11 @@ export function createMobileThemeVariables(
     ),
     "--color-thread-hover": c.sidebarRowHover,
     "--color-row-hover": c.toolbarControlHover,
-    "--color-composer-panel": themeColorWithAlpha(c.canvas, appearance === "dark" ? 0.92 : 0.88),
-    "--color-composer-surface": themeColorWithAlpha(
-      groupedCard,
-      appearance === "dark" ? 0.9 : 0.94,
-    ),
+    "--color-composer-panel": themeColorWithAlpha(c.canvas, 0.92),
+    "--color-composer-surface": themeColorWithAlpha(groupedCard, 0.9),
     "--color-composer-border": themeColorWithAlpha(
       c.border,
-      groupedCard === c.surface ? (appearance === "dark" ? 0.46 : 0.54) : 0.8,
+      groupedCard === c.surface ? 0.46 : 0.8,
     ),
     "--color-foreground": c.text,
     "--color-foreground-secondary": themeColorWithContrast(c.textMuted, textSurfaces),
@@ -427,7 +389,7 @@ export function createMobileThemeVariables(
     "--color-header-foreground": c.toolbarForeground,
     "--color-header-border": c.toolbarBorder,
     "--color-glass-surface": withAlpha(c.surfaceOverlay, 0.74),
-    "--color-glass-fallback": themeColorWithAlpha(groupedCard, appearance === "dark" ? 0.9 : 0.94),
+    "--color-glass-fallback": themeColorWithAlpha(groupedCard, 0.9),
     "--color-glass-tint": withAlpha(c.surfaceOverlay, 0.22),
     "--color-status-bar": c.canvas,
     "--color-md-body": c.text,
@@ -439,7 +401,7 @@ export function createMobileThemeVariables(
     "--color-md-code-text": c.codeForeground,
     "--color-md-user-code-bg": withAlpha(c.messageForeground, 0.18),
     "--color-md-user-code-text": c.messageForeground,
-    "--color-md-user-fence-bg": withAlpha("#000000", appearance === "dark" ? 0.28 : 0.16),
+    "--color-md-user-fence-bg": withAlpha("#000000", 0.28),
     "--color-md-user-fence-text": c.messageForeground,
     "--color-md-hr": c.border,
     "--color-user-bubble": c.messageSurface,
@@ -449,7 +411,7 @@ export function createMobileThemeVariables(
       c.messageAction,
       c.messageSurface,
     ),
-    "--color-backdrop": withAlpha("#000000", appearance === "dark" ? 0.48 : 0.22),
+    "--color-backdrop": withAlpha("#000000", 0.48),
     "--color-drawer": c.sidebar,
     "--color-drawer-foreground": c.sidebarForeground,
     "--color-drawer-foreground-muted": themeColorWithContrast(c.sidebarMutedForeground, [
@@ -457,69 +419,45 @@ export function createMobileThemeVariables(
       c.sidebarRowHover,
     ]),
     "--color-drawer-border": c.sidebarBorder,
-    "--color-drawer-shadow": withAlpha("#000000", appearance === "dark" ? 0.32 : 0.12),
+    "--color-drawer-shadow": withAlpha("#000000", 0.32),
     "--color-dot-separator": withAlpha(c.textMuted, 0.35),
     "--color-wordmark": c.text,
     "--color-chevron": withAlpha(c.textMuted, 0.42),
   };
 }
 
-export function getMobileThemeColors(
-  themeId: SharedMobileThemeId,
-  appearance: MobileThemeAppearance,
-): ThemeColors {
-  if (themeId === DEFAULT_MOBILE_THEME_ID) {
-    return appearance === "dark" ? T3_CODE_DARK_THEME_COLORS : T3_CODE_LIGHT_THEME_COLORS;
-  }
-  const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? STELLAR_THEME;
-  return getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
+export function getMobileThemeColors(themeId: SharedMobileThemeId): ThemeColors {
+  if (themeId === DEFAULT_MOBILE_THEME_ID) return T3_CODE_DARK_THEME_COLORS;
+  return (BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? STELLAR_THEME).colors;
 }
 
 export function getMobileThemeVariables(
   themeId: SharedMobileThemeId,
-  appearance: MobileThemeAppearance,
   overrides: Partial<MobileThemeVariables> | null = null,
 ): MobileThemeVariables {
-  const colors = getMobileThemeColors(themeId, appearance);
-  const groupedCard =
-    themeId === DEFAULT_MOBILE_THEME_ID
-      ? appearance === "light"
-        ? colors.toolbarControlHover
-        : colors.sidebarRowActive
-      : colors.muted;
-  const mobileColors =
-    themeId === DEFAULT_MOBILE_THEME_ID
+  const colors = getMobileThemeColors(themeId);
+  const isDefault = themeId === DEFAULT_MOBILE_THEME_ID;
+  const baseVariables = createMobileThemeVariables(
+    isDefault
       ? {
           ...colors,
           messageSurface: flattenThemeColor(
-            themeColorWithAlpha(
-              appearance === "dark" ? colors.sidebarRowActive : colors.border,
-              0.3,
-            ),
+            themeColorWithAlpha(colors.sidebarRowActive, 0.3),
             colors.messageSurface,
           ),
         }
-      : colors;
-  const baseVariables = createMobileThemeVariables(
-    mobileColors,
-    appearance,
-    groupedCard,
-    themeId !== DEFAULT_MOBILE_THEME_ID
-      ? [colors.messageAction, colors.messageActionForeground]
-      : undefined,
+      : colors,
+    isDefault ? colors.sidebarRowActive : colors.muted,
+    isDefault ? undefined : [colors.messageAction, colors.messageActionForeground],
   );
 
   return overrides ? ({ ...baseVariables, ...overrides } as MobileThemeVariables) : baseVariables;
 }
 
-export function getMobileThemePreviewColors(
-  themeId: MobileThemeId,
-  appearance: MobileThemeAppearance,
-): ThemePreviewColors {
+export function getMobileThemePreviewColors(themeId: MobileThemeId): ThemePreviewColors {
   if (themeId === DEFAULT_MOBILE_THEME_ID || themeId === "material-you")
-    return STANDARD_THEME_PREVIEW_COLORS[appearance];
-  const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? STELLAR_THEME;
-  const colors = getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
+    return STANDARD_THEME_PREVIEW_COLORS;
+  const { colors } = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? STELLAR_THEME;
   return {
     canvas: themeColorToNativeColor(colors.canvas),
     accent: themeColorToNativeColor(colors.accent),

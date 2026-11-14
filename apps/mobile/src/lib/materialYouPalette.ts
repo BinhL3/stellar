@@ -24,13 +24,9 @@ export interface MaterialYouPalette {
   readonly scrim: string;
 }
 
-export interface MaterialYouPalettes {
-  readonly light: MaterialYouPalette;
-  readonly dark: MaterialYouPalette;
-}
-
 export const isSystemColorsAvailable = false;
 
-export function readSystemColorPalettes(): MaterialYouPalettes | null {
+/** The system's dark dynamic-color palette. */
+export function readSystemColorPalette(): MaterialYouPalette | null {
   return null;
 }

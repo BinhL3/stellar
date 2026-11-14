@@ -43,7 +43,6 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
-import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import { SNAP_SHOT_EVENT_CHANNEL } from "../ipc/channels.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
@@ -194,12 +193,6 @@ const layerElectronMenu = Layer.succeed(ElectronMenu.ElectronMenu, {
   showContextMenu: () => Effect.succeedNone,
 } satisfies ElectronMenu.ElectronMenu["Service"]);
 
-const layerElectronTheme = Layer.succeed(ElectronTheme.ElectronTheme, {
-  shouldUseDarkColors: Effect.succeed(false),
-  setSource: () => Effect.void,
-  onUpdated: () => Effect.void,
-} satisfies ElectronTheme.ElectronTheme["Service"]);
-
 const layerDesktopEnvironment = DesktopEnvironment.layer(environmentInput).pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -293,7 +286,6 @@ function layerTest(input: {
     reveal: (window) => Effect.sync(() => input.onReveal?.(window)),
     sendAll: () => Effect.void,
     destroyAll: input.destroyAll ?? Effect.void,
-    syncAllAppearance: (sync) => sync(input.window),
   } satisfies ElectronWindow.ElectronWindow["Service"]);
 
   return DesktopWindow.layer.pipe(
@@ -328,7 +320,6 @@ function layerTest(input: {
               input.copiedTexts?.push(text);
             }),
         } satisfies ElectronShell.ElectronShell["Service"]),
-        layerElectronTheme,
         layerElectronWindow,
         Layer.mock(PreviewPasskeys.PreviewPasskeys)({
           bridgeEnabled: false,
@@ -358,9 +349,6 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
     const createCalls = yield* Ref.make(0);
     const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
     const revealedWindows = yield* Ref.make<Electron.BrowserWindow[]>([]);
-    const fallbackWindow = createOutcomes.find(
-      (window): window is Electron.BrowserWindow => window !== null,
-    );
 
     const currentMainOrFirst = Effect.gen(function* () {
       const registered = yield* Ref.get(mainWindow);
@@ -414,7 +402,6 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       reveal: (window) => Ref.update(revealedWindows, (windows) => [...windows, window]),
       sendAll: () => Effect.void,
       destroyAll: Effect.void,
-      syncAllAppearance: (sync) => (fallbackWindow ? sync(fallbackWindow) : Effect.void),
     } satisfies ElectronWindow.ElectronWindow["Service"];
 
     const layer = DesktopWindow.layer.pipe(
@@ -438,7 +425,6 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             openSystemSettings: () => Effect.succeed(true),
             copyText: () => Effect.void,
           } satisfies ElectronShell.ElectronShell["Service"]),
-          layerElectronTheme,
           Layer.succeed(ElectronWindow.ElectronWindow, electronWindowShape),
           Layer.mock(PreviewPasskeys.PreviewPasskeys)({
             bridgeEnabled: false,

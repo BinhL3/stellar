@@ -6,10 +6,8 @@ import {
   useCommandPaletteStore,
 } from "../commandPaletteStore";
 import { overlayModeForCommand } from "../components/CommandPalette.logic";
-import { APPEARANCE_OPTIONS, notifyThemeSaveFailure } from "../components/CommandPaletteThemeItems";
 import { toggleThemeEditorForTheme } from "../components/settings/themeEditorStore";
-import { toastManager } from "../components/ui/toast";
-import { getThemeSnapshot, setAppearanceMode } from "../hooks/useTheme";
+import { getThemeSnapshot } from "../hooks/useTheme";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { type CommandHandler, type CommandScopeOptions, registerCommands } from "./dispatcher";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
@@ -61,22 +59,6 @@ export function installCommandPaletteCommands(
 
   const disposeCommands = registerCommands(
     {
-      "appearance.cycle": (event) => {
-        consume(event);
-        if (event.repeat) return;
-        const { appearanceMode } = getThemeSnapshot();
-        const nextMode =
-          appearanceMode === "system" ? "light" : appearanceMode === "light" ? "dark" : "system";
-        if (!setAppearanceMode(nextMode)) {
-          notifyThemeSaveFailure();
-          return;
-        }
-        toastManager.add({
-          id: "appearance-cycle",
-          title: `Appearance: ${APPEARANCE_OPTIONS.find((option) => option.mode === nextMode)?.label}`,
-          timeout: 1500,
-        });
-      },
       "theme.select": (event) => {
         consume(event);
         if (event.repeat) return;
@@ -84,8 +66,7 @@ export function installCommandPaletteCommands(
       },
       "themeEditor.toggle": (event) => {
         consume(event);
-        const { theme, themeHalves, resolvedTheme } = getThemeSnapshot();
-        toggleThemeEditorForTheme({ theme, themeHalves, initialAppearance: resolvedTheme });
+        toggleThemeEditorForTheme(getThemeSnapshot().theme);
       },
       "usage.open": (event) => {
         consume(event);

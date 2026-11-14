@@ -1,8 +1,8 @@
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { themeEnvironmentIdAtom } from "../state/primaryEnvironment";
 import { themeServerSettingsAtom } from "../state/server";
-import { getThemeDefinition, singleAppearanceOf, subscribeToCustomThemes } from "../themePalette";
-import { setAppearanceMode, setTheme } from "./useTheme";
+import { getThemeDefinition, subscribeToCustomThemes } from "../themePalette";
+import { setTheme } from "./useTheme";
 
 const APPLIED_DEFAULT_THEME_STORAGE_PREFIX = "t3code:default-theme-applied:v2:";
 
@@ -59,11 +59,7 @@ function adoptDefaultTheme(): void {
   });
   if (generation === null || definition === null) return;
 
-  // A single-appearance theme needs both preference and appearance writes to take effect.
   if (!setTheme(defaultTheme)) return;
-  const half = singleAppearanceOf(definition);
-  // Only record adoption after both writes succeed, so an appearance failure remains retryable.
-  if (half !== null && !setAppearanceMode(half)) return;
   writeAppliedGeneration(storageKey, generation);
 }
 

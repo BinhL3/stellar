@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  getThemeColorsForMode,
   parseThemeFile,
   themeColorToHex,
   THEME_FILE_VERSION,
@@ -9,7 +8,6 @@ import {
 } from "./themePalette";
 import {
   isVsCodeThemeFile,
-  pairVsCodeThemes,
   parseThemeImport,
   parseVsCodeThemeFile,
   resolveThemeLabelCollisions,
@@ -79,7 +77,6 @@ describe("theme import text", () => {
   ])("imports VS Code JSONC without changing conversion: %s", (source) => {
     const theme = parseThemeImport(source);
     expect(theme.label).toBe("Test");
-    expect(theme.appearance).toBe("dark");
     expect(asHex(theme.colors.canvas)).toBe("#002b36");
   });
 
@@ -136,7 +133,6 @@ describe("VS Code theme import", () => {
   it("carries the editor surfaces and accent across", () => {
     const theme = parseVsCodeThemeFile(VSCODE_DARK);
     expect(theme.label).toBe("Pierre Dark Soft");
-    expect(theme.appearance).toBe("dark");
     expect(asHex(theme.colors.canvas)).toBe("#171717");
     expect(asHex(theme.colors.text)).toBe("#d4d4d4");
     expect(asHex(theme.colors.accent)).toBe("#69b1ff");
@@ -177,25 +173,6 @@ describe("VS Code theme import", () => {
     expect(darkPlus.id).toBe("dark-vscode");
   });
 
-  it("keeps Dark+ and Light+ as separate themes instead of pairing them as +", () => {
-    const themes = pairVsCodeThemes([
-      parseVsCodeThemeFile({
-        name: "Light+",
-        type: "light",
-        colors: { "editor.background": "#ffffff" },
-      }),
-      parseVsCodeThemeFile({
-        name: "Dark+",
-        type: "dark",
-        colors: { "editor.background": "#1e1e1e" },
-      }),
-    ]);
-    expect(themes.map((theme) => [theme.id, theme.label])).toEqual([
-      ["light-vscode", "Light+"],
-      ["dark-vscode", "Dark+"],
-    ]);
-  });
-
   it("prefers a visible input background over a transparent border", () => {
     const catppuccin = parseVsCodeThemeFile({
       name: "Catppuccin Mocha",
@@ -211,10 +188,10 @@ describe("VS Code theme import", () => {
 
   it("keeps unchecked inputs distinct from the checked action color", () => {
     const gruvbox = parseVsCodeThemeFile({
-      name: "Gruvbox Light Soft",
-      type: "light",
+      name: "Gruvbox Dark Soft",
+      type: "dark",
       colors: {
-        "editor.background": "#f2e5bc",
+        "editor.background": "#32302f",
         "button.background": "#45858880",
         "input.background": "#45858880",
         "input.border": "#928374",
@@ -287,12 +264,10 @@ describe("VS Code theme import", () => {
     expect(asHex(colors.searchMatchForeground)).toBe("#ffffff");
   });
 
-  it.each(["light", "dark"])(
+  it.each(["dark", "hc-black"])(
     "keeps missing or invalid find colours readable in %s themes",
     (type) => {
-      const base = {
-        "editor.background": type === "dark" ? "#101010" : "#fafafa",
-      };
+      const base = { "editor.background": "#101010" };
       const missing = parseVsCodeThemeFile({ type, colors: base }).colors;
       const invalid = parseVsCodeThemeFile({
         type,
@@ -333,7 +308,7 @@ describe("VS Code theme import", () => {
 
   it("fills every role the file omits with a readable derived value", () => {
     const theme = parseVsCodeThemeFile(VSCODE_DARK);
-    const colors = getThemeColorsForMode(theme, "dark")!;
+    const colors = theme.colors;
     for (const value of Object.values(colors)) {
       expect(value).toMatch(/^oklch\(/);
     }
@@ -344,24 +319,23 @@ describe("VS Code theme import", () => {
     ).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("falls back to the editor background when the type is missing or odd", () => {
-    const untyped = parseVsCodeThemeFile({
-      name: "Untyped",
-      colors: { "editor.background": "#fdfdfd", "editor.foreground": "#202020" },
-    });
-    expect(untyped.appearance).toBe("light");
-    const hc = parseVsCodeThemeFile({
-      name: "High contrast",
-      type: "hc-light",
-      colors: { "editor.background": "#ffffff" },
-    });
-    expect(hc.appearance).toBe("light");
+  it("refuses light themes, judging an untyped one by its editor background", () => {
+    for (const light of [
+      { name: "Untyped", colors: { "editor.background": "#fdfdfd" } },
+      { name: "Typed", type: "light", colors: { "editor.background": "#101010" } },
+      { name: "High contrast", type: "hc-light", colors: { "editor.background": "#ffffff" } },
+    ]) {
+      expect(() => parseVsCodeThemeFile(light)).toThrow("is a light theme");
+    }
+    expect(
+      asHex(
+        parseVsCodeThemeFile({ name: "Untyped", colors: { "editor.background": "#101010" } }).colors
+          .canvas,
+      ),
+    ).toBe("#101010");
   });
 
-  it.each([
-    ["dark", "#282828"],
-    ["light", "#ffffff"],
-  ] as const)(
+  it.each([["dark", "#282828"]] as const)(
     "keeps a dim status color's hue on a %s canvas instead of replacing it",
     (type, canvas) => {
       const theme = parseVsCodeThemeFile({
@@ -437,50 +411,6 @@ describe("VS Code theme import", () => {
     expect(blue).toBeGreaterThan(200);
     expect(blue).toBeGreaterThan(red);
     expect(green).toBeGreaterThan(red);
-  });
-
-  it("pairs light and dark files from one family into dual-mode themes", () => {
-    const make = (name: string, type: "light" | "dark") =>
-      parseVsCodeThemeFile({
-        name,
-        type,
-        colors: {
-          "editor.background": type === "dark" ? "#101014" : "#fdfdfd",
-          "editor.foreground": type === "dark" ? "#e6e6e6" : "#1f1f1f",
-          focusBorder: "#69b1ff",
-        },
-      });
-    const themes = pairVsCodeThemes([
-      make("github-dark", "dark"),
-      make("github-light", "light"),
-      make("github-dark-colorblind", "dark"),
-      make("github-light-colorblind", "light"),
-      make("github-dark-dimmed", "dark"),
-    ]);
-
-    const labels = themes.map((theme) => theme.label);
-    expect(labels).toEqual(["Github", "Github Colorblind", "Github Dark Dimmed"]);
-    const github = themes[0]!;
-    expect(github.appearance).toBe("light");
-    expect(getThemeColorsForMode(github, "dark")).not.toBeNull();
-    expect(asHex(getThemeColorsForMode(github, "dark")!.canvas)).toBe("#101014");
-    expect(asHex(github.colors.canvas)).toBe("#fdfdfd");
-    expect(getThemeColorsForMode(themes[2]!, "light")).toBeNull();
-  });
-
-  it("does not guess when a family is ambiguous", () => {
-    const make = (name: string, type: "light" | "dark") =>
-      parseVsCodeThemeFile({
-        name,
-        type,
-        colors: { "editor.background": type === "dark" ? "#101014" : "#fdfdfd" },
-      });
-    const themes = pairVsCodeThemes([
-      make("solar-dark", "dark"),
-      make("solar-dark-soft", "dark"),
-      make("solar-light", "light"),
-    ]);
-    expect(themes.map((theme) => theme.label).sort()).toEqual(["Solar", "Solar Dark Soft"]);
   });
 
   it("tells same-named variants apart by their file names", () => {

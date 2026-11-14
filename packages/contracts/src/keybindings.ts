@@ -84,6 +84,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "projectSearch.toggle",
   "usage.open",
   "theme.select",
+  // Retired with light mode; listed so saved keybindings that name it still decode.
   "appearance.cycle",
   "themeEditor.toggle",
   "composer.stash",

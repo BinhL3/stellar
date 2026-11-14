@@ -16,18 +16,13 @@ import { createWidget, type WidgetEnvironment } from "expo-widgets";
 
 import type { SubscriptionUsageSnapshot as SubscriptionUsageProps } from "./subscriptionUsageSnapshot";
 
-export function SubscriptionUsage(props: SubscriptionUsageProps, environment: WidgetEnvironment) {
+export function SubscriptionUsage(props: SubscriptionUsageProps, _environment: WidgetEnvironment) {
   "widget";
   // The widget runtime evaluates this function without the app's module scope.
   const now = Date.now();
   const limit = 2;
-  const mode = props.theme?.mode;
-  const appearance =
-    mode === "light" || mode === "dark"
-      ? mode
-      : environment.colorScheme === "dark"
-        ? "dark"
-        : "light";
+  // Stellar is dark-only, so the widget does not follow the home screen's scheme.
+  const appearance = "dark";
   const palette = props.theme?.[appearance];
   const colors = palette
     ? {

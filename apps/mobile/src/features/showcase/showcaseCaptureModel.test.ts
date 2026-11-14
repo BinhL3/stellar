@@ -31,21 +31,21 @@ describe("showcaseSceneOnScreen", () => {
 
 describe("isShowcaseThemeApplied", () => {
   it("waits for the launch request when no theme is requested", () => {
-    const themeIds = { light: "t3-code", dark: "t3-code" } as const;
+    const themeId = "t3-code";
     expect(
-      isShowcaseThemeApplied({ launchRequestRead: false, requestedTheme: null, themeIds }),
+      isShowcaseThemeApplied({ launchRequestRead: false, requestedTheme: null, themeId }),
     ).toBe(false);
-    expect(
-      isShowcaseThemeApplied({ launchRequestRead: true, requestedTheme: null, themeIds }),
-    ).toBe(true);
+    expect(isShowcaseThemeApplied({ launchRequestRead: true, requestedTheme: null, themeId })).toBe(
+      true,
+    );
   });
 
-  it("requires both appearances to use the requested theme", () => {
+  it("requires the requested theme to be the one applied", () => {
     expect(
       isShowcaseThemeApplied({
         launchRequestRead: true,
         requestedTheme: "t3-code",
-        themeIds: { light: "t3-code", dark: "material-you" },
+        themeId: "material-you",
       }),
     ).toBe(false);
   });

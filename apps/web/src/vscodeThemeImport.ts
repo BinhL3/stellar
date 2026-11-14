@@ -1,16 +1,15 @@
+import * as Schema from "effect/Schema";
 import { parse, type ParseError } from "jsonc-parser";
 
 import {
   createVividThemeColors,
-  getStandardThemeColors,
-  getThemeModes,
+  getDefaultThemeColors,
   isReservedThemeId,
   parseThemeFile,
   readableThemeColorOn,
   themeColorToHex,
   themeIdFromName,
   THEME_FILE_VERSION,
-  type ThemeAppearance,
   type ThemeColorRole,
   type ThemeDefinition,
 } from "./themePalette";
@@ -144,11 +143,22 @@ export function parseThemeImport(source: string): ThemeDefinition {
     : parseThemeFile(JSON.parse(source));
 }
 
-function resolveAppearance(value: Record<string, unknown>, canvas: VsCodeRgb): ThemeAppearance {
+/** A VS Code theme that is light, which a dark-only app has no use for. */
+export class LightThemeError extends Schema.TaggedError<LightThemeError>()("LightThemeError", {
+  themeName: Schema.String,
+}) {
+  override get message(): string {
+    return `“${this.themeName}” is a light theme. Stellar only uses dark themes.`;
+  }
+}
+
+export const isLightThemeError = Schema.is(LightThemeError);
+
+function isLightTheme(value: Record<string, unknown>, canvas: VsCodeRgb): boolean {
   const type = typeof value.type === "string" ? value.type.toLowerCase() : null;
-  if (type === "light" || type === "hc-light") return "light";
-  if (type === "dark" || type === "hc-black") return "dark";
-  return relativeLuminance(canvas) < 0.179 ? "dark" : "light";
+  if (type === "light" || type === "hc-light") return true;
+  if (type === "dark" || type === "hc-black") return false;
+  return relativeLuminance(canvas) >= 0.179;
 }
 
 export function humanizeThemeName(raw: string): string {
@@ -193,7 +203,9 @@ export function parseVsCodeThemeFile(value: unknown): ThemeDefinition {
     );
   }
   const canvas = { r: canvasColor.r, g: canvasColor.g, b: canvasColor.b };
-  const appearance = resolveAppearance(value, canvas);
+  if (isLightTheme(value, canvas)) {
+    throw new LightThemeError({ themeName: resolveName(value) });
+  }
 
   const canvasHex = toHex(canvas);
   const raisedSurfaceCandidateHex = solidOver(
@@ -228,7 +240,7 @@ export function parseVsCodeThemeFile(value: unknown): ThemeDefinition {
     break;
   }
   if (!accentColor || !accentHex) {
-    const standardAccentHex = themeColorToHex(getStandardThemeColors(appearance).accent)!;
+    const standardAccentHex = themeColorToHex(getDefaultThemeColors().accent)!;
     accentHex =
       [standardAccentHex, "#ffffff", "#000000"].find(
         (candidate) =>
@@ -242,7 +254,7 @@ export function parseVsCodeThemeFile(value: unknown): ThemeDefinition {
     { r: accentColor.r, g: accentColor.g, b: accentColor.b, a: 0.2 },
     canvas,
   );
-  const derived = createVividThemeColors(appearance, canvasHex, mutedAccentHex);
+  const derived = createVividThemeColors(canvasHex, mutedAccentHex);
   const sidebarHex =
     solidOver(canvas, "sideBar.background", "activityBar.background") ?? derived.sidebar;
   const sidebar = hexToRgb(sidebarHex);
@@ -282,7 +294,7 @@ export function parseVsCodeThemeFile(value: unknown): ThemeDefinition {
   const inputCandidates = [
     derived.input,
     derived.surfaceRaised,
-    getStandardThemeColors(appearance).input,
+    getDefaultThemeColors().input,
     "#000000",
     "#ffffff",
     "#808080",
@@ -379,61 +391,8 @@ export function parseVsCodeThemeFile(value: unknown): ThemeDefinition {
     version: THEME_FILE_VERSION,
     ...(isReservedThemeId(generatedId) ? { id: `${generatedId}-vscode` } : {}),
     name,
-    appearance,
     colors: { ...derived, ...overrides },
   });
-}
-
-export function pairVsCodeThemes(
-  themes: ReadonlyArray<ThemeDefinition>,
-  options?: {
-    pairedId?: (light: ThemeDefinition, dark: ThemeDefinition) => string;
-  },
-): ReadonlyArray<ThemeDefinition> {
-  const stripAppearance = (label: string) =>
-    label
-      .replace(/\b(?:light|dark)\b/gi, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  type Group = { light: ThemeDefinition[]; dark: ThemeDefinition[]; order: number };
-  const groups = new Map<string, Group>();
-  const passthrough: Array<{ theme: ThemeDefinition; order: number }> = [];
-  themes.forEach((theme, order) => {
-    const key = stripAppearance(theme.label);
-    if (getThemeModes(theme).length !== 1 || key === theme.label || !/[a-z0-9]/i.test(key)) {
-      passthrough.push({ theme, order });
-      return;
-    }
-    const group = groups.get(key) ?? { light: [], dark: [], order };
-    group[theme.appearance].push(theme);
-    groups.set(key, group);
-  });
-
-  const paired: Array<{ theme: ThemeDefinition; order: number }> = [];
-  for (const [key, group] of groups) {
-    if (group.light.length === 1 && group.dark.length === 1) {
-      try {
-        paired.push({
-          order: group.order,
-          theme: parseThemeFile({
-            version: THEME_FILE_VERSION,
-            ...(options?.pairedId ? { id: options.pairedId(group.light[0]!, group.dark[0]!) } : {}),
-            name: key,
-            appearance: "light",
-            colors: group.light[0]!.colors,
-            variants: { dark: group.dark[0]!.colors },
-          }),
-        });
-        continue;
-      } catch {}
-    }
-    for (const theme of [...group.light, ...group.dark]) {
-      paired.push({ theme, order: group.order });
-    }
-  }
-
-  return [...passthrough, ...paired].sort((a, b) => a.order - b.order).map((entry) => entry.theme);
 }
 
 export function resolveThemeLabelCollisions(
@@ -444,9 +403,7 @@ export function resolveThemeLabelCollisions(
       return parseThemeFile({
         version: THEME_FILE_VERSION,
         name: name.slice(0, 48),
-        appearance: theme.appearance,
         colors: theme.colors,
-        ...(theme.variants ? { variants: theme.variants } : {}),
         ...(theme.managed ? { managed: true } : {}),
       });
     } catch {

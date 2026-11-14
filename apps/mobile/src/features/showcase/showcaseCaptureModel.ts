@@ -1,4 +1,4 @@
-import type { MobileThemeId, MobileThemeIds } from "../../lib/mobileTheme";
+import type { MobileThemeId } from "../../lib/mobileTheme";
 import type { ShowcaseScene } from "./nativeShowcaseScene";
 import { isShowcaseNativeContentReady, type ShowcaseRenderSignal } from "./showcaseRenderSignal";
 
@@ -55,12 +55,10 @@ export function shouldNavigateToShowcaseScene(
 export function isShowcaseThemeApplied(input: {
   readonly launchRequestRead: boolean;
   readonly requestedTheme: MobileThemeId | null;
-  readonly themeIds: MobileThemeIds;
+  readonly themeId: MobileThemeId;
 }): boolean {
   if (input.requestedTheme === null) return input.launchRequestRead;
-  return (
-    input.themeIds.light === input.requestedTheme && input.themeIds.dark === input.requestedTheme
-  );
+  return input.themeId === input.requestedTheme;
 }
 
 export interface ShowcaseReadinessInput {

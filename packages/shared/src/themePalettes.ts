@@ -1,10 +1,18 @@
-export const BUILT_IN_THEME_IDS = ["stellar", "night-edit", "darkroom", "studio"] as const;
+export const BUILT_IN_THEME_IDS = [
+  "stellar",
+  "night-edit",
+  "darkroom",
+  "studio",
+  "borealis",
+] as const;
+
+export const DEFAULT_THEME_ID = "borealis" satisfies (typeof BUILT_IN_THEME_IDS)[number];
 
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
 
 export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...BUILT_IN_THEME_IDS] as const;
 
-/** Reserve appearance keywords, built-ins, and legacy aliases so custom themes cannot capture stored preferences. */
+/** Reserve the retired appearance keywords, built-ins, and legacy aliases so custom themes cannot capture stored preferences. */
 export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "system",
   "light",
@@ -31,7 +39,6 @@ export const UNPUBLISHABLE_THEME_IDS: ReadonlySet<string> = new Set([
 
 export type BuiltInThemeId = (typeof BUILT_IN_THEME_IDS)[number];
 export type MobileThemeId = (typeof MOBILE_THEME_IDS)[number];
-export type ThemeAppearance = "light" | "dark";
 
 export const THEME_COLOR_ROLES = [
   "canvas",
@@ -99,81 +106,14 @@ export const THEME_COLOR_ROLES = [
 
 export type ThemeColorRole = (typeof THEME_COLOR_ROLES)[number];
 export type ThemeColors = Readonly<Record<ThemeColorRole, string>>;
-export type ThemeVariants = Readonly<Partial<Record<ThemeAppearance, ThemeColors>>>;
 export type ThemeDefinition = Readonly<{
   id: string;
   label: string;
-  appearance: ThemeAppearance;
   colors: ThemeColors;
-  variants?: ThemeVariants;
   collection?: Readonly<{ id: string; label: string }>;
   sidebarArtwork?: boolean;
   managed?: boolean;
 }>;
-
-export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {
-  searchMatchBackground: "#ffde8b",
-  searchMatchForeground: "#21180a",
-  searchMatchActiveBackground: "#eea52b",
-  searchMatchActiveForeground: "#21180a",
-  canvas: "#fcfcfc",
-  chrome: "#fcfcfc",
-  toolbar: "#fcfcfc",
-  toolbarForeground: "#27272a",
-  toolbarBorder: "#e4e4e7",
-  toolbarControl: "#ffffff",
-  toolbarControlForeground: "#27272a",
-  toolbarControlHover: "#f4f4f5",
-  surface: "#ffffff",
-  surfaceRaised: "#fcfcfc",
-  surfaceOverlay: "#ffffff",
-  text: "#27272a",
-  textMuted: "#71717b",
-  border: "#e4e4e7",
-  input: "#d4d4d8",
-  focus: "#1b4ed8",
-  accent: "#1b4ed8",
-  accentForeground: "#ffffff",
-  secondary: "#fafafa",
-  secondaryForeground: "#27272a",
-  muted: "#fafafa",
-  mutedForeground: "#71717b",
-  placeholder: "#71717b",
-  secondaryLabel: "#71717b",
-  iconMuted: "#71717b",
-  error: "#fb2c36",
-  errorForeground: "#c10007",
-  errorSurface: "#fcebec",
-  warning: "#fe9a00",
-  warningForeground: "#bb4d00",
-  warningSurface: "#fcf4e8",
-  update: "#1b4ed8",
-  updateForeground: "#1b4ed8",
-  updateSurface: "#e0e6f7",
-  accentSurface: "#f4f4f5",
-  accentSurfaceForeground: "#18181b",
-  messageSurface: "#f4f4f5",
-  messageForeground: "#27272a",
-  messageAction: "#1b4ed8",
-  messageActionForeground: "#ffffff",
-  messageActionHover: "#3160db",
-  codeBackground: "#ffffff",
-  codeForeground: "#27272a",
-  sidebar: "#fafafa",
-  sidebarForeground: "#27272a",
-  sidebarMutedForeground: "#71717b",
-  sidebarControlSurface: "#f4f4f5",
-  sidebarRowHover: "#fcfcfc",
-  sidebarRowActive: "#ffffff",
-  sidebarRowSelected: "#ffffff",
-  sidebarBorder: "#e4e4e7",
-  terminalBackground: "#fcfcfc",
-  terminalForeground: "#27272a",
-  terminalCursor: "#26384e",
-  terminalSelection: "#d0d6dd",
-  terminalScrollbar: "#d6d6d6",
-  terminalScrollbarHover: "#bdbdbd",
-};
 
 export const T3_CODE_DARK_THEME_COLORS: ThemeColors = {
   searchMatchBackground: "#8c6c1f",
@@ -240,20 +180,17 @@ export const T3_CODE_DARK_THEME_COLORS: ThemeColors = {
 };
 
 function editorPalette(
-  appearance: ThemeAppearance,
   canvas: string,
   surface: string,
   raised: string,
   border: string,
   accent: string,
 ): ThemeColors {
-  const dark = appearance === "dark";
-  const text = dark ? "#eeeeee" : "#202020";
-  const muted = dark ? "#aaaaaa" : "#595959";
-  const accentForeground = dark ? "#101010" : "#ffffff";
+  const text = "#eeeeee";
+  const muted = "#aaaaaa";
+  const accentForeground = "#101010";
   return {
-    ...(dark ? T3_CODE_DARK_THEME_COLORS : T3_CODE_LIGHT_THEME_COLORS),
-    warningForeground: dark ? "#ffb900" : "#a84400",
+    ...T3_CODE_DARK_THEME_COLORS,
     canvas,
     chrome: canvas,
     toolbar: canvas,
@@ -309,53 +246,28 @@ function editorPalette(
 }
 
 /**
- * Stellar's default: near-neutral graphite, so the surround doesn't tint how footage reads, with
- * one blue-violet accent for actions, focus and selection. Chrome (sidebar, panel edges) sits a
- * step below the canvas; hover, overlays and a user turn each get their own step above it.
+ * Near-neutral graphite, so the surround doesn't tint how footage reads, with one blue-violet
+ * accent for actions, focus and selection. Chrome (sidebar, panel edges) sits a step below the
+ * canvas; hover, overlays and a user turn each get their own step above it.
  */
-function stellarPalette(appearance: ThemeAppearance): ThemeColors {
-  const dark = appearance === "dark";
-  const tone = dark
-    ? {
-        chrome: "#0f1012",
-        canvas: "#141517",
-        surface: "#1b1c1f",
-        hover: "#212226",
-        raised: "#26272b",
-        overlay: "#1f2023",
-        border: "#2a2c31",
-        input: "#3a3d44",
-        text: "#ececee",
-        muted: "#a0a3aa",
-        accent: "#9ba3ff",
-        accentForeground: "#0f1012",
-        actionHover: "#aeb4ff",
-      }
-    : {
-        chrome: "#f1f2f4",
-        canvas: "#f8f8f9",
-        surface: "#ffffff",
-        hover: "#eceef1",
-        raised: "#eceef1",
-        overlay: "#ffffff",
-        border: "#e0e2e6",
-        input: "#c8cbd2",
-        text: "#1c1d20",
-        muted: "#5d6068",
-        accent: "#4b55d0",
-        accentForeground: "#ffffff",
-        actionHover: "#5a64dc",
-      };
-  const base = editorPalette(
-    appearance,
-    tone.canvas,
-    tone.surface,
-    tone.raised,
-    tone.border,
-    tone.accent,
-  );
+function stellarPalette(): ThemeColors {
+  const tone = {
+    chrome: "#0f1012",
+    canvas: "#141517",
+    surface: "#1b1c1f",
+    hover: "#212226",
+    raised: "#26272b",
+    overlay: "#1f2023",
+    border: "#2a2c31",
+    input: "#3a3d44",
+    text: "#ececee",
+    muted: "#a0a3aa",
+    accent: "#9ba3ff",
+    accentForeground: "#0f1012",
+    actionHover: "#aeb4ff",
+  };
   return {
-    ...base,
+    ...editorPalette(tone.canvas, tone.surface, tone.raised, tone.border, tone.accent),
     toolbarForeground: tone.text,
     toolbarControlHover: tone.hover,
     surfaceOverlay: tone.overlay,
@@ -368,7 +280,7 @@ function stellarPalette(appearance: ThemeAppearance): ThemeColors {
     placeholder: tone.muted,
     secondaryLabel: tone.muted,
     iconMuted: tone.muted,
-    updateSurface: dark ? "#25284a" : "#e6e8fa",
+    updateSurface: "#25284a",
     accentSurface: tone.hover,
     accentSurfaceForeground: tone.text,
     messageForeground: tone.text,
@@ -379,11 +291,11 @@ function stellarPalette(appearance: ThemeAppearance): ThemeColors {
     sidebarForeground: tone.text,
     sidebarMutedForeground: tone.muted,
     sidebarControlSurface: tone.surface,
-    sidebarRowHover: dark ? tone.surface : "#e8e9ec",
-    sidebarRowActive: dark ? tone.raised : tone.surface,
-    sidebarRowSelected: dark ? tone.hover : tone.surface,
+    sidebarRowHover: tone.surface,
+    sidebarRowActive: tone.raised,
+    sidebarRowSelected: tone.hover,
     terminalForeground: tone.text,
-    terminalSelection: dark ? "#2f3350" : "#d9dcf6",
+    terminalSelection: "#2f3350",
     terminalScrollbarHover: tone.muted,
   };
 }
@@ -391,57 +303,38 @@ function stellarPalette(appearance: ThemeAppearance): ThemeColors {
 export const STELLAR_THEME: ThemeDefinition = {
   id: "stellar",
   label: "Stellar",
-  appearance: "light",
-  colors: stellarPalette("light"),
-  variants: { dark: stellarPalette("dark") },
+  colors: stellarPalette(),
 };
 
 export const NIGHT_EDIT_THEME: ThemeDefinition = {
   id: "night-edit",
   label: "Night Edit",
-  appearance: "light",
-  colors: editorPalette("light", "#f4f6f8", "#ffffff", "#e4e8ee", "#c5cbd4", "#34577c"),
-  variants: { dark: editorPalette("dark", "#0d1219", "#171d25", "#252e39", "#3c4755", "#a2bfdc") },
+  colors: editorPalette("#0d1219", "#171d25", "#252e39", "#3c4755", "#a2bfdc"),
 };
 
 export const DARKROOM_THEME: ThemeDefinition = {
   id: "darkroom",
   label: "Darkroom",
-  appearance: "light",
-  colors: editorPalette("light", "#f7f5f1", "#fffefa", "#eae6de", "#ccc5b9", "#79531d"),
-  variants: { dark: editorPalette("dark", "#151310", "#201d18", "#302b23", "#4b4337", "#d8b575") },
+  colors: editorPalette("#151310", "#201d18", "#302b23", "#4b4337", "#d8b575"),
 };
 
 export const STUDIO_THEME: ThemeDefinition = {
   id: "studio",
   label: "Studio",
-  appearance: "light",
-  colors: editorPalette("light", "#e7e7e7", "#f2f2f2", "#d8d8d8", "#b2b2b2", "#353535"),
-  variants: { dark: editorPalette("dark", "#252525", "#303030", "#3b3b3b", "#555555", "#dedede") },
+  colors: editorPalette("#252525", "#303030", "#3b3b3b", "#555555", "#dedede"),
 };
 
-// Two inks on paper: near-black indigo with mint by night, cream with teal by day. After
-// Borealis by Adolanium (MIT).
-const BOREALIS_THEME: ThemeDefinition = {
-  id: "borealis",
+// Near-black indigo with a mint accent. After Borealis by Adolanium (MIT).
+export const BOREALIS_THEME: ThemeDefinition = {
+  id: DEFAULT_THEME_ID,
   label: "Borealis",
-  appearance: "light",
-  colors: editorPalette("light", "#f2eee4", "#faf7f0", "#e7e1d3", "#d8d0bf", "#0a7b6c"),
-  variants: { dark: editorPalette("dark", "#08080d", "#111019", "#17161f", "#24222f", "#6ff0c4") },
+  colors: editorPalette("#08080d", "#111019", "#17161f", "#24222f", "#6ff0c4"),
 };
 
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
+  BOREALIS_THEME,
   STELLAR_THEME,
   NIGHT_EDIT_THEME,
   DARKROOM_THEME,
   STUDIO_THEME,
-  BOREALIS_THEME,
 ];
-
-export function getThemeColorsForAppearance(
-  theme: ThemeDefinition,
-  appearance: ThemeAppearance,
-): ThemeColors | null {
-  if (theme.appearance === appearance) return theme.colors;
-  return theme.variants?.[appearance] ?? null;
-}

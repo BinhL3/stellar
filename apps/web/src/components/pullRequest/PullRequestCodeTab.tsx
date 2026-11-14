@@ -45,7 +45,7 @@ import {
 import { observeIntersection } from "~/lib/observeIntersection";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useClientSettings, updateClientSettings } from "~/hooks/useSettings";
-import { useRenderedAppearance } from "~/hooks/useTheme";
+import { RENDERED_APPEARANCE } from "~/hooks/useTheme";
 import { areAllDiffFilesCollapsed } from "~/lib/diffCollapse";
 import {
   pullRequestFindingKey,
@@ -366,7 +366,7 @@ function PullRequestCodeTab({
   backgroundRefreshToken?: number;
   revealRequest?: { readonly path: string; readonly nonce: number } | null;
 }) {
-  const resolvedTheme = useRenderedAppearance();
+  const resolvedTheme = RENDERED_APPEARANCE;
   // Initialize the shared tokenizer and workers while the diff request is still pending.
   useDiffWorkerPool();
   const settings = useClientSettings((settings) => ({

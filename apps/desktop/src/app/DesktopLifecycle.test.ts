@@ -10,7 +10,6 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import type * as Electron from "electron";
 
 import * as ElectronApp from "../electron/ElectronApp.ts";
-import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopLifecycle from "./DesktopLifecycle.ts";
@@ -61,12 +60,6 @@ function layerElectronApp(
   } satisfies ElectronApp.ElectronApp["Service"]);
 }
 
-const layerElectronTheme = Layer.succeed(ElectronTheme.ElectronTheme, {
-  shouldUseDarkColors: Effect.succeed(false),
-  setSource: () => Effect.void,
-  onUpdated: () => Effect.void,
-});
-
 function layerElectronWindow(destroyAll: Effect.Effect<void> = Effect.void) {
   return Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected window creation"),
@@ -79,7 +72,6 @@ function layerElectronWindow(destroyAll: Effect.Effect<void> = Effect.void) {
     reveal: () => Effect.void,
     sendAll: () => Effect.void,
     destroyAll,
-    syncAllAppearance: () => Effect.void,
   });
 }
 
@@ -104,7 +96,6 @@ function layerDesktopWindow(
     dispatchSnapShotEvent: () => Effect.void,
     zoomMain: () => Effect.void,
     runMainContentsCommand: () => Effect.void,
-    syncAppearance: Effect.void,
   });
 }
 
@@ -121,7 +112,6 @@ describe("DesktopLifecycle", () => {
 
       const layer = DesktopLifecycle.layer.pipe(
         Layer.provideMerge(layerElectronApp(appListeners)),
-        Layer.provideMerge(layerElectronTheme),
         Layer.provideMerge(
           layerElectronWindow(
             Effect.sync(() => {
@@ -199,7 +189,6 @@ describe("DesktopLifecycle", () => {
 
       const layer = DesktopLifecycle.layer.pipe(
         Layer.provideMerge(layerElectronApp(appListeners, quit)),
-        Layer.provideMerge(layerElectronTheme),
         Layer.provideMerge(layerElectronWindow(destroyAll)),
         Layer.provideMerge(layerDesktopWindow({ flushMainWindowBounds })),
         Layer.provideMerge(layerEnvironment),
@@ -243,7 +232,6 @@ describe("DesktopLifecycle", () => {
             (options) => Deferred.succeed(relaunched, options).pipe(Effect.asVoid),
           ),
         ),
-        Layer.provideMerge(layerElectronTheme),
         Layer.provideMerge(layerElectronWindow()),
         Layer.provideMerge(layerDesktopWindow()),
         Layer.provideMerge(layerEnvironment),
@@ -285,7 +273,6 @@ describe("DesktopLifecycle", () => {
       } as DesktopEnvironment.DesktopEnvironment["Service"]);
       const layer = DesktopLifecycle.layer.pipe(
         Layer.provideMerge(layerElectronApp(appListeners, Effect.void, exit)),
-        Layer.provideMerge(layerElectronTheme),
         Layer.provideMerge(layerElectronWindow()),
         Layer.provideMerge(layerDesktopWindow()),
         Layer.provideMerge(layerEnvironment),
@@ -338,7 +325,6 @@ describe("DesktopLifecycle", () => {
       } as DesktopEnvironment.DesktopEnvironment["Service"]);
       const layer = DesktopLifecycle.layer.pipe(
         Layer.provideMerge(layerElectronApp(appListeners)),
-        Layer.provideMerge(layerElectronTheme),
         Layer.provideMerge(layerElectronWindow()),
         Layer.provideMerge(layerDesktopWindow({ activate })),
         Layer.provideMerge(layerEnvironment),

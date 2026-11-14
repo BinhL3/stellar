@@ -75,19 +75,10 @@ export function ComponentCatalogScreen() {
                 key={id}
                 label={id}
                 selected={appearance.themeId === id}
-                onPress={() => appearance.setThemeIdForBothAppearances(id)}
+                onPress={() => appearance.setThemeId(id)}
               />
             ))}
           </View>
-          <SegmentedControl
-            options={[
-              { value: "light", label: "Light" },
-              { value: "dark", label: "Dark" },
-            ]}
-            selected={appearance.themeAppearance}
-            onSelect={appearance.setThemeMode}
-            size="compact"
-          />
         </View>
         <SegmentedControl
           options={[

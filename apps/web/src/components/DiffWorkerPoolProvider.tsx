@@ -3,12 +3,11 @@ import { WorkerPoolManager } from "@pierre/diffs/worker";
 import DiffsWorker from "@pierre/diffs/worker/worker.js?worker";
 import * as Schema from "effect/Schema";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { getRenderedAppearance, subscribeRenderedAppearance } from "../hooks/useTheme";
 import { resolveDiffThemeName } from "../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../lib/syntaxHighlighting";
 
 export class DiffWorkerError extends Schema.TaggedError<DiffWorkerError>()("DiffWorkerError", {
-  operation: Schema.Literals(["create-worker", "get-render-options", "set-render-options"]),
+  operation: Schema.Literals(["create-worker"]),
   themeName: Schema.Literals(["pierre-dark", "t3-light"]),
   cause: Schema.Defect(),
 }) {
@@ -26,31 +25,13 @@ function resolveDiffWorkerPoolSize() {
 let sharedWorkerPool:
   | {
       readonly pool: WorkerPoolManager;
-      readonly unsubscribeTheme: () => void;
       consumers: number;
       idleTimer: ReturnType<typeof setTimeout> | undefined;
     }
   | undefined;
 
-function applyDiffWorkerTheme(pool: WorkerPoolManager) {
-  const themeName = resolveDiffThemeName(getRenderedAppearance());
-  let operation: DiffWorkerError["operation"] = "get-render-options";
-  void (async () => {
-    try {
-      const current = pool.getDiffRenderOptions();
-      if (current.theme === themeName) return;
-      operation = "set-render-options";
-      await pool.setRenderOptions({ ...current, theme: themeName });
-    } catch (cause) {
-      console.error(new DiffWorkerError({ operation, themeName, cause }));
-    }
-  })();
-}
-
-// The pool follows the rendered appearance for as long as it lives, so it never depends on a
-// mounted provider to carry a theme change across.
 function createDiffWorkerPool(poolSize: number) {
-  const themeName = resolveDiffThemeName(getRenderedAppearance());
+  const themeName = resolveDiffThemeName("dark");
   const pool = new WorkerPoolManager(
     {
       workerFactory: () => {
@@ -72,7 +53,6 @@ function createDiffWorkerPool(poolSize: number) {
   );
   return {
     pool,
-    unsubscribeTheme: subscribeRenderedAppearance(() => applyDiffWorkerTheme(pool)),
     consumers: 0,
     idleTimer: undefined,
   };
@@ -131,7 +111,6 @@ function subscribeSharedWorkerPool(onStoreChange: () => void) {
     if (entry.consumers !== 0) return;
     entry.idleTimer = setTimeout(() => {
       entry.idleTimer = undefined;
-      entry.unsubscribeTheme();
       entry.pool.terminate();
       if (sharedWorkerPool === entry) sharedWorkerPool = undefined;
     }, DIFF_WORKER_IDLE_TTL_MS);

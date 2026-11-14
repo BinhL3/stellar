@@ -36,7 +36,7 @@ const NIGHTFALL_THEME_JSON = `${JSON.stringify({
   canvas: "#1a1b26",
   accent: "#7aa2f7",
 })}\n`;
-const JUNK_THEME_JSON = `${JSON.stringify({ name: "Junk" })}\n`;
+const JUNK_THEME_JSON = `${JSON.stringify({ title: "Junk" })}\n`;
 
 const readSettings = (baseDir: string): Record<string, unknown> => {
   const raw = NodeFS.readFileSync(settingsPathFor(baseDir), "utf8");

@@ -10,7 +10,6 @@ import type * as Electron from "electron";
 
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
-import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import type { BackendStartupFailure } from "../backend/DesktopBackendManager.ts";
@@ -147,7 +146,6 @@ export const listen: Effect.Effect<
   | DesktopEnvironment.DesktopEnvironment
   | ElectronApp.ElectronApp
   | ElectronShell.ElectronShell
-  | ElectronTheme.ElectronTheme
   | ElectronWindow.ElectronWindow
   | FileSystem.FileSystem
   | Scope.Scope
@@ -157,7 +155,6 @@ export const listen: Effect.Effect<
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const electronApp = yield* ElectronApp.ElectronApp;
   const electronShell = yield* ElectronShell.ElectronShell;
-  const electronTheme = yield* ElectronTheme.ElectronTheme;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const fileSystem = yield* FileSystem.FileSystem;
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
@@ -260,7 +257,6 @@ export const listen: Effect.Effect<
         yield* electronWindow.reveal(existing.value);
         return;
       }
-      const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
       const window = yield* electronWindow.create(
         {
           width: 640,
@@ -270,7 +266,7 @@ export const listen: Effect.Effect<
           show: false,
           title: "Stellar could not start",
           autoHideMenuBar: true,
-          backgroundColor: shouldUseDarkColors ? "#000000" : "#ffffff",
+          backgroundColor: "#000000",
           webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,

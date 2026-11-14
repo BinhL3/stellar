@@ -88,7 +88,7 @@ export class ThemeFileInvalidError extends Schema.TaggedError<ThemeFileInvalidEr
   { filePath: Schema.String, cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return `${this.filePath} is not a valid theme file. Use a theme exported from Stellar, or a seeded file with name, appearance, canvas, and accent.`;
+    return `${this.filePath} is not a valid theme file. Use a theme exported from Stellar, or a seeded file with name, canvas, and accent.`;
   }
 }
 
@@ -106,7 +106,7 @@ export class ThemeFileColorlessError extends Schema.TaggedError<ThemeFileColorle
   { filePath: Schema.String },
 ) {
   override get message(): string {
-    return `${this.filePath} has no colors to publish.`;
+    return `${this.filePath} has no dark colors to publish. Stellar is dark-only, so a light theme needs a dark variant.`;
   }
 }
 

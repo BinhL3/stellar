@@ -25,9 +25,8 @@ const NIGHTFALL_THEME: EnvironmentThemeFile = {
 
 const SHARED_THEME: EnvironmentThemeFile = {
   version: 1,
-  name: "Shared Light",
-  appearance: "light",
-  colors: { canvas: "#eff1f5", accent: "#1e66f5" },
+  name: "Shared",
+  colors: { canvas: "#1e1e2e", accent: "#89b4fa" },
 };
 
 const withEnvironmentThemes = <A, E>(
@@ -130,6 +129,10 @@ it.layer(NodeServices.layer)("environment theme", (it) => {
           '{ "name": "X", "appearance": "dark", "canvas": "{{ background }}", "accent": "#7aa2f7" }',
         "malformed.json": "{ not json",
         "no-colors.json": '{ "name": "Empty", "appearance": "dark" }',
+        "light-only.json":
+          '{ "name": "Day", "appearance": "light", "colors": { "canvas": "#eff1f5" } }',
+        "paired.json":
+          '{ "name": "Paired", "appearance": "light", "colors": { "canvas": "#eff1f5" }, "variants": { "dark": { "canvas": "#1e1e2e" } } }',
         "Bad Name.json": encodeThemeFile(SHARED_THEME),
         "ocean.json": encodeThemeFile(SHARED_THEME),
         "dark.json": encodeThemeFile(SHARED_THEME),
@@ -137,8 +140,12 @@ it.layer(NodeServices.layer)("environment theme", (it) => {
       },
       Effect.gen(function* () {
         assert.deepEqual(
-          (yield* currentThemes).map((theme) => theme.id),
-          ["nightfall", "notepad"],
+          (yield* currentThemes).map((theme) => [theme.id, theme.appearance]),
+          [
+            ["nightfall", "dark"],
+            ["notepad", "dark"],
+            ["paired", "light"],
+          ],
         );
       }),
     ),

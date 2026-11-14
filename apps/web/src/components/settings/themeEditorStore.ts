@@ -1,17 +1,11 @@
 import { create } from "zustand";
 
-import {
-  getThemeDefinition,
-  type ThemeAppearance,
-  type ThemeHalves,
-  type ThemePreference,
-} from "../../themePalette";
+import { getThemeDefinition, type ThemePreference } from "../../themePalette";
 
 export type ThemeEditorSessionInput = {
   editingThemeId: string | null;
   seedThemeId: string | null;
   seedName: string | null;
-  initialAppearance: ThemeAppearance;
 };
 
 export type ThemeEditorSession = ThemeEditorSessionInput & {
@@ -32,24 +26,16 @@ export const useThemeEditorStore = create<ThemeEditorStore>((set) => ({
   closeThemeEditor: () => set({ session: null }),
 }));
 
-export function toggleThemeEditorForTheme(input: {
-  theme: ThemePreference;
-  themeHalves: ThemeHalves | null;
-  initialAppearance: ThemeAppearance;
-}): void {
+export function toggleThemeEditorForTheme(theme: ThemePreference): void {
   const store = useThemeEditorStore.getState();
   if (store.session) {
     store.closeThemeEditor();
     return;
   }
 
-  const baseThemeId = getThemeDefinition(input.theme)?.id ?? null;
-  const activeThemeId = input.themeHalves?.[input.initialAppearance] ?? baseThemeId;
-  const seedThemeId = activeThemeId ? (getThemeDefinition(activeThemeId)?.id ?? null) : null;
   store.openThemeEditor({
     editingThemeId: null,
-    seedThemeId,
+    seedThemeId: getThemeDefinition(theme)?.id ?? null,
     seedName: null,
-    initialAppearance: input.initialAppearance,
   });
 }

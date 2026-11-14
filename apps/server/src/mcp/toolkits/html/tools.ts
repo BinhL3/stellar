@@ -37,11 +37,6 @@ export const HtmlPreviewTool = Tool.make("html_preview", {
         description: `CSS pixels, 240 to 1600. Default ${HTML_RENDER_COLUMN_WIDTH}. Use about 390 for phones.`,
       }),
     ),
-    appearance: Schema.optional(
-      Schema.Literals(["dark", "light"]).annotate({
-        description: "Default dark.",
-      }),
-    ),
   }),
   success: Schema.Struct({
     width: Schema.Int,

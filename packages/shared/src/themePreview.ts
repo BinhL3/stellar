@@ -1,24 +1,14 @@
-import type { ThemeAppearance } from "./themePalettes.js";
-
 export type ThemePreviewColors = Readonly<{
   canvas: string;
   accent: string;
   messageAction: string;
 }>;
 
-export const STANDARD_THEME_PREVIEW_COLORS: Readonly<Record<ThemeAppearance, ThemePreviewColors>> =
-  {
-    light: {
-      canvas: "#fafafa",
-      accent: "#262626",
-      messageAction: "#262626",
-    },
-    dark: {
-      canvas: "#0a0a0a",
-      accent: "#eeeeee",
-      messageAction: "#eeeeee",
-    },
-  };
+export const STANDARD_THEME_PREVIEW_COLORS: ThemePreviewColors = {
+  canvas: "#0a0a0a",
+  accent: "#eeeeee",
+  messageAction: "#eeeeee",
+};
 
 export type ThemePreviewRenderSpec = Readonly<{
   baseTarget: string;
@@ -38,43 +28,23 @@ export type ThemePreviewRenderSpec = Readonly<{
   blurAt56Px: number;
 }>;
 
-export const THEME_PREVIEW_RENDER_SPECS: Readonly<Record<ThemeAppearance, ThemePreviewRenderSpec>> =
-  {
-    light: {
-      baseTarget: "#ffffff",
-      baseWeight: 0.8,
-      accent: {
-        center: [0.72, 0.22],
-        middleOffset: 0.28,
-        middleOpacity: 0.72,
-        endOffset: 0.58,
-      },
-      action: {
-        center: [0.18, 0.82],
-        startOpacity: 0.45,
-        endOffset: 0.55,
-      },
-      scale: 1.1,
-      blurAt56Px: 3,
-    },
-    dark: {
-      baseTarget: "#09090b",
-      baseWeight: 0.8,
-      accent: {
-        center: [0.28, 0.78],
-        middleOffset: 0.28,
-        middleOpacity: 0.62,
-        endOffset: 0.58,
-      },
-      action: {
-        center: [0.82, 0.18],
-        startOpacity: 0.45,
-        endOffset: 0.55,
-      },
-      scale: 1.1,
-      blurAt56Px: 3,
-    },
-  };
+export const THEME_PREVIEW_RENDER_SPEC: ThemePreviewRenderSpec = {
+  baseTarget: "#09090b",
+  baseWeight: 0.8,
+  accent: {
+    center: [0.28, 0.78],
+    middleOffset: 0.28,
+    middleOpacity: 0.62,
+    endOffset: 0.58,
+  },
+  action: {
+    center: [0.82, 0.18],
+    startOpacity: 0.45,
+    endOffset: 0.55,
+  },
+  scale: 1.1,
+  blurAt56Px: 3,
+};
 
 type Oklab = Readonly<{ l: number; a: number; b: number }>;
 
@@ -129,8 +99,8 @@ function oklabToHex(color: Oklab): string {
   return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
-export function mixThemePreviewBase(colors: ThemePreviewColors, mode: ThemeAppearance): string {
-  const spec = THEME_PREVIEW_RENDER_SPECS[mode]!;
+export function mixThemePreviewBase(colors: ThemePreviewColors): string {
+  const spec = THEME_PREVIEW_RENDER_SPEC;
   const canvas = parseOklab(colors.canvas);
   const target = parseOklab(spec.baseTarget);
   if (!canvas || !target) return colors.canvas;

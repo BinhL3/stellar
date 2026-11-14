@@ -54,7 +54,7 @@ const handlers = {
       const htmlRender = yield* HtmlRender.HtmlRender;
       const source = yield* pageSource(input);
       const { png, ...preview } = yield* htmlRender
-        .preview({ ...source, width: input.width, appearance: input.appearance })
+        .preview({ ...source, width: input.width })
         .pipe(Effect.mapError(toFailure));
       return {
         ...preview,

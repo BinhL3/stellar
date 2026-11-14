@@ -19,7 +19,6 @@ import * as DesktopState from "../app/DesktopState.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import { getDesktopUrl } from "../electron/ElectronProtocol.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
-import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
   MENU_ACTION_CHANNEL,
@@ -65,8 +64,7 @@ function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
 }
 
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
-const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
-const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
+const TITLEBAR_SYMBOL_COLOR = "#f8fafc";
 const MAIN_WINDOW_BOUNDS_PERSIST_DEBOUNCE_MS = 500;
 const DEVELOPMENT_LOAD_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const;
 const RENDERER_RECOVERY_RELOAD_DELAY_MS = 500;
@@ -88,7 +86,6 @@ type DesktopWindowRuntimeServices =
   | ElectronApp.ElectronApp
   | ElectronMenu.ElectronMenu
   | ElectronShell.ElectronShell
-  | ElectronTheme.ElectronTheme
   | ElectronWindow.ElectronWindow
   | DesktopRendererHistory.DesktopRendererHistory
   | PreviewManager.PreviewManager;
@@ -123,7 +120,6 @@ export class DesktopWindow extends Context.Service<
     // Electron zoom roles target focused guests; zoomMain must always target the app.
     readonly zoomMain: (direction: MainWindowZoomDirection) => Effect.Effect<void>;
     readonly runMainContentsCommand: (command: MainWindowContentsCommand) => Effect.Effect<void>;
-    readonly syncAppearance: Effect.Effect<void>;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
 
@@ -142,9 +138,7 @@ function getIconOption(
   });
 }
 
-function getInitialWindowBackgroundColor(shouldUseDarkColors: boolean): string {
-  return shouldUseDarkColors ? "#000000" : "#ffffff";
-}
+const WINDOW_BACKGROUND_COLOR = "#000000";
 
 type DisplayBounds = Pick<Electron.Rectangle, "x" | "y" | "width" | "height">;
 
@@ -185,11 +179,11 @@ export function resolveInitialMainWindowBounds(
   return DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE;
 }
 
-function buildConnectingSplashDataUrl(shouldUseDarkColors: boolean): string {
-  const background = getInitialWindowBackgroundColor(shouldUseDarkColors);
-  const label = shouldUseDarkColors ? "#9ca3af" : "#6b7280";
-  const accent = shouldUseDarkColors ? "#f8fafc" : "#1f2937";
-  const track = shouldUseDarkColors ? "rgba(248,250,252,0.18)" : "rgba(31,41,55,0.18)";
+function buildConnectingSplashDataUrl(): string {
+  const background = WINDOW_BACKGROUND_COLOR;
+  const label = "#9ca3af";
+  const accent = "#f8fafc";
+  const track = "rgba(248,250,252,0.18)";
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSL…</div></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
@@ -242,10 +236,7 @@ function concealPendingQuitWindow(
   window.setOpacity(0);
 }
 
-function getWindowTitleBarOptions(
-  shouldUseDarkColors: boolean,
-  platform: NodeJS.Platform,
-): WindowTitleBarOptions {
+function getWindowTitleBarOptions(platform: NodeJS.Platform): WindowTitleBarOptions {
   if (platform === "darwin") {
     return {
       titleBarStyle: "hiddenInset",
@@ -261,27 +252,9 @@ function getWindowTitleBarOptions(
     titleBarOverlay: {
       color: TITLEBAR_COLOR,
       height: TITLEBAR_HEIGHT,
-      symbolColor: shouldUseDarkColors ? TITLEBAR_DARK_SYMBOL_COLOR : TITLEBAR_LIGHT_SYMBOL_COLOR,
+      symbolColor: TITLEBAR_SYMBOL_COLOR,
     },
   };
-}
-
-function syncWindowAppearance(
-  window: Electron.BrowserWindow,
-  shouldUseDarkColors: boolean,
-  platform: NodeJS.Platform,
-): Effect.Effect<void> {
-  return Effect.sync(() => {
-    if (window.isDestroyed()) {
-      return;
-    }
-
-    window.setBackgroundColor(getInitialWindowBackgroundColor(shouldUseDarkColors));
-    const { titleBarOverlay } = getWindowTitleBarOptions(shouldUseDarkColors, platform);
-    if (typeof titleBarOverlay === "object") {
-      window.setTitleBarOverlay(titleBarOverlay);
-    }
-  });
 }
 
 type RevealSubscription = (listener: () => void) => void;
@@ -308,7 +281,6 @@ export const make = Effect.gen(function* () {
   const assets = yield* DesktopAssets.DesktopAssets;
   const electronMenu = yield* ElectronMenu.ElectronMenu;
   const electronShell = yield* ElectronShell.ElectronShell;
-  const electronTheme = yield* ElectronTheme.ElectronTheme;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const previewManager = yield* PreviewManager.PreviewManager;
   const previewPasskeys = yield* PreviewPasskeys.PreviewPasskeys;
@@ -372,7 +344,6 @@ export const make = Effect.gen(function* () {
     const applicationUrl = getDesktopUrl(environment.isDevelopment);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
-    const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
     const persistedSettings = yield* desktopSettings.get;
     const persistedBounds = persistedSettings.mainWindowBounds;
     const displayBoundsResult = yield* Effect.sync(() => {
@@ -404,10 +375,10 @@ export const make = Effect.gen(function* () {
       show: false,
       autoHideMenuBar: true,
       ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
-      backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
+      backgroundColor: WINDOW_BACKGROUND_COLOR,
       ...iconOption,
       title: environment.displayName,
-      ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
+      ...getWindowTitleBarOptions(environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
         // Hidden-renderer throttling stalls first paint; re-enable it after the first reveal.
@@ -929,7 +900,6 @@ export const make = Effect.gen(function* () {
     const existingWindow = yield* electronWindow.currentMainOrFirst;
     if (Option.isSome(existingWindow)) return;
 
-    const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
     if (yield* Ref.get(desktopState.quitting)) return;
     const splash = yield* electronWindow.create({
       width: 360,
@@ -942,7 +912,7 @@ export const make = Effect.gen(function* () {
       center: true,
       show: false,
       skipTaskbar: false,
-      backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
+      backgroundColor: WINDOW_BACKGROUND_COLOR,
       title: environment.displayName,
       webPreferences: {
         contextIsolation: true,
@@ -964,7 +934,7 @@ export const make = Effect.gen(function* () {
         splash.show();
       }
     });
-    void splash.loadURL(buildConnectingSplashDataUrl(shouldUseDarkColors));
+    void splash.loadURL(buildConnectingSplashDataUrl());
     yield* logWindowInfo("connecting splash shown");
   }).pipe(
     Effect.catch((error) =>
@@ -1074,12 +1044,6 @@ export const make = Effect.gen(function* () {
       else if (command === "forceReload") webContents.reloadIgnoringCache();
       else webContents.toggleDevTools();
     }),
-    syncAppearance: Effect.gen(function* () {
-      const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
-      yield* electronWindow.syncAllAppearance((window) =>
-        syncWindowAppearance(window, shouldUseDarkColors, environment.platform),
-      );
-    }).pipe(Effect.withSpan("desktop.window.syncAppearance")),
   });
 });
 

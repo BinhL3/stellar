@@ -13,11 +13,7 @@ import {
   injectHtmlRenderBootstrap,
   type HtmlRenderReference,
 } from "@t3tools/shared/htmlRender";
-import {
-  T3_CODE_DARK_THEME_COLORS,
-  T3_CODE_LIGHT_THEME_COLORS,
-  type ThemeAppearance,
-} from "@t3tools/shared/themePalettes";
+import { T3_CODE_DARK_THEME_COLORS } from "@t3tools/shared/themePalettes";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -163,7 +159,6 @@ export class HtmlRender extends Context.Service<
     readonly preview: (
       input: HtmlRenderSource & {
         readonly width?: number | undefined;
-        readonly appearance?: ThemeAppearance | undefined;
       },
     ) => Effect.Effect<
       HtmlPreview,
@@ -362,7 +357,7 @@ const MAX_CONCURRENT_BROWSERS = 2;
 const MEASURE_TIMEOUT = "6 seconds";
 
 const MEASURE_FRAGMENT = htmlRenderThemeFragment(
-  htmlRenderTheme(T3_CODE_DARK_THEME_COLORS, "dark", HTML_RENDER_MEASURE_FONTS),
+  htmlRenderTheme(T3_CODE_DARK_THEME_COLORS, HTML_RENDER_MEASURE_FONTS),
 );
 
 const make = Effect.gen(function* () {
@@ -562,23 +557,17 @@ const make = Effect.gen(function* () {
   const preview = Effect.fn("HtmlRender.preview")(function* (
     input: HtmlRenderSource & {
       readonly width?: number | undefined;
-      readonly appearance?: ThemeAppearance | undefined;
     },
   ) {
     const width = Math.min(
       MAX_PREVIEW_WIDTH,
       Math.max(MIN_PREVIEW_WIDTH, Math.round(input.width ?? HTML_RENDER_COLUMN_WIDTH)),
     );
-    const appearance = input.appearance ?? "dark";
     const source = yield* readSource(input);
     yield* rejectViewportHeight(source);
     const inlined = yield* inline(source);
     const executable = yield* previewBrowser.executable;
-    const theme = htmlRenderTheme(
-      appearance === "light" ? T3_CODE_LIGHT_THEME_COLORS : T3_CODE_DARK_THEME_COLORS,
-      appearance,
-      HTML_RENDER_MEASURE_FONTS,
-    );
+    const theme = htmlRenderTheme(T3_CODE_DARK_THEME_COLORS, HTML_RENDER_MEASURE_FONTS);
     const screenshot = yield* launching(executable, (noSandbox) =>
       HeadlessChrome.captureHtmlScreenshot({
         executable,
@@ -586,7 +575,6 @@ const make = Effect.gen(function* () {
         html: inlined.html,
         width,
         urlFragment: htmlRenderThemeFragment(theme),
-        appearance,
       }).pipe(Effect.provideContext(services)),
     );
     return {

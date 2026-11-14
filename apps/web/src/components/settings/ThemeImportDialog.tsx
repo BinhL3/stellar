@@ -14,7 +14,6 @@ import {
 } from "../../themePalette";
 import {
   humanizeThemeName,
-  pairVsCodeThemes,
   parseThemeImport,
   resolveThemeLabelCollisions,
 } from "../../vscodeThemeImport";
@@ -124,9 +123,7 @@ function ThemeJsonEditor({
         id={id}
         onChange={(event) => onChange(event.currentTarget.value)}
         onScroll={syncScroll}
-        placeholder={
-          '{\n  "version": 1,\n  "name": "Aurora",\n  "appearance": "light",\n  "colors": { ... }\n}'
-        }
+        placeholder={'{\n  "version": 1,\n  "name": "Aurora",\n  "colors": { ... }\n}'}
         spellCheck={false}
         value={value}
       />
@@ -268,7 +265,7 @@ function ThemeImportBody({
     if (!isCurrentRequest(requestId)) return;
     const installed: ThemeDefinition[] = [];
     const conflicting: ThemeDefinition[] = [];
-    for (const theme of pairVsCodeThemes(resolveThemeLabelCollisions(parsed))) {
+    for (const theme of resolveThemeLabelCollisions(parsed)) {
       if (getCustomThemes().some((existing) => existing.id === theme.id)) {
         conflicting.push(theme);
         continue;
@@ -334,9 +331,7 @@ function ThemeImportBody({
       const candidate = parseThemeFile({
         version: THEME_FILE_VERSION,
         name: preferredName.slice(0, 48),
-        appearance: theme.appearance,
         colors: theme.colors,
-        ...(theme.variants ? { variants: theme.variants } : {}),
         ...(theme.managed ? { managed: true } : {}),
       });
       if (!getCustomThemes().some((existing) => existing.id === candidate.id)) return candidate;
@@ -345,9 +340,7 @@ function ThemeImportBody({
       const candidate = parseThemeFile({
         version: THEME_FILE_VERSION,
         name: `${theme.label.slice(0, 48 - ` (${copy})`.length)} (${copy})`,
-        appearance: theme.appearance,
         colors: theme.colors,
-        ...(theme.variants ? { variants: theme.variants } : {}),
         ...(theme.managed ? { managed: true } : {}),
       });
       if (getCustomThemes().some((existing) => existing.id === candidate.id)) continue;
