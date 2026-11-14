@@ -499,6 +499,59 @@ it.live(
   },
 );
 
+it.live(
+  "starts a project in the projects folder when none is chosen, but not on an unplugged drive",
+  () => {
+    const created: Array<string> = [];
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* HostProcess.HomeDirectory;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const projectsFolder = path.join(home, "Movies", "Stellar");
+
+      assert.deepStrictEqual(yield* videoProjects.projectsFolder, {
+        path: projectsFolder,
+        exists: false,
+        unavailable: null,
+      });
+      const project = yield* videoProjects.createFromIdea({ title: "Jollibee" });
+      assert.strictEqual(project.workspaceRoot, path.join(projectsFolder, "Jollibee", "Stellar"));
+      assert.isTrue((yield* videoProjects.projectsFolder).exists);
+
+      const unplugged = "/Volumes/stellar-test-unplugged-drive/Short-Form Projects";
+      yield* settings.updateSettings({ projectsFolder: unplugged });
+      const folder = yield* videoProjects.projectsFolder;
+      assert.isFalse(folder.exists);
+      assert.include(folder.unavailable, "stellar-test-unplugged-drive, which isn't connected");
+      const refused = yield* videoProjects.createFromIdea({ title: "Phở" }).pipe(Effect.flip);
+      assert.include(refused.message, "which isn't connected");
+      const chosen = yield* videoProjects
+        .createFromIdea({ title: "Phở", parentFolder: `${unplugged}/Project Folders` })
+        .pipe(Effect.flip);
+      assert.include(chosen.message, "which isn't connected");
+      assert.isFalse(yield* fs.exists("/Volumes/stellar-test-unplugged-drive"));
+      assert.deepStrictEqual(created, [project.workspaceRoot]);
+    }).pipe(
+      Effect.provide(
+        VideoProjects.layer.pipe(
+          Layer.provideMerge(withProjects(created)),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        ),
+      ),
+      Effect.provideServiceEffect(
+        HostProcess.HomeDirectory,
+        FileSystem.FileSystem.pipe(
+          Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "stellar-home-" })),
+          Effect.provide(NodeServices.layer),
+        ),
+      ),
+      Effect.scoped,
+    );
+  },
+);
+
 it.live("copies footage in, replacing a cut-short copy and leaving the originals", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

@@ -240,6 +240,7 @@ import {
   VideoProjectCreateFromIdeaResult,
   VideoProjectCreateInput,
   VideoProjectCreateResult,
+  VideoProjectsFolderResult,
   VideoProjectImportFootageInput,
   VideoProjectInspectPremiereInput,
   VideoProjectInspectPremiereResult,
@@ -473,6 +474,7 @@ export const WS_METHODS = {
   videoProjectsInspectPremiere: "videoProjects.inspectPremiere",
   videoProjectsCreate: "videoProjects.create",
   videoProjectsCreateFromIdea: "videoProjects.createFromIdea",
+  videoProjectsProjectsFolder: "videoProjects.projectsFolder",
   videoProjectsScanIntake: "videoProjects.scanIntake",
   videoProjectsImportFootage: "videoProjects.importFootage",
   videoProjectsSaveVoiceOver: "videoProjects.saveVoiceOver",
@@ -1463,6 +1465,12 @@ const WsVideoProjectsCreateFromIdeaRpc = Rpc.make(WS_METHODS.videoProjectsCreate
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVideoProjectsProjectsFolderRpc = Rpc.make(WS_METHODS.videoProjectsProjectsFolder, {
+  payload: Schema.Struct({}),
+  success: VideoProjectsFolderResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsVideoProjectsScanIntakeRpc = Rpc.make(WS_METHODS.videoProjectsScanIntake, {
   payload: VideoProjectScanIntakeInput,
   success: VideoProjectScanIntakeResult,
@@ -2405,6 +2413,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsInspectPremiereRpc,
   WsVideoProjectsCreateRpc,
   WsVideoProjectsCreateFromIdeaRpc,
+  WsVideoProjectsProjectsFolderRpc,
   WsVideoProjectsScanIntakeRpc,
   WsVideoProjectsImportFootageRpc,
   WsVideoProjectsSaveVoiceOverRpc,

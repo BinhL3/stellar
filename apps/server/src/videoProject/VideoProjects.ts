@@ -3,6 +3,7 @@ import {
   ProjectId,
   type VideoProjectCreateFromIdeaInput,
   type VideoProjectCreateFromIdeaResult,
+  type VideoProjectsFolderResult,
   type VideoProjectCreateInput,
   type VideoProjectCreateResult,
   type VideoProjectImportFootageInput,
@@ -139,6 +140,7 @@ import * as Semaphore from "effect/Semaphore";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { parentFolderFor, resolveProjectsFolder } from "./ProjectsFolder.ts";
 import {
   newestExport,
   readPosted,
@@ -434,6 +436,8 @@ export class VideoProjects extends Context.Service<
     readonly createFromIdea: (
       input: VideoProjectCreateFromIdeaInput,
     ) => Effect.Effect<VideoProjectCreateFromIdeaResult, VideoProjectError>;
+    /** Where new projects go when no folder is chosen, and whether one can be made there now. */
+    readonly projectsFolder: Effect.Effect<VideoProjectsFolderResult>;
     /** Lists the videos and photos that recently arrived in the host's Downloads folder. */
     readonly scanIntake: (
       input: VideoProjectScanIntakeInput,
@@ -666,6 +670,15 @@ const make = Effect.gen(function* () {
       Effect.provideService(Path.Path, path),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
+
+  const readProjectsFolderSetting = settings.getSettings.pipe(
+    Effect.map((current) => current.projectsFolder),
+    Effect.orElseSucceed(() => ""),
+  );
+  const projectsFolder = readProjectsFolderSetting.pipe(
+    Effect.flatMap((setting) => onHost(resolveProjectsFolder(setting))),
+    Effect.withSpan("VideoProjects.projectsFolder"),
+  );
 
   /** The host's transcriber as a file to run, or the reason there is none. */
   const resolveTranscriber = Effect.gen(function* () {
@@ -1046,15 +1059,10 @@ const make = Effect.gen(function* () {
     if (folderName === "" || folderName.startsWith(".")) {
       return yield* new VideoProjectError({ reason: "Give the project a name." });
     }
-    const parent = yield* fileSystem.stat(input.parentFolder).pipe(Effect.option);
-    if (
-      !path.isAbsolute(input.parentFolder) ||
-      Option.isNone(parent) ||
-      parent.value.type !== "Directory"
-    ) {
-      return yield* new VideoProjectError({ reason: "Choose an existing folder to create it in." });
-    }
-    const root = path.join(input.parentFolder, folderName);
+    const parentFolder = yield* onHost(
+      parentFolderFor(input.parentFolder, yield* readProjectsFolderSetting),
+    ).pipe(Effect.mapError((error) => new VideoProjectError({ reason: error.reason })));
+    const root = path.join(parentFolder, folderName);
     for (const folder of PROJECT_FOLDERS) {
       yield* fileSystem.makeDirectory(path.join(root, folder), { recursive: true }).pipe(
         Effect.mapError(
@@ -2838,6 +2846,7 @@ const make = Effect.gen(function* () {
     inspectPremiere,
     createFromPremiere,
     createFromIdea,
+    projectsFolder,
     scanIntake,
     importFootage,
     conformFootage,

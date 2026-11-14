@@ -11,6 +11,7 @@ import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as CarouselProjects from "./CarouselProjects.ts";
 
 const withProjects = (created: Array<string>) =>
@@ -31,7 +32,13 @@ const provided = (created: Array<string>) =>
   Effect.provide(
     CarouselProjects.layer.pipe(
       Layer.provideMerge(withProjects(created)),
-      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      Layer.provideMerge(
+        Layer.mergeAll(
+          NodeServices.layer,
+          NodeCrypto.layer,
+          ServerSettings.ServerSettingsService.layerTest(),
+        ),
+      ),
     ),
   );
 

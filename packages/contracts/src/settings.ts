@@ -1269,6 +1269,8 @@ export const CloudSpeechCredentials = Schema.Struct({
   openrouter: CloudSpeechCredential,
 });
 
+export const DEFAULT_PROJECTS_FOLDER = "~/Movies/Stellar";
+
 export const ServerSettings = Schema.Struct({
   // Null means unmigrated; empty is authoritative and must not resurrect cleared preferences.
   favorites: Schema.NullOr(ModelFavorites).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
@@ -1283,6 +1285,10 @@ export const ServerSettings = Schema.Struct({
   worktreesDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   /** The host command that makes word-timed transcripts for video projects; empty means `stt` on the PATH. */
   videoTranscribeCommand: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /** The host folder new video and carousel projects are made in; `~` is the host's home. */
+  projectsFolder: TrimmedString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROJECTS_FOLDER)),
+  ),
   /** Server-maintained history keeps old worktrees eligible for cleanup and review diffs. */
   previousWorktreesDirectories: Schema.Array(TrimmedString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -1714,6 +1720,7 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   worktreesDirectory: Schema.optionalKey(TrimmedString),
   videoTranscribeCommand: Schema.optionalKey(TrimmedString),
+  projectsFolder: Schema.optionalKey(TrimmedString),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),

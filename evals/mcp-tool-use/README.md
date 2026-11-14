@@ -114,22 +114,23 @@ This API replay measures routing and recovery decisions. Screenshots return prod
 
 `cases/video.ndjson` and `cases/carousel.ndjson` check the first tool an agent reaches for in an editing thread, and the arguments code can check. They are authored guards for what the tool descriptions and Stellar's Video and Carousel instructions ask for, not captured failures, and they have not been run on a model yet: record a baseline before using them to judge a text change. Projects, words and photos are Acme data; timeline, word and carousel text in the mocks was printed by `packages/timeline` from synthetic input.
 
-| Case                                      | Kind    | What it checks                                                                                                            |
-| ----------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
-| video-cut-second-take-by-words            | guard   | A take is cut with `video_timeline_words` then `removeWords` on its word numbers; no typed `removeRange`, no other take.  |
-| video-fillers-cut-in-one-call             | guard   | Two word cuts go in one `video_timeline_edit` call, numbered as the words were read.                                      |
-| video-no-transcript-transcribes-first     | guard   | With no transcript the agent calls `video_transcribe` and makes no range or split cut.                                    |
-| video-export-check-uses-render-check      | guard   | "Is the export ok?" runs `video_render_check`, not an export, and the final answer reports the black frames.              |
-| video-existing-sequence-uses-push         | guard   | Edits for a sequence already in Premiere go through `video_premiere_push`, never `video_premiere_export`.                 |
-| video-user-marker-resolved-not-removed    | guard   | A user's marker is set `resolved` after its request is done, not removed.                                                 |
-| video-posted-records-links                | guard   | "It's up" with a link calls `video_posted` with `posted: true` and that link.                                             |
-| video-show-script-opens-doc               | guard   | "Pull up the script" opens the script's doc with `preview_open`, and the reply doesn't paste its lines.                   |
-| video-script-changed-reads-doc-in-browser | guard   | With no Docs tool, a script changed in the doc is read by opening the doc with `preview_open`.                            |
-| video-control-code-task-no-video-tools    | control | A code rename that mentions video calls no video or carousel tool.                                                        |
-| carousel-from-photos-uses-carousel-start  | guard   | A carousel from photos starts with `carousel_start` and its title and folder, not a video project or a footage import.    |
-| carousel-thread-reads-edits-then-looks    | guard   | In a carousel project: `carousel_read`, then `carousel_edit` with the slide, then `carousel_look`; no video tools.        |
-| carousel-photo-imported-before-use        | guard   | A photo outside the project is imported with `carousel_photos` before `carousel_edit` uses the `src` the import returned. |
-| carousel-export-not-video-export          | guard   | "Export it" calls `carousel_export`, and the final answer names the folder and the missing alt text.                      |
+| Case                                       | Kind    | What it checks                                                                                                             |
+| ------------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| video-cut-second-take-by-words             | guard   | A take is cut with `video_timeline_words` then `removeWords` on its word numbers; no typed `removeRange`, no other take.   |
+| video-fillers-cut-in-one-call              | guard   | Two word cuts go in one `video_timeline_edit` call, numbered as the words were read.                                       |
+| video-no-transcript-transcribes-first      | guard   | With no transcript the agent calls `video_transcribe` and makes no range or split cut.                                     |
+| video-export-check-uses-render-check       | guard   | "Is the export ok?" runs `video_render_check`, not an export, and the final answer reports the black frames.               |
+| video-existing-sequence-uses-push          | guard   | Edits for a sequence already in Premiere go through `video_premiere_push`, never `video_premiere_export`.                  |
+| video-user-marker-resolved-not-removed     | guard   | A user's marker is set `resolved` after its request is done, not removed.                                                  |
+| video-posted-records-links                 | guard   | "It's up" with a link calls `video_posted` with `posted: true` and that link.                                              |
+| video-show-script-opens-doc                | guard   | "Pull up the script" opens the script's doc with `preview_open`, and the reply doesn't paste its lines.                    |
+| video-script-changed-reads-doc-in-browser  | guard   | With no Docs tool, a script changed in the doc is read by opening the doc with `preview_open`.                             |
+| video-start-from-idea-uses-projects-folder | guard   | A project started with only a name calls `video_project_start` without `parentFolder`, so it lands in the projects folder. |
+| video-control-code-task-no-video-tools     | control | A code rename that mentions video calls no video or carousel tool.                                                         |
+| carousel-from-photos-uses-carousel-start   | guard   | A carousel from photos starts with `carousel_start` and its title and folder, not a video project or a footage import.     |
+| carousel-thread-reads-edits-then-looks     | guard   | In a carousel project: `carousel_read`, then `carousel_edit` with the slide, then `carousel_look`; no video tools.         |
+| carousel-photo-imported-before-use         | guard   | A photo outside the project is imported with `carousel_photos` before `carousel_edit` uses the `src` the import returned.  |
+| carousel-export-not-video-export           | guard   | "Export it" calls `carousel_export`, and the final answer names the folder and the missing alt text.                       |
 
 Expectations match partially, so an argument a tool gains later (a summary on an edit, say) does not fail a case. `run.test.ts` checks that every `video_*` and `carousel_*` name in these cases is a tool in this checkout: after a rename, fix the case.
 

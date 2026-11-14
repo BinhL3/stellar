@@ -254,6 +254,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["worktree location folder directory path drive external disk"],
   },
   {
+    id: "video-projects-folder",
+    title: "Projects folder",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: [
+      "video carousel projects folder directory location path drive new project where saved default movies",
+    ],
+  },
+  {
     id: "video-transcriber",
     title: "Transcriber",
     to: "/settings/general",

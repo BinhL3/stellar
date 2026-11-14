@@ -2942,6 +2942,7 @@ export const layerWsRpc = (
                 (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
               ),
             ),
+        [WS_METHODS.videoProjectsProjectsFolder]: () => videoProjects.projectsFolder,
         [WS_METHODS.videoProjectsScanIntake]: (input) =>
           videoProjects
             .scanIntake(input)

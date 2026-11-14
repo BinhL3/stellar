@@ -8,10 +8,10 @@ import type {
   ProjectId,
   VideoProjectInspectPremiereResult,
 } from "@t3tools/contracts";
-import { ChevronLeftIcon, ClapperboardIcon, FolderIcon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { Button } from "~/components/ui/button";
+import { Button, InlineButton } from "~/components/ui/button";
 import {
   Dialog,
   DialogDescription,
@@ -24,54 +24,28 @@ import {
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
-import { Spinner } from "~/components/ui/spinner";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { cn } from "~/lib/utils";
 import { waitForProject } from "~/state/entities";
-import { filesystemEnvironment } from "~/state/filesystem";
 import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { HostFolderBrowser, parentOf, useHostFolderListing } from "./HostFolderBrowser";
 
 const PREMIERE_EXTENSIONS = [".prproj"];
-
-// Projects usually sit side by side on one drive, so the browser reopens where the last one was.
-const lastFolderKey = (environmentId: EnvironmentId) =>
-  `stellar.videoProject.folder.${environmentId}`;
-
-const readLastFolder = (environmentId: EnvironmentId) => {
-  try {
-    return window.localStorage.getItem(lastFolderKey(environmentId)) ?? "~/";
-  } catch {
-    return "~/";
-  }
-};
-
-const writeLastFolder = (environmentId: EnvironmentId, folder: string) => {
-  try {
-    window.localStorage.setItem(lastFolderKey(environmentId), folder);
-  } catch {
-    // Storage is a convenience; the browser just starts from home next time.
-  }
-};
 
 const errorMessage = (error: unknown) =>
   error instanceof Error && error.message.trim().length > 0
     ? error.message
     : "Something went wrong.";
 
-const parentOf = (folder: string) => {
-  const trimmed = folder.replace(/\/+$/, "");
-  const index = trimmed.lastIndexOf("/");
-  return index <= 0 ? "/" : `${trimmed.slice(0, index)}/`;
-};
-
 type Mode = "idea" | "premiere" | "carousel";
 
 /**
  * Starts a video project on the machine running Stellar, either way round:
- * - from an idea: a name and a folder, before any footage or Premiere project exists;
+ * - from an idea: just a name; it is saved in the environment's projects folder (Settings);
  * - from a Premiere project: pick the .prproj and a sequence, and the server pulls the timeline
  *   into the Stellar folder beside it and builds proxies in the background.
  */
@@ -86,10 +60,8 @@ export function NewVideoProjectDialog(props: {
 }) {
   const [mode, setMode] = useState<Mode>(props.premiereFolder === undefined ? "idea" : "premiere");
   const [title, setTitle] = useState("");
-  const [folder, setFolder] = useState(
-    () => props.premiereFolder ?? readLastFolder(props.environmentId),
-  );
-  const [typed, setTyped] = useState<string | null>(null);
+  // Null starts the Premiere browser in the projects folder; set once the user browses.
+  const [browsedFolder, setBrowsedFolder] = useState<string | null>(null);
   const [chosen, setChosen] = useState<{
     readonly path: string;
     readonly inspected: VideoProjectInspectPremiereResult;
@@ -104,16 +76,25 @@ export function NewVideoProjectDialog(props: {
   const createCarousel = useAtomCommand(projectEnvironment.createCarousel, {
     reportFailure: false,
   });
+  const navigate = useNavigate();
   // A carousel is named and placed like a video from an idea; only what is created differs.
   const named = mode !== "premiere";
   const handleNewThread = useNewThreadHandler();
-  const listing = useEnvironmentQuery(
-    props.open && chosen === null
-      ? filesystemEnvironment.browse({
-          environmentId: props.environmentId,
-          input: { partialPath: folder, fileExtensions: PREMIERE_EXTENSIONS },
-        })
+  const projectsFolder = useEnvironmentQuery(
+    props.open
+      ? projectEnvironment.projectsFolder({ environmentId: props.environmentId, input: {} })
       : null,
+  );
+  const home = projectsFolder.data;
+  const folder =
+    browsedFolder ?? props.premiereFolder ?? (home?.exists === true ? `${home.path}/` : "~/");
+  // Without a folder to start in, the browser waits to hear where the projects folder is.
+  const startKnown =
+    browsedFolder !== null || props.premiereFolder !== undefined || !projectsFolder.isPending;
+  const listing = useHostFolderListing(
+    props.environmentId,
+    props.open && chosen === null && !named && startKnown ? folder : null,
+    PREMIERE_EXTENSIONS,
   );
 
   const fail = (title: string, error: unknown) =>
@@ -138,14 +119,6 @@ export function NewVideoProjectDialog(props: {
     setSequenceId(result.value.sequences.at(-1)?.id ?? null);
   };
 
-  const go = (value: string) => {
-    const path = value.trim();
-    if (path === "") return;
-    if (mode === "premiere" && path.toLowerCase().endsWith(".prproj")) void choose(path);
-    else setFolder(path.endsWith("/") ? path : `${path}/`);
-    setTyped(null);
-  };
-
   const createProject = async () => {
     if (chosen === null || sequenceId === null) return;
     setBusy("creating");
@@ -160,12 +133,6 @@ export function NewVideoProjectDialog(props: {
       }
       return;
     }
-    // The folder holding this project's folder: out of "Premiere" if it's in one, then up one.
-    const holder = parentOf(chosen.path);
-    writeLastFolder(
-      props.environmentId,
-      parentOf(/\/premiere\/$/i.test(holder) ? parentOf(holder) : holder),
-    );
     toastManager.add(
       stackedThreadToast({
         type: "success",
@@ -185,15 +152,20 @@ export function NewVideoProjectDialog(props: {
     await openProject(result.value.projectId);
   };
 
-  // The folder being browsed, as the host resolved it ("~/" becomes an absolute path).
-  const parentFolder = listing.data?.parentPath ?? null;
+  // The server saves it in the projects folder; an unavailable one (an unplugged drive) can't.
+  const unavailable =
+    home?.unavailable ??
+    (projectsFolder.error === null
+      ? null
+      : "Couldn't find the projects folder. This Stellar server may need an update.");
+  const canCreateNamed = home !== null && home.unavailable === null;
   const createIdeaProject = async () => {
     const name = title.trim();
-    if (name === "" || parentFolder === null) return;
+    if (name === "" || !canCreateNamed) return;
     setBusy("creating");
     const result = await (mode === "carousel" ? createCarousel : createFromIdea)({
       environmentId: props.environmentId,
-      input: { title: name, parentFolder },
+      input: { title: name },
     });
     if (result._tag === "Failure") {
       setBusy(null);
@@ -207,7 +179,6 @@ export function NewVideoProjectDialog(props: {
       }
       return;
     }
-    writeLastFolder(props.environmentId, folder);
     toastManager.add(
       stackedThreadToast({
         type: "success",
@@ -236,10 +207,19 @@ export function NewVideoProjectDialog(props: {
     }
   };
 
-  const entries = (listing.data?.entries ?? []).filter((entry) => !named || entry.kind !== "file");
+  const openProjectsFolderSetting = () => {
+    props.onOpenChange(false);
+    void navigate({ to: "/settings/general", hash: "video-projects-folder" });
+  };
   const ideaName = title.trim();
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) setBrowsedFolder(null);
+        props.onOpenChange(open);
+      }}
+    >
       <DialogPopup className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -277,84 +257,44 @@ export function NewVideoProjectDialog(props: {
                 aria-label="Project name"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && busy === null) void createIdeaProject();
+                }}
                 placeholder="Project name, such as Jollibee lần đầu"
               />
             ) : null}
             {chosen === null ? (
               <>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Up one folder"
-                    onClick={() => setFolder(parentOf(folder))}
-                  >
-                    <ChevronLeftIcon />
-                  </Button>
-                  <Input
-                    aria-label={
-                      named ? "Folder to create it in" : "Folder or Premiere project path"
-                    }
-                    value={typed ?? folder}
-                    onChange={(event) => setTyped(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") go(event.currentTarget.value);
-                    }}
-                    placeholder={named ? "~/Movies" : "~/Movies or a path to a .prproj"}
-                  />
-                </div>
-                <div className="overflow-hidden rounded-lg border border-border/60">
-                  <ScrollArea className="h-72">
-                    {listing.isPending || busy === "inspecting" ? (
-                      <div className="flex h-72 items-center justify-center text-muted-foreground">
-                        <Spinner />
-                      </div>
-                    ) : entries.length === 0 ? (
-                      <p className="p-4 text-sm text-muted-foreground">
-                        {listing.error ??
-                          (named
-                            ? "No folders in here. The project can still be created here."
-                            : "No folders or Premiere projects here.")}
-                      </p>
-                    ) : (
-                      <ul className="p-1">
-                        {entries.map((entry) => (
-                          <li key={entry.fullPath}>
-                            <button
-                              type="button"
-                              className={cn(
-                                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent",
-                                entry.kind === "file" && "font-medium",
-                              )}
-                              onClick={() =>
-                                entry.kind === "file"
-                                  ? void choose(entry.fullPath)
-                                  : setFolder(`${entry.fullPath}/`)
-                              }
-                            >
-                              {entry.kind === "file" ? (
-                                <ClapperboardIcon className="size-4 shrink-0 text-primary" />
-                              ) : (
-                                <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
-                              )}
-                              <span className="truncate">{entry.name}</span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </ScrollArea>
-                </div>
-                {named && parentFolder !== null ? (
-                  <p className="text-xs text-muted-foreground">
-                    Creates{" "}
-                    <span className="text-foreground">
-                      {parentFolder.replace(/\/+$/, "")}/{ideaName === "" ? "…" : ideaName}
-                    </span>{" "}
-                    {mode === "carousel"
-                      ? "with Photos, Exports and Stellar folders."
-                      : "with Footage, Audio, B-roll, Graphics, Premiere, Exports and Stellar folders."}
+                {named && unavailable !== null ? (
+                  <p className="text-xs text-warning-foreground">
+                    {unavailable}{" "}
+                    <InlineButton tone="default" onClick={openProjectsFolderSetting}>
+                      Change the projects folder
+                    </InlineButton>
                   </p>
+                ) : named && home !== null ? (
+                  <p className="text-xs text-muted-foreground">
+                    Saved in{" "}
+                    <Tooltip>
+                      <TooltipTrigger render={<span />}>
+                        {home.path.split(/[\\/]/).filter(Boolean).at(-1) ?? home.path}
+                      </TooltipTrigger>
+                      <TooltipPopup>{home.path}</TooltipPopup>
+                    </Tooltip>
+                  </p>
+                ) : null}
+                {!named ? (
+                  <HostFolderBrowser
+                    folder={folder}
+                    onFolderChange={setBrowsedFolder}
+                    listing={listing}
+                    busy={busy === "inspecting"}
+                    onChooseFile={(path) => void choose(path)}
+                    isFilePath={(path) => path.toLowerCase().endsWith(".prproj")}
+                    inputLabel="Folder or Premiere project path"
+                    placeholder="~/Movies or a path to a .prproj"
+                    emptyText="No folders or Premiere projects here."
+                  />
                 ) : null}
               </>
             ) : (
@@ -404,7 +344,7 @@ export function NewVideoProjectDialog(props: {
           ) : null}
           {named ? (
             <Button
-              disabled={ideaName === "" || parentFolder === null || busy !== null}
+              disabled={ideaName === "" || !canCreateNamed || busy !== null}
               onClick={() => void createIdeaProject()}
             >
               {busy === "creating" ? "Creating…" : "Create project"}
