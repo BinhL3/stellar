@@ -78,7 +78,6 @@ describe("resolveEffectiveEnvMode", () => {
       resolveEffectiveEnvMode({
         activeWorktreePath: null,
         hasServerThread: true,
-        draftThreadEnvMode: undefined,
         preparingWorktree: true,
       }),
     ).toBe("worktree");
@@ -86,9 +85,14 @@ describe("resolveEffectiveEnvMode", () => {
       resolveEffectiveEnvMode({
         activeWorktreePath: null,
         hasServerThread: true,
-        draftThreadEnvMode: undefined,
       }),
     ).toBe("local");
+  });
+
+  it("starts drafts in the project folder even when they persisted New worktree", () => {
+    expect(resolveEffectiveEnvMode({ activeWorktreePath: null, hasServerThread: false })).toBe(
+      "local",
+    );
   });
 });
 

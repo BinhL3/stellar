@@ -288,13 +288,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Project defaults and overrides",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["model workspace environments projects inheritance checkout"],
+    searchTerms: ["model environments projects inheritance"],
   },
   {
     id: "project-overview",
     title: "Project overview",
     to: "/settings/projects",
-    searchTerms: ["name icon emoji image checkout remove delete"],
+    searchTerms: ["name icon emoji image remove delete"],
   },
   {
     id: "default-model",
@@ -755,13 +755,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
-    id: "new-threads",
-    title: "New threads",
-    to: "/settings/threads",
-    scope: "project-defaults",
-    searchTerms: ["default workspace mode draft local worktree"],
-  },
-  {
     id: "worktree-submodules",
     title: "Submodules",
     to: "/settings/worktrees",
@@ -843,16 +836,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "cli-command",
-    title: "t3 command",
+    title: "stellar command",
     to: "/settings/about",
     searchTerms: ["cli terminal shell path install command line"],
     desktopOnly: true,
-  },
-  {
-    id: "mobile-app",
-    title: "Mobile app",
-    to: "/settings/about",
-    searchTerms: ["phone tablet iPhone iPad iOS Android App Store Google Play QR"],
   },
   {
     id: "privacy-policy",
@@ -1178,7 +1165,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "project-actions",
     title: "Actions",
     to: "/settings/projects",
-    searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
+    searchTerms: ["commands scripts setup run dev server t3.json import"],
   },
   {
     id: "environment-icon",

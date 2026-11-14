@@ -37,14 +37,25 @@ describe("resolveNewTaskWorkspaceSelection", () => {
   );
 
   // regression: #21404 use current checkout for non-git projects
-  it("preserves the selection and defaults for git projects", () => {
+  it("preserves a project-folder selection for git projects", () => {
     const selection = { mode: "local", branch: "feature", worktreePath: "/worktree" } as const;
     expect(resolveNewTaskWorkspaceSelection({ selection, fallback, isGitRepo: true })).toBe(
       selection,
     );
+  });
+
+  it("starts in the project folder when a git project's selection or default is a new worktree", () => {
+    const local = { mode: "local", branch: null, worktreePath: null };
     expect(
       resolveNewTaskWorkspaceSelection({ selection: undefined, fallback, isGitRepo: true }),
-    ).toBe(fallback);
+    ).toEqual(local);
+    expect(
+      resolveNewTaskWorkspaceSelection({
+        selection: { mode: "worktree", branch: "main", worktreePath: null },
+        fallback,
+        isGitRepo: true,
+      }),
+    ).toEqual(local);
   });
 });
 

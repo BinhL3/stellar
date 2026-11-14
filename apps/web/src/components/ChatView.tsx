@@ -343,7 +343,6 @@ import {
   resolveComposerInteractionMode,
   resolveComposerProviderSelection,
   resolveThreadMetadataUpdateForNextTurn,
-  resolveSendEnvMode,
   startNewThreadForProject,
   codexArtifactTemplatePromptToAppend,
   shouldRefocusComposerOnWindowFocus,
@@ -620,7 +619,6 @@ export default function ChatView(props: ChatViewProps) {
     return draft ? composerDraftHasUserContent({ ...draft, prompt: "" }) : false;
   });
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
-  const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
@@ -702,10 +700,6 @@ export default function ChatView(props: ChatViewProps) {
   const [terminalUiLaunchContext, setTerminalUiLaunchContext] =
     useState<TerminalLaunchContext | null>(null);
   // Overrides chosen before a server thread's first turn; they belong to that thread only.
-  const [pendingServerThreadEnvModeEntry, setPendingServerThreadEnvModeEntry] = useState<{
-    readonly threadId: ThreadId;
-    readonly mode: DraftThreadEnvMode;
-  } | null>(null);
   const [pendingServerThreadBranchEntry, setPendingServerThreadBranchEntry] = useState<{
     readonly threadId: ThreadId;
     readonly branch: string | null;
@@ -2212,7 +2206,6 @@ export default function ChatView(props: ChatViewProps) {
   const derivedEnvMode: DraftThreadEnvMode = resolveEffectiveEnvMode({
     activeWorktreePath,
     hasServerThread: isServerThread,
-    draftThreadEnvMode: isLocalDraftThread ? draftThread?.envMode : undefined,
     preparingWorktree: isPreparingWorktree,
   });
   const canOverrideServerThreadEnvMode = Boolean(
@@ -2222,18 +2215,9 @@ export default function ChatView(props: ChatViewProps) {
     activeThread.worktreePath === null &&
     !envLocked,
   );
-  if (
-    !canOverrideServerThreadEnvMode &&
-    (pendingServerThreadEnvModeEntry !== null || pendingServerThreadBranchEntry !== null)
-  ) {
-    setPendingServerThreadEnvModeEntry(null);
+  if (!canOverrideServerThreadEnvMode && pendingServerThreadBranchEntry !== null) {
     setPendingServerThreadBranchEntry(null);
   }
-  const pendingServerThreadEnvMode =
-    pendingServerThreadEnvModeEntry !== null &&
-    pendingServerThreadEnvModeEntry.threadId === activeThread?.id
-      ? pendingServerThreadEnvModeEntry.mode
-      : null;
   const pendingServerThreadBranchEntryForThread =
     pendingServerThreadBranchEntry?.threadId === activeThread?.id
       ? pendingServerThreadBranchEntry
@@ -2241,9 +2225,7 @@ export default function ChatView(props: ChatViewProps) {
   const setPendingServerThreadBranch = (branch: string | null) => {
     if (activeThread) setPendingServerThreadBranchEntry({ threadId: activeThread.id, branch });
   };
-  const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
-    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
-    : derivedEnvMode;
+  const envMode = derivedEnvMode;
   const activeThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranchEntryForThread !== null
       ? pendingServerThreadBranchEntryForThread.branch
@@ -2254,10 +2236,8 @@ export default function ChatView(props: ChatViewProps) {
       ? (pendingServerThreadStartFromOriginByThreadId[activeThread?.id ?? ""] ??
         activeProjectSettings.settings.newWorktreesStartFromOrigin)
       : false;
-  const sendEnvMode = resolveSendEnvMode({
-    requestedEnvMode: envMode,
-    isGitRepo,
-  });
+  // Threads the user starts always run in the project folder; only agents create worktrees.
+  const sendEnvMode: DraftThreadEnvMode = "local";
   const localCheckoutBranchMismatch = isServerThread
     ? resolveLocalCheckoutBranchMismatch({
         effectiveEnvMode: envMode,
@@ -2888,7 +2868,6 @@ export default function ChatView(props: ChatViewProps) {
     handleInteractionModeChange,
     handleInteractionModeChangeStable,
     handleRuntimeModeChangeStable,
-    onEnvModeChangeStable,
     onProviderModelSelectStable,
     onStartFromOriginChange,
     openProviderSetupStable,
@@ -2896,21 +2875,17 @@ export default function ChatView(props: ChatViewProps) {
   } = useComposerSelection({
     environmentId,
     composerDraftTarget,
-    draftThread,
     activeThread,
     activeRuntime,
-    activeProjectSettings,
     settings,
     providerStatuses,
     lockedProvider,
     supportsProviderSwitchingViaHandoff,
-    multipleModelSelections,
     runtimeMode,
     interactionMode,
     interactionModeEnabled,
     isLocalDraftThread,
     canOverrideServerThreadEnvMode,
-    setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
   });
@@ -3118,7 +3093,7 @@ export default function ChatView(props: ChatViewProps) {
     !activeEnvironmentUnavailable &&
     !activePendingProgress &&
     !feedbackUploading;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- switches the draft to local mode, then resends the waiting message once sending is idle
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- resends the waiting message once sending is idle
   useEffect(() => {
     if (
       !workLocallyResendReady ||
@@ -3127,19 +3102,12 @@ export default function ChatView(props: ChatViewProps) {
     ) {
       return;
     }
-    if (sendEnvMode !== "local") {
-      setDraftThreadContext(composerDraftTarget, { envMode: "local", startFromOrigin: false });
-      return;
-    }
     resendAfterWorkLocallyStable();
   }, [
-    composerDraftTarget,
     feedbackUploadsInFlightRef,
     resendAfterWorkLocallyStable,
     sendInFlightRef,
     routeThreadKey,
-    sendEnvMode,
-    setDraftThreadContext,
     workLocallyResendReady,
   ]);
 
@@ -3832,10 +3800,8 @@ export default function ChatView(props: ChatViewProps) {
                                   threadId={activeThread.id}
                                   projectId={activeThread.projectId}
                                   worktreePath={activeThread.worktreePath}
-                                  isServerThread={isServerThread}
                                   showGitControls={isGitRepo}
                                   {...(routeKind === "draft" && draftId ? { draftId } : {})}
-                                  onEnvModeChange={onEnvModeChangeStable}
                                   startFromOrigin={startFromOrigin}
                                   onStartFromOriginChange={onStartFromOriginChange}
                                   envMode={envMode}
@@ -3930,7 +3896,6 @@ export default function ChatView(props: ChatViewProps) {
                   threadId={activeThread.id}
                   projectId={activeThread.projectId}
                   worktreePath={activeThread.worktreePath}
-                  isServerThread={isServerThread}
                   {...(draftId ? { draftId } : {})}
                   activeProjectName={activeProject?.title}
                   activeProjectScripts={activeProject ? activeProjectScripts : undefined}
@@ -3964,7 +3929,6 @@ export default function ChatView(props: ChatViewProps) {
                   {...(canChangeEnvironment
                     ? { onEnvironmentChange: onEnvironmentChangeStable }
                     : {})}
-                  onEnvModeChange={onEnvModeChangeStable}
                   envMode={envMode}
                   {...(canOverrideServerThreadEnvMode
                     ? {

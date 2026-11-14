@@ -18,6 +18,7 @@ vi.mock("~/branding", async (original) => ({
   SHOW_GIT_SURFACES: true,
 }));
 vi.mock("../hooks/useTheme", () => ({
+  isProjectThemeActive: () => false,
   useRenderedAppearance: () => "dark",
   useTheme: () => ({ theme: "stellar", resolvedTheme: "dark" }),
 }));

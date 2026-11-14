@@ -41,7 +41,7 @@ the server-setting pages, such as Threads, Source control and Worktrees, edit th
 environments' defaults. Choosing a project edits its overrides on the selected
 environments. Use **Use defaults** in a page to remove that page's project overrides.
 Open **Settings → Projects** to rename the project across its selected
-connected checkouts and see where those checkouts live.
+connected folders and see where those folders live.
 Settings that are environment-wide stay read-only while a project is selected. When selected
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
@@ -171,17 +171,17 @@ than** on the task.
 
 ## Defaults and inheritance
 
-Threads contains the model and workspace for new threads. Browser controls agent browser
+Threads contains the model for new threads. Browser controls agent browser
 access. Source control contains automatic pull, the default pull request merge method and text
 generation. The same rows edit environment defaults or project overrides depending on the
 project crumb.
 
 The Projects category, under Code, holds the project's name, icon, actions,
-checkouts and removal. Actions belong to a project: editing them creates the project's own list
+folders and removal. Actions belong to a project: editing them creates the project's own list
 on each selected environment, and reset returns to the environment's shared list. A project's
 `t3.json` actions can be imported there.
 
-Settings a repository can also declare in `t3.json`, such as the workspace for new threads,
+Settings a repository can also declare in `t3.json`, such as worktree submodules,
 resolve in one order: a project override, then the environment setting, then `t3.json`, then the
 built-in default. Leave a setting on **Inherit** to let the next tier decide.
 Browser access changes apply when an agent session next starts.

@@ -44,7 +44,7 @@ const SETTINGS_SEARCH_TERMS = {
     "bluetooth",
   ],
   SettingsScheduledTasks: ["automations", "schedule", "cron", "recurring", "webhook"],
-  SettingsProjectOverview: ["project", "overview", "checkouts", "delete project"],
+  SettingsProjectOverview: ["project", "overview", "folders", "delete project"],
   SettingsOrganization: [
     "project grouping",
     "group projects",
@@ -56,7 +56,6 @@ const SETTINGS_SEARCH_TERMS = {
   ],
   SettingsThreads: [
     "new threads",
-    "default workspace",
     "default permissions",
     "access",
     "response streaming",
@@ -90,13 +89,6 @@ const SETTINGS_SEARCH_TERMS = {
     "automatically pull",
     "clone into host folders",
     "ghq",
-  ],
-  SettingsWorktrees: [
-    "worktree",
-    "branch naming",
-    "branch prefix",
-    "submodules",
-    "start from remote",
   ],
   SettingsLabs: [
     "legacy",

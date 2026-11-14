@@ -5,7 +5,7 @@ to keep a terminal open.
 
 ## Manage the service
 
-Install the `t3` CLI first ([Install Stellar](./install.md#the-t3-command)), then
+Install the `t3` CLI first ([Install Stellar](./install.md#the-stellar-command)), then
 run these commands on the machine that will host Stellar:
 
 | Task                                  | Command                |

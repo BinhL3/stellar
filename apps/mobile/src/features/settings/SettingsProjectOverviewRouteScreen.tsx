@@ -233,9 +233,9 @@ function ProjectOverviewContent(props: {
       unloadedThreadCount: readUnloadedThreadCount(members, threads),
     });
     Dialog.confirm({
-      title: plan.targetKind === "checkout" ? "Remove checkout" : "Remove project",
+      title: plan.targetKind === "checkout" ? "Remove folder" : "Remove project",
       message: plan.confirmationMessage,
-      confirmText: plan.targetKind === "checkout" ? "Remove checkout" : "Remove project",
+      confirmText: plan.targetKind === "checkout" ? "Remove folder" : "Remove project",
       destructive: true,
       onCancel: finishRemoval,
       onConfirm: () => {
@@ -415,7 +415,7 @@ function ProjectOverviewContent(props: {
           icon="trash"
           label={
             props.hasOtherMembers
-              ? "Remove checkout"
+              ? "Remove folder"
               : props.members.length > 1
                 ? "Remove this project everywhere"
                 : "Remove project"
@@ -446,12 +446,12 @@ function RemoveCheckoutAction(props: {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Remove checkout ${props.member.workspaceRoot}`}
+      accessibilityLabel={`Remove folder ${props.member.workspaceRoot}`}
       disabled={props.disabled || !canRemove}
       onPress={props.onPress}
       className="self-start rounded-full border border-border bg-card px-3 py-1.5 disabled:opacity-40"
     >
-      <Text className="font-t3-medium text-xs text-danger-foreground">Remove checkout</Text>
+      <Text className="font-t3-medium text-xs text-danger-foreground">Remove folder</Text>
     </Pressable>
   );
 }

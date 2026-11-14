@@ -304,7 +304,7 @@ async function mountSettings(search: SettingsScopeSearch) {
 const nameInput = (screen: Screen) =>
   screen.container.querySelector<HTMLInputElement>('[aria-label="Project name"]')!;
 const removeCheckout = (screen: Screen, root: string) =>
-  screen.container.querySelector<HTMLButtonElement>(`[aria-label="Remove checkout ${root}"]`)!;
+  screen.container.querySelector<HTMLButtonElement>(`[aria-label="Remove folder ${root}"]`)!;
 const removeAll = (screen: Screen) =>
   [...screen.container.querySelectorAll("button")].find((button) =>
     button.textContent?.includes("Remove all entries"),
@@ -357,7 +357,7 @@ describe("project settings permissions", () => {
     expect(nameInput(screen).disabled).toBe(true);
     expect(removeAll(screen).disabled).toBe(true);
     expect(screen.container.textContent).toContain(
-      "Shared settings require permission to change every checkout in this group.",
+      "Shared settings require permission to change every folder in this group.",
     );
     expect(state.update).not.toHaveBeenCalled();
   });
@@ -620,10 +620,10 @@ describe("project settings scope", () => {
   });
 
   it.each([
-    [undefined, "This project has no checkout on this environment."],
+    [undefined, "This project has no folder on this environment."],
     [
       "removed-checkout",
-      "This checkout is no longer available in the selected project and environment.",
+      "This folder is no longer available in the selected project and environment.",
     ],
   ])("recovers a stale environment link with checkout %s", async (checkout, message) => {
     setup();

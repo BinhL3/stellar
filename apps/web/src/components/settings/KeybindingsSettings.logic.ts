@@ -246,12 +246,19 @@ export function groupKeybindingRows(
   });
 }
 
+/** Commands whose controls Stellar does not show; persisted bindings stay valid but unlisted. */
+const HIDDEN_KEYBINDING_COMMANDS: ReadonlySet<KeybindingCommand> = new Set<KeybindingCommand>([
+  "composer.workspace",
+  "composer.previousWorktree",
+]);
+
 export function buildKeybindingRows(
   keybindings: ResolvedKeybindingsConfig,
   platform = navigator.platform,
 ): ReadonlyArray<KeybindingRow> {
   const rowsById = new Map<string, KeybindingRow>();
   for (const binding of keybindings) {
+    if (HIDDEN_KEYBINDING_COMMANDS.has(binding.command)) continue;
     const defaultBinding = defaultBindingForBinding(binding);
     const key = shortcutToKeybindingInput(binding.shortcut);
     const when = whenAstToExpression(binding.whenAst);
@@ -364,6 +371,7 @@ export function buildKeybindingCommandOptions(
   for (const binding of keybindings) {
     commands.add(binding.command);
   }
+  for (const command of HIDDEN_KEYBINDING_COMMANDS) commands.delete(command);
   return [...commands].toSorted((left, right) => compareCommands(left, right, commandLabel));
 }
 

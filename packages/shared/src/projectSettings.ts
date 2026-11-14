@@ -193,13 +193,6 @@ export function resolveNewThreadEnvMode(input: {
   return isNewProjectFolder ? "local" : configured;
 }
 
-export function resolveSendEnvMode(input: {
-  readonly requestedEnvMode: ThreadEnvMode;
-  readonly isGitRepo: boolean;
-}): ThreadEnvMode {
-  return input.isGitRepo ? input.requestedEnvMode : "local";
-}
-
 export function clearProjectSettingsOverrides(
   settings: Pick<ServerSettings, "projectSettingsOverrides">,
   projectId: ProjectId,

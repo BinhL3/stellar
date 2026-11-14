@@ -38,7 +38,8 @@ below.
 
 ## Switch between Stable and Nightly
 
-In the desktop app, change **Settings → About → Update track**. Stellar shows each
+In the desktop app, change **Settings → About → Update track**. Builds without an
+update feed show only the version there, with no update controls. Stellar shows each
 connected machine it will move and each one it skips, then moves them in one
 step. Remote servers install the latest release on the new track. Remote desktop
 apps reinstall on the new track. This app reinstalls last. Your threads,

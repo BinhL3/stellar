@@ -1326,7 +1326,7 @@ function ConnectionsSettingsContent({
                 <AlertDialogDescription>
                   {pendingDesktopServerExposureMode === "network-accessible"
                     ? "Let your other devices connect to Stellar over the network. Pair devices to give them access. Stellar will restart."
-                    : "Devices connected over your local network will disconnect. Existing tunnels, such as T3 Connect or Tailscale HTTPS, keep working. Stellar will restart."}
+                    : "Devices connected over your local network will disconnect. Existing tunnels, such as Tailscale HTTPS, keep working. Stellar will restart."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

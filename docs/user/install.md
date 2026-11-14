@@ -24,24 +24,24 @@ vp run start:desktop
 
 Update a source build with `git pull` and a rebuild.
 
-### The `t3` command
+### The `stellar` command
 
-The desktop app includes the `t3` command-line tool. To run it from any
+The desktop app includes the `stellar` command-line tool. To run it from any
 terminal, open **Settings → About** and choose **Install** next to
-**t3 command**. On macOS and Linux it adds a `t3` link to a folder on your
+**stellar command**. On macOS and Linux it adds a `stellar` link to a folder on your
 `PATH`; on Windows it adds the app's command folder to your `PATH`. Open a new
 terminal afterwards. **Remove** takes it off again.
 
-| Task                                             | Command                                                                 |
-| ------------------------------------------------ | ----------------------------------------------------------------------- |
-| Start the server without a browser               | `t3 serve`                                                              |
-| Use it from your other devices                   | `t3 up` ([details](./remote-access.md))                                 |
-| Keep it running in the background (macOS, Linux) | `t3 service install` ([details](./background-service.md))               |
-| Reclaim database space                           | `t3 doctor` ([details](./background-service.md#reclaim-database-space)) |
+| Task                                             | Command                                                                      |
+| ------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Start the server without a browser               | `stellar serve`                                                              |
+| Use it from your other devices                   | `stellar up` ([details](./remote-access.md))                                 |
+| Keep it running in the background (macOS, Linux) | `stellar service install` ([details](./background-service.md))               |
+| Reclaim database space                           | `stellar doctor` ([details](./background-service.md#reclaim-database-space)) |
 
-Run `t3 help` or `t3 --help` for the full reference.
+Run `stellar help` or `stellar --help` for the full reference.
 
-If `t3 serve` reports an already running server, connect to that server
+If `stellar serve` reports an already running server, connect to that server
 instead. Stop it before starting a replacement, or use a different `--base-dir`
 for an independent server.
 

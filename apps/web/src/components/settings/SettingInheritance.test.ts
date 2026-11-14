@@ -64,7 +64,7 @@ describe("settingInheritanceLayers", () => {
   });
 
   it("shows the checkout's t3.json as a layer for file-backed keys", () => {
-    const file = { defaultThreadEnvMode: "worktree" as const };
+    const file = { worktreeSubmodules: "none" as const };
     const fromFile = settingInheritanceLayers(
       {
         environmentId,
@@ -73,15 +73,15 @@ describe("settingInheritanceLayers", () => {
         ...resolveProjectSettings(DEFAULT_SERVER_SETTINGS, projectId, null, file),
       },
       DEFAULT_SERVER_SETTINGS,
-      "defaultThreadEnvMode",
+      "worktreeSubmodules",
     );
     expect(fromFile.map((layer) => [layer.label, layer.value, layer.effective])).toEqual([
       ["Project", "Inherits", false],
       ["Laptop", "Inherits", false],
-      ["t3.json", "New worktree", true],
-      ["Default", "Current checkout", false],
+      ["t3.json", "Skip", true],
+      ["Default", "Recursive", false],
     ]);
-    const settings = { ...DEFAULT_SERVER_SETTINGS, defaultThreadEnvMode: "local" as const };
+    const settings = { ...DEFAULT_SERVER_SETTINGS, worktreeSubmodules: "top-level" as const };
     const fromEnvironment = settingInheritanceLayers(
       {
         environmentId,
@@ -90,13 +90,13 @@ describe("settingInheritanceLayers", () => {
         ...resolveProjectSettings(settings, projectId, null, file),
       },
       settings,
-      "defaultThreadEnvMode",
+      "worktreeSubmodules",
     );
     expect(fromEnvironment.map((layer) => [layer.value, layer.effective])).toEqual([
       ["Inherits", false],
-      ["Current checkout", true],
+      ["Top level only", true],
       ["Inherits", false],
-      ["Current checkout", false],
+      ["Recursive", false],
     ]);
   });
 });

@@ -43,7 +43,7 @@ describe("project removal confirmation", () => {
     });
     expect(plan.projectThreads).toHaveLength(3);
     expect(plan.confirmationMessage).toBe(
-      'Remove checkout "Repo" and delete its 1 thread?\nPath: /work/repo\nEnvironment: Local\nThose threads and any archived threads are deleted from Stellar. Provider sessions are kept.\nOther entries in this grouped project are unaffected.\nThis action cannot be undone.',
+      'Remove folder "Repo" and delete its 1 thread?\nPath: /work/repo\nEnvironment: Local\nThose threads and any archived threads are deleted from Stellar. Provider sessions are kept.\nOther entries in this grouped project are unaffected.\nThis action cannot be undone.',
     );
   });
 

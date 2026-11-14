@@ -1,7 +1,6 @@
 # Working with threads
 
-Use a new thread for a separate task. Choose **New worktree** when its code changes
-need a separate branch and working directory.
+Use a new thread for a separate task. New threads start in the project's folder.
 
 ## Start a thread
 
@@ -10,8 +9,7 @@ projects in the default or project-grouped sidebar. The legacy sidebar always
 starts in the current project. **Shift-click** to start in
 the current project, or use a project's own new-thread action. A new thread carries
 your model and mode selections, unless the destination project has its own model default.
-Its branch and workspace mode come from your configured defaults. To continue in
-an existing worktree, use **New thread in this worktree** from the branch toolbar.
+Its branch comes from your configured defaults.
 
 On mobile, **New thread** starts in the current thread's project, or else in the
 last project you opened or chose on that device. If neither is available, the
@@ -50,8 +48,7 @@ get branch and diff controls.
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`
 on Windows and Linux to start a new thread and immediately open another draft. The
-next draft keeps the workspace mode and base branch you selected. With **New
-worktree**, each background submission creates its own worktree.
+next draft keeps the branch you selected.
 
 To send the same prompt to several models on web or desktop, **Shift-click** models
 in a new thread's model picker to add or remove them. A regular click returns to a
