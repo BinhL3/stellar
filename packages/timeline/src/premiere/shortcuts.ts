@@ -58,6 +58,7 @@ export const TIMELINE_ACTIONS = {
   undo: ["cmd.edit.undo"],
   redo: ["cmd.edit.redo"],
   maximize: ["cmd.toggle.maximize.focused.frame"],
+  fullScreen: [],
   addMarker: ["cmd.set.marker", "cmd.set.marker.unnumbered"],
   nextMarker: ["cmd.marker.gotomarker.next", "cmd.marker.gotosequencemarker.next"],
   previousMarker: ["cmd.marker.gotomarker.previous", "cmd.marker.gotosequencemarker.previous"],

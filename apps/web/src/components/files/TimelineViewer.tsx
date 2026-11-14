@@ -1093,6 +1093,8 @@ export default function TimelineViewer(props: {
         return true;
       }
       case "maximize":
+        return false;
+      case "fullScreen":
         engine?.requestFullscreen();
         return true;
       case "listenToCut":

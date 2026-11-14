@@ -60,7 +60,8 @@ export const ACTION_LABELS: Record<TimelineAction, string> = {
   toggleClipEnabled: "Enable or disable the clip",
   undo: "Undo",
   redo: "Redo",
-  maximize: "Full screen",
+  maximize: "Maximize the panel under the pointer",
+  fullScreen: "Full screen",
   addMarker: "Add a marker",
   nextMarker: "Next marker",
   previousMarker: "Previous marker",
@@ -70,9 +71,10 @@ export const ACTION_LABELS: Record<TimelineAction, string> = {
 /**
  * Keys for actions Premiere has no command for. They are tried before the layout's, and an
  * action that doesn't apply lets the key fall through to the layout: backslash fits the timeline
- * unless an edit that removed footage is selected.
+ * unless an edit that removed footage is selected. Full screen is Premiere's Control+backquote; the dock handles
+ * the bare backquote itself, for every panel.
  */
-const OWN_KEYMAP: Keymap = { "\\": "listenToCut" };
+const OWN_KEYMAP: Keymap = { "\\": "listenToCut", "Control+`": "fullScreen" };
 
 /** The actions a key runs, in the order to try them. */
 export const actionsFor = (keymap: Keymap, combo: string): ReadonlyArray<TimelineAction> =>

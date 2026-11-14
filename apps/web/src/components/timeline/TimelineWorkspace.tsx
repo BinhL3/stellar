@@ -128,6 +128,10 @@ const restoreLayout = (api: DockviewApi, projectKey: string) => {
   buildDefaultLayout(api);
 };
 
+const isTyping = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+
 const sameIds = (a: ReadonlyArray<string>, b: ReadonlyArray<string>) =>
   a.length === b.length && a.every((id, index) => id === b[index]);
 
@@ -181,7 +185,23 @@ export function TimelineWorkspace(props: {
       if (api.panels.length > 0)
         useTimelineLayoutStore.getState().saveLayout(projectKey, api.toJSON());
     };
+    // Like Premiere, the key acts on the panel under the pointer, whichever panel has focus.
+    const onMaximizeKey = (event: KeyboardEvent) => {
+      if (event.code !== "Backquote" || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isTyping(event.target)) return;
+      const hovered = [...document.querySelectorAll(":hover")].at(-1);
+      const group =
+        api.groups.find((candidate) => hovered && candidate.element.contains(hovered)) ??
+        api.groups.find((candidate) => candidate.element.contains(document.activeElement));
+      if (!group) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (group.api.isMaximized()) group.api.exitMaximized();
+      else group.api.maximize();
+    };
+    window.addEventListener("keydown", onMaximizeKey, true);
     const disposables = [
+      { dispose: () => window.removeEventListener("keydown", onMaximizeKey, true) },
       api.onDidLayoutChange(() => {
         publish();
         if (saveTimer !== null) window.clearTimeout(saveTimer);
