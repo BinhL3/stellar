@@ -25,8 +25,8 @@ export function PanelAnimationsPreview({ durationMs }: { durationMs: number }) {
       />
       <span aria-hidden className="flex min-w-0 flex-1 flex-col px-1">
         <span className="flex min-h-0 flex-1 flex-col gap-1 pt-1">
-          <span className="h-0.5 w-full rounded-full bg-muted-foreground/25" />
-          <span className="h-0.5 w-4/5 rounded-full bg-muted-foreground/20" />
+          <span className="h-0.5 w-full rounded-none bg-muted-foreground/25" />
+          <span className="h-0.5 w-4/5 rounded-none bg-muted-foreground/20" />
           <span className="h-0.5 w-3/5 rounded-full bg-muted-foreground/15" />
         </span>
         <span

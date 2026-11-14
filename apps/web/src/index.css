@@ -171,7 +171,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
    * Compact UI geometry. Keep these values semantic so sidebar, palette,
    * tooltip, and toolbar controls cannot quietly drift apart.
    */
-  --control-radius: 0.375rem;
+  --control-radius: 3px;
   --sidebar-content-inset: 0.5rem;
   --sidebar-control-gap: 0.5rem;
   --sidebar-icon-color: color-mix(
@@ -187,9 +187,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      docked sheets, then the floating preview player (47–49, see
      previewMiniPlayerLayout.ts), then dialogs and popovers (50 and up). */
   --z-sheet: 46;
-  --glass-blur: 12px;
-  --glass-opacity: 80%;
-  --glass-saturation: 1.14;
+  /* Popups and dialogs sit one surface step up and are held by this border alone. */
+  --popup-border: color-mix(in srgb, var(--contrast-foreground) 14%, transparent);
   --desktop-window-right-resize-inset: 0px;
   --workspace-topbar-height: 52px;
   --workspace-controls-top: 0px;
@@ -217,8 +216,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     --appearance-contrast-target: white;
     --app-scrollbar-thumb: rgb(255 255 255 / 8%);
     --app-scrollbar-thumb-hover: rgb(255 255 255 / 12%);
-    --glass-blur: 16px;
-    --glass-saturation: 1.08;
   }
 }
 
@@ -435,13 +432,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --text-5xs--line-height: 1;
   /* Motion. drawer is the decelerating curve for surfaces that slide or pop in
      (composer context, pills). */
-  --inset-shadow-control-highlight: 0 1px rgb(255 255 255 / 16%);
-  --inset-shadow-control-pressed: 0 1px rgb(0 0 0 / 8%);
+  --inset-shadow-control-highlight: 0 0 #0000;
+  --inset-shadow-control-pressed: 0 0 #0000;
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
-  /* The composer's elevation: a soft drop pulled in under the surface, shared
-     by the composer, its context strip and attached banners. */
-  --shadow-composer: 0 1px 2px rgb(0 0 0 / 5%);
-  --shadow-composer-dark: 0 14px 32px -18px rgb(0 0 0 / 75%);
+  /* The composer sits flat; its border and surface step carry it. */
+  --shadow-composer: 0 0 #0000;
+  --shadow-composer-dark: 0 0 #0000;
   /* Overlap the lower toolbar backdrop by one pixel to cover the composer seam. */
   --spacing-composer-seam: calc(var(--spacing) * 4 - 1px);
   /* Dark-mode shade where an attached surface meets the composer: 10px of
@@ -531,12 +527,28 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-sidebar-row-active: var(--sidebar-row-active);
   --color-sidebar-row-selected: var(--sidebar-row-selected);
   --color-sidebar-border: var(--contrast-sidebar-border);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
+  /* Corners run 2 to 6px: chips and rows, controls, popups, then panels and dialogs. Nothing
+     in the shell is rounder, so the larger steps all stop at 6px. */
+  --radius-xs: 2px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --radius-2xl: 6px;
+  --radius-3xl: 6px;
+  --radius-4xl: 6px;
+  /* No drop shadows. Surface steps and borders separate layers, so every elevation utility
+     resolves to nothing. */
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md: 0 0 #0000;
+  --shadow-lg: 0 0 #0000;
+  --shadow-xl: 0 0 #0000;
+  --shadow-2xl: 0 0 #0000;
+  --inset-shadow-2xs: 0 0 #0000;
+  --inset-shadow-xs: 0 0 #0000;
+  --inset-shadow-sm: 0 0 #0000;
   @keyframes skeleton {
     /* The single loading-bar breath used by every skeleton: one opacity pulse
        per container, stepped so however many bars sit under it, the compositor
@@ -615,26 +627,20 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   );
 }
 
+/* The "glass" surfaces are flat and opaque: a surface step and a border, no backdrop blur. The
+   names stay because components and Clerk's appearance reference them. */
 @utility surface-glass {
-  background: color-mix(in srgb, var(--background) var(--glass-opacity), transparent);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-
-  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-    background: var(--background) !important;
-  }
+  background: var(--background);
 }
 
 @utility alert-glass {
   --alert-glass-tint: transparent;
   background:
     linear-gradient(
-      color-mix(in srgb, var(--alert-glass-tint) 4%, transparent),
-      color-mix(in srgb, var(--alert-glass-tint) 4%, transparent)
+      color-mix(in srgb, var(--alert-glass-tint) 6%, transparent),
+      color-mix(in srgb, var(--alert-glass-tint) 6%, transparent)
     ),
-    color-mix(in srgb, var(--background) var(--glass-opacity), transparent) !important;
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+    var(--popover) !important;
 
   &[data-variant="error"] {
     --alert-glass-tint: var(--destructive);
@@ -650,10 +656,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
   &[data-variant="warning"] {
     --alert-glass-tint: var(--warning);
-  }
-
-  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-    background: var(--background) !important;
   }
 }
 
@@ -677,47 +679,141 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 @utility dialog-glass {
-  background: color-mix(in srgb, var(--background) var(--glass-opacity), transparent);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  border-color: color-mix(in srgb, var(--contrast-foreground) 10%, transparent);
-  box-shadow: 0 24px 64px -24px rgb(0 0 0 / 65%);
-
-  @variant dark {
-    border-color: color-mix(in srgb, var(--color-white) 8%, transparent);
-    box-shadow:
-      inset 0 1px rgb(255 255 255 / 4%),
-      0 24px 72px -20px rgb(0 0 0 / 90%);
-  }
-
-  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-    background: var(--popover) !important;
-  }
+  background: var(--popover);
+  border-color: var(--popup-border);
 }
 
+/* The scrim dims the app and lays a dither over it, so a dialog reads as a layer without blur. */
 @utility dialog-backdrop {
-  background: color-mix(in srgb, var(--background) 60%, transparent);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-
-  @variant dark {
-    background: color-mix(in srgb, var(--background) 64%, transparent);
-  }
+  background-color: color-mix(in srgb, var(--background) 72%, transparent);
+  background-image: repeating-conic-gradient(
+    color-mix(in srgb, var(--background) 60%, transparent) 0 25%,
+    transparent 0 50%
+  );
+  background-size: 4px 4px;
 }
 
 @utility dropdown-glass {
-  background: color-mix(
-    in srgb,
-    var(--popover) 18%,
-    color-mix(in srgb, var(--popover) var(--glass-opacity), transparent)
-  );
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  border: 1px solid color-mix(in srgb, var(--contrast-foreground) 10%, transparent);
+  background: var(--popover);
+  border: 1px solid var(--popup-border);
+}
 
-  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-    background: var(--popover) !important;
+/* Labels, tabs, section headers and small metadata: mono capitals, spaced. */
+@utility label-caps {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Where a panel edge ends it thins out in dots instead of stopping on a hairline: a solid rule,
+   then three rows of dots at halving density. The suffix names the edge the rule sits on. Painted
+   as background layers in the element's last 4px, the same as the dock's tab strip. */
+@utility dither-rule-b {
+  --dither-rule: color-mix(in oklab, var(--color-foreground) 16%, transparent);
+  background-image:
+    linear-gradient(var(--dither-rule), var(--dither-rule)),
+    repeating-linear-gradient(to right, var(--dither-rule) 0 1px, transparent 1px 2px),
+    repeating-linear-gradient(to right, var(--dither-rule) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(to right, var(--dither-rule) 0 1px, transparent 1px 8px);
+  background-size: 100% 1px;
+  background-position:
+    0 calc(100% - 3px),
+    0 calc(100% - 2px),
+    1px calc(100% - 1px),
+    3px 100%;
+  background-repeat: no-repeat;
+}
+
+@utility dither-rule-t {
+  --dither-rule: color-mix(in oklab, var(--color-foreground) 16%, transparent);
+  background-image:
+    linear-gradient(var(--dither-rule), var(--dither-rule)),
+    repeating-linear-gradient(to right, var(--dither-rule) 0 1px, transparent 1px 2px),
+    repeating-linear-gradient(to right, var(--dither-rule) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(to right, var(--dither-rule) 0 1px, transparent 1px 8px);
+  background-size: 100% 1px;
+  background-position:
+    0 3px,
+    0 2px,
+    1px 1px,
+    3px 0;
+  background-repeat: no-repeat;
+}
+
+@utility dither-rule-e {
+  --dither-rule: color-mix(in oklab, var(--color-foreground) 16%, transparent);
+  background-image:
+    linear-gradient(var(--dither-rule), var(--dither-rule)),
+    repeating-linear-gradient(to bottom, var(--dither-rule) 0 1px, transparent 1px 2px),
+    repeating-linear-gradient(to bottom, var(--dither-rule) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(to bottom, var(--dither-rule) 0 1px, transparent 1px 8px);
+  background-size: 1px 100%;
+  background-position:
+    calc(100% - 3px) 0,
+    calc(100% - 2px) 0,
+    calc(100% - 1px) 1px,
+    100% 3px;
+  background-repeat: no-repeat;
+}
+
+@utility dither-rule-s {
+  --dither-rule: color-mix(in oklab, var(--color-foreground) 16%, transparent);
+  background-image:
+    linear-gradient(var(--dither-rule), var(--dither-rule)),
+    repeating-linear-gradient(to bottom, var(--dither-rule) 0 1px, transparent 1px 2px),
+    repeating-linear-gradient(to bottom, var(--dither-rule) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(to bottom, var(--dither-rule) 0 1px, transparent 1px 8px);
+  background-size: 1px 100%;
+  background-position:
+    3px 0,
+    2px 0,
+    1px 1px,
+    0 3px;
+  background-repeat: no-repeat;
+}
+
+/* The active item in a list or tab strip is marked with a small dithered block in the accent,
+   the same block the dock puts on its visible tab. */
+@utility dither-marker {
+  &::before {
+    content: "";
+    flex: none;
+    width: 6px;
+    height: 6px;
+    background: repeating-conic-gradient(var(--color-primary) 0 25%, transparent 0 50%) 0 0 / 4px
+      4px;
   }
+}
+
+/* On rows whose content must not shift when they become active, the same checker runs as a
+   4px rail inside the row's leading edge. The row needs its own positioning context. */
+@utility dither-marker-start {
+  &::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 2px;
+    top: 50%;
+    width: 4px;
+    height: 12px;
+    translate: 0 -50%;
+    pointer-events: none;
+    background: repeating-conic-gradient(var(--color-primary) 0 25%, transparent 0 50%) 0 0 / 4px
+      4px;
+  }
+}
+
+/* A dotted leader in the current text colour, for the rule that runs out from a section label. */
+@utility dither-leader {
+  height: 1px;
+  background-image: repeating-linear-gradient(to right, currentcolor 0 1px, transparent 1px 4px);
+}
+
+/* A checkerboard wash in the current text colour, for fills that should read as texture. */
+@utility dither-fill {
+  background-image: repeating-conic-gradient(currentcolor 0 25%, transparent 0 50%);
+  background-size: 4px 4px;
 }
 
 @utility topbar-scroll-fade {
@@ -1187,7 +1283,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   [data-settings-page-scroll] div.settings-search-target-pulse,
   [data-settings-page-scroll] section.settings-search-target-pulse > div:first-child {
     animation: settings-search-target-pulse 650ms ease-in-out 2;
-    border-radius: 0.75rem;
+    border-radius: var(--radius-xl);
   }
 
   /* The pulse is the destination indicator; without it (reduced motion), the
@@ -1228,7 +1324,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
   .settings-slider::-webkit-slider-runnable-track {
     height: 0.375rem;
-    border-radius: 9999px;
+    border-radius: 1px;
     background: linear-gradient(
       to right,
       var(--primary) 0 var(--settings-slider-fill-position),
@@ -1240,14 +1336,14 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
   .settings-slider::-moz-range-track {
     height: 0.375rem;
-    border-radius: 9999px;
+    border-radius: 1px;
     background: color-mix(in srgb, var(--contrast-muted-foreground) 22%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--contrast-border) 55%, transparent);
   }
 
   .settings-slider::-moz-range-progress {
     height: 0.375rem;
-    border-radius: 9999px;
+    border-radius: 1px;
     background: var(--primary);
   }
 
@@ -1257,9 +1353,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     height: 1rem;
     margin-top: -0.3125rem;
     border: 2px solid var(--primary);
-    border-radius: 9999px;
+    border-radius: 2px;
     background: var(--background);
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--contrast-foreground) 12%, transparent);
     transition:
       transform 120ms ease,
       box-shadow 120ms ease;
@@ -1269,9 +1364,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     width: 1rem;
     height: 1rem;
     border: 2px solid var(--primary);
-    border-radius: 9999px;
+    border-radius: 2px;
     background: var(--background);
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--contrast-foreground) 12%, transparent);
     transition:
       transform 120ms ease,
       box-shadow 120ms ease;
@@ -1279,12 +1373,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
   .settings-slider:hover::-webkit-slider-thumb {
     transform: scale(1.08);
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--contrast-foreground) 20%, transparent);
   }
 
   .settings-slider:hover::-moz-range-thumb {
     transform: scale(1.08);
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--contrast-foreground) 20%, transparent);
   }
 
   .settings-slider:active::-webkit-slider-thumb {
@@ -1366,7 +1458,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 :root {
   color-scheme: light;
-  --radius: 0.5rem;
+  --radius: 0.25rem;
   --background: var(--color-zinc-25);
   --app-chrome-background: var(--background);
   --toolbar-background: var(--app-chrome-background);
@@ -1823,9 +1915,8 @@ html[data-theme-token-probe] *::after {
   overflow: hidden;
   padding: 0.2rem 0.45rem;
   border: 1px solid color-mix(in oklab, var(--ring) 48%, var(--contrast-border));
-  border-radius: 0.4rem;
+  border-radius: var(--radius-md);
   background: var(--popover);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 24%);
   color: var(--contrast-popover-foreground);
   font-size: 0.6875rem;
   font-weight: 600;
@@ -2139,16 +2230,17 @@ body {
   --desktop-window-right-resize-inset: 6px;
 }
 
-/* App-chrome grain. Baked into each surface's own background (behind
-   content) rather than a fixed overlay on top: a full-viewport overlay
-   forces the compositor to re-blend every frame any animation produces,
-   which multiplied idle GPU cost. The overlay's 0.035 opacity lives in the
-   SVG rect instead. Surfaces that float over the body (e.g. the inset main
-   card) must opt in via the surface-grain utility, or they lose the
-   grain's subtle brightening and stand out against the body. */
+/* App-chrome texture: a 4px dot matrix, one faint pixel per tile. Baked into each surface's
+   own background (behind content) rather than a fixed overlay on top: a full-viewport overlay
+   forces the compositor to re-blend every frame any animation produces. Surfaces that float
+   over the body (e.g. the inset main card) opt in via the surface-grain utility. */
 :root {
-  --surface-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
-  --surface-grain-size: 256px 256px;
+  --surface-grain: conic-gradient(
+    at 1px 1px,
+    transparent 270deg,
+    color-mix(in srgb, var(--foreground) 5%, transparent) 0
+  );
+  --surface-grain-size: 4px 4px;
 }
 
 /* The live T3 Chat texture is a 128px grayscale tile with a constant 7/255
@@ -2239,7 +2331,7 @@ code {
 
 :where(:not(iframe))::-webkit-scrollbar-thumb {
   background: var(--app-scrollbar-thumb);
-  border-radius: 3px;
+  border-radius: 0;
 }
 
 :where(:not(iframe))::-webkit-scrollbar-thumb:hover {
@@ -2500,7 +2592,7 @@ code {
   min-width: 1rem;
   align-items: center;
   justify-content: center;
-  border-radius: 0.25rem;
+  border-radius: var(--radius-sm);
   text-decoration: none;
   font-size: 0.6875rem;
   font-weight: 600;
@@ -2508,7 +2600,7 @@ code {
 
 .chat-markdown :not(pre) > code {
   border: 1px solid transparent;
-  border-radius: 0.25rem;
+  border-radius: var(--radius-sm);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   background: color-mix(in srgb, var(--contrast-foreground) 10%, transparent);
@@ -2525,7 +2617,7 @@ code {
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--contrast-border);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
   background: var(--muted);
   padding: 0.8rem 0.9rem;
   scrollbar-width: thin;
@@ -2543,7 +2635,7 @@ code {
 }
 
 .chat-markdown pre::-webkit-scrollbar-thumb {
-  border-radius: 999px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--contrast-border) 78%, transparent);
 }
 
@@ -2633,7 +2725,12 @@ code {
 .chat-markdown thead th {
   border-bottom: 1px solid color-mix(in srgb, var(--contrast-border) 60%, transparent);
   padding-block: 0.55rem;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--contrast-muted-foreground);
 }
 
 .chat-markdown tbody td {
@@ -2823,7 +2920,7 @@ code {
   font-family: var(--font-mono);
   font-size: 0.92em;
   background: color-mix(in oklab, var(--muted-foreground) 12%, transparent);
-  border-radius: 0.3em;
+  border-radius: var(--radius-sm);
   padding: 0.05em 0.25em;
 }
 
@@ -2845,7 +2942,7 @@ code {
 .composer-tiptap .ProseMirror-selectednode {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 
 .composer-tiptap .composer-chip-range-selected {
@@ -2856,7 +2953,7 @@ code {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: Highlight;
   opacity: 0.3;
   pointer-events: none;

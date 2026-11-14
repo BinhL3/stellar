@@ -62,9 +62,7 @@ const readableText = (slide: CarouselSlide): LayerChanges => {
 function Section(props: { readonly title: string; readonly children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2 border-b border-border/60 p-3">
-      <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
-        {props.title}
-      </h3>
+      <h3 className="label-caps text-muted-foreground">{props.title}</h3>
       {props.children}
     </section>
   );

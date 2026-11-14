@@ -2023,7 +2023,7 @@ function PreviewScrubber(props: {
       {...drag}
       onContextMenu={props.onContextMenu}
     >
-      <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/25 transition-[height] group-hover/scrub:h-1.5" />
+      <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-none bg-foreground/25 transition-[height] group-hover/scrub:h-1.5" />
       {hasRange ? (
         <>
           <span
