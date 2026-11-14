@@ -30,6 +30,7 @@ import * as ProviderHostLive from "./ProviderHostLive.ts";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import type * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as ServerConfig from "../config.ts";
+import * as DesktopTelemetryReceiver from "../resourceTelemetry/DesktopTelemetryReceiver.ts";
 import type * as PortScanner from "../preview/PortScanner.ts";
 
 type ProviderInstanceRegistryHydrationEnv =
@@ -164,6 +165,18 @@ export const layerSettingsWatcher = (
       );
     }),
   );
+
+/** A first desktop launch starts before the shell's PATH is known, so providers built then cannot find their CLIs. */
+export const layerLateShellEnvironment = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const mutator = yield* ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator;
+    const receiver = yield* DesktopTelemetryReceiver.DesktopTelemetryReceiver;
+    yield* receiver.lateShellEnvironment.pipe(
+      Stream.runForEach(() => mutator.rebuildAll),
+      Effect.forkScoped,
+    );
+  }),
+);
 
 export const layer: Layer.Layer<
   | ProviderInstanceRegistry.ProviderInstanceRegistry

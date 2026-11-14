@@ -197,6 +197,8 @@ export class DesktopTelemetryReceiver extends Context.Service<
     readonly cancelDesktopUpdate: (
       requestId: string,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
+    /** Emits when the shell environment arrives after a start that could not wait for it. */
+    readonly lateShellEnvironment: Stream.Stream<void>;
     readonly desktopUpdates: Effect.Effect<
       {
         readonly latest: Option.Option<DesktopUpdateStatusReport>;
@@ -420,6 +422,7 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
   const healthChanges = yield* PubSub.sliding<DesktopTelemetryReceiverHealth>(4);
   const latestUpdateReport = yield* Ref.make(Option.none<DesktopUpdateStatusReport>());
   const updateReportChanges = yield* PubSub.sliding<DesktopUpdateStatusReport>(16);
+  const lateShellEnvironment = yield* PubSub.sliding<void>(1);
   const controlMutex = yield* Semaphore.make(1);
   const snapshotMutex = yield* Semaphore.make(1);
   const health = yield* Ref.make<DesktopTelemetryReceiverHealth>({
@@ -597,7 +600,16 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
         }
 
         if (message.type === "shellEnvironment") {
-          return recordContact.pipe(Effect.andThen(applyShellSnapshot(message)));
+          const awaited = environment.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING === "1";
+          return recordContact.pipe(
+            Effect.andThen(applyShellSnapshot(message)),
+            Effect.andThen(
+              awaited && message.discovered
+                ? PubSub.publish(lateShellEnvironment, undefined)
+                : Effect.void,
+            ),
+            Effect.asVoid,
+          );
         }
 
         if (message.type === "desktopUpdateStatus") {
@@ -737,6 +749,7 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
         return sendControlMessage({ version: 1, type: "cancelDesktopUpdate", requestId });
       },
     ),
+    lateShellEnvironment: Stream.fromPubSub(lateShellEnvironment),
     desktopUpdates: Effect.gen(function* () {
       const subscription = yield* PubSub.subscribe(updateReportChanges);
       const initial = yield* Ref.get(latestUpdateReport);
@@ -796,6 +809,7 @@ export const layerTest = (
       cancelDesktopUpdate: Effect.fn("DesktopTelemetryReceiver.cancelDesktopUpdate")(function () {
         return Effect.void;
       }),
+      lateShellEnvironment: overrides.lateShellEnvironment ?? Stream.empty,
       desktopUpdates:
         overrides.desktopUpdates ??
         Effect.succeed({

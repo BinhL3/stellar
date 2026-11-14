@@ -954,6 +954,10 @@ describe("ProviderInstanceRegistry secret environment", () => {
         "sk-live",
         "sk-rotated",
       ]);
+
+      // The process environment is not in the config, so only an explicit rebuild picks it up.
+      yield* mutator.rebuildAll;
+      expect(fixture.created).toHaveLength(3);
     }).pipe(Effect.scoped);
   });
 
