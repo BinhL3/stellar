@@ -8,7 +8,7 @@ import type {
   VideoTimelineEdits,
   VideoTimelineReviewEditInput,
 } from "@t3tools/contracts";
-import { CheckIcon, FlagIcon, Undo2Icon } from "lucide-react";
+import { CheckIcon, Undo2Icon } from "lucide-react";
 import { useEffect, useEffectEvent, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -20,6 +20,7 @@ import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { cn } from "~/lib/utils";
 
+import { Bay } from "./bay";
 import type { VersionPreview } from "./HistoryPanel";
 import { useTimelineEditsStore } from "./timelineEditsStore";
 import {
@@ -273,41 +274,49 @@ export function EditsPanel(props: {
         void listen();
       }}
     >
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-3 text-xs">
-        <span className="text-muted-foreground">
+      <Bay.Toolbar className="px-3">
+        <Bay.Label>
           {edits.length} {edits.length === 1 ? "edit" : "edits"}
-        </span>
+        </Bay.Label>
         {waiting > 0 ? (
-          <span className="flex items-center gap-1 font-medium text-warning">
-            <FlagIcon aria-hidden className="size-3" />
+          <Bay.Label className="ml-auto flex items-center gap-1.5 text-primary">
+            <Bay.Mark />
             {waiting} {waiting === 1 ? "needs" : "need"} you
-          </span>
+          </Bay.Label>
         ) : null}
-      </div>
+      </Bay.Toolbar>
       <ol className="flex min-h-0 flex-1 flex-col gap-px overflow-auto p-1.5">
         {edits.map((edit) => {
           const isSelected = edit.number === selectedNumber;
           const undone = edit.decision === "undone";
+          const waitingOnYou = needsYou(edit);
+          const settled = edit.decision !== null;
           const stuck = blocked?.edit === edit.number ? blocked : null;
           return (
-            <li key={edit.number} className={cn("rounded-md", isSelected && "bg-accent/60")}>
-              <button
-                type="button"
+            <Bay.Item key={edit.number} selected={isSelected}>
+              <Bay.ItemButton
+                selected={isSelected}
                 aria-expanded={isSelected}
                 onClick={() => select(edit)}
-                className={cn(
-                  "flex w-full cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                  !isSelected && "hover:bg-accent",
-                )}
               >
-                <span className="w-7 shrink-0 font-mono text-2xs leading-5 text-muted-foreground tabular-nums">
+                <span
+                  className={cn(
+                    "mt-0.5 flex h-4 w-7 shrink-0 items-center justify-center rounded-xs border font-mono text-2xs leading-none tabular-nums",
+                    waitingOnYou
+                      ? "border-primary/60 text-primary"
+                      : settled
+                        ? "border-border text-muted-foreground"
+                        : "border-input text-foreground",
+                  )}
+                >
                   E{edit.number}
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span
                     className={cn(
                       "leading-5 wrap-anywhere",
                       !isSelected && "line-clamp-2",
+                      edit.decision === "kept" && "text-foreground/80",
                       undone && "text-muted-foreground line-through",
                     )}
                   >
@@ -316,34 +325,40 @@ export function EditsPanel(props: {
                   {edit.check !== null && (isSelected || edit.decision === null) ? (
                     <span
                       className={cn(
-                        "text-xs wrap-anywhere",
-                        edit.decision === null ? "text-warning" : "text-muted-foreground",
+                        "border-l pl-2 text-xs wrap-anywhere",
+                        edit.decision === null
+                          ? "border-primary/70 text-foreground"
+                          : "border-border text-muted-foreground",
                       )}
                     >
                       Check: {edit.check}
                     </span>
                   ) : null}
-                  <span className="text-2xs text-muted-foreground">
+                  <Bay.Label>
                     {edit.frame === null ? "" : `${clock(edit.frame, player.rate)} · `}
                     {undone ? "Undone" : edit.decision === "kept" ? "Kept" : "Not reviewed"}
-                  </span>
+                  </Bay.Label>
                 </span>
-                {needsYou(edit) ? (
-                  <FlagIcon
+                {waitingOnYou ? (
+                  <span
+                    role="img"
                     aria-label="Needs you"
-                    className="mt-1 size-3.5 shrink-0 text-warning"
+                    className="mt-1.5 block size-2 shrink-0 dither-block text-primary"
                   />
                 ) : edit.decision === "kept" ? (
-                  <CheckIcon aria-label="Kept" className="mt-1 size-3.5 shrink-0 text-success" />
+                  <CheckIcon
+                    aria-label="Kept"
+                    className="mt-1 size-3.5 shrink-0 text-muted-foreground"
+                  />
                 ) : undone ? (
                   <Undo2Icon
                     aria-label="Undone"
                     className="mt-1 size-3.5 shrink-0 text-muted-foreground"
                   />
                 ) : null}
-              </button>
+              </Bay.ItemButton>
               {isSelected ? (
-                <div className="flex flex-col gap-2 px-2 pt-0.5 pb-2.5 pl-11 text-xs">
+                <div className="mr-2 mb-2.5 ml-11 flex flex-col gap-2 border-t border-dotted border-input pt-2 text-xs">
                   {edit.removed !== null ? (
                     <p className="text-muted-foreground">
                       {heardRemoved === edit.number && shownVersion !== null
@@ -405,7 +420,7 @@ export function EditsPanel(props: {
                   </div>
                 </div>
               ) : null}
-            </li>
+            </Bay.Item>
           );
         })}
       </ol>

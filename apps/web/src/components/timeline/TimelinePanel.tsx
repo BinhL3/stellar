@@ -549,11 +549,11 @@ export default function TimelinePanel(props: {
   );
   const intakeNote =
     intake?.state === "copying" ? (
-      <span className="text-xs text-muted-foreground">
+      <span className="bay-label text-muted-foreground">
         Copying footage: {intake.done} of {intake.total}
       </span>
     ) : intake?.state === "conforming" && intake.conform !== undefined ? (
-      <span className="text-xs text-muted-foreground">
+      <span className="bay-label text-muted-foreground">
         Conforming {intake.conform.file.slice(intake.conform.file.lastIndexOf("/") + 1)} to 59.94:{" "}
         {intake.conform.percent}% ({intake.conform.done + 1} of {intake.conform.total})
       </span>
@@ -598,7 +598,7 @@ export default function TimelinePanel(props: {
 
   if (selectedPath === null) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="edit-bay flex min-h-0 flex-1 flex-col">
         {preflightStrip}
         <Empty>
           {stageSelect()}
@@ -626,8 +626,8 @@ export default function TimelinePanel(props: {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="@container/bar flex h-11 shrink-0 items-center gap-1 border-b border-border/60 px-2">
+    <div className="edit-bay flex min-h-0 flex-1 flex-col">
+      <div className="@container/bar flex h-11 shrink-0 items-center gap-1 px-2">
         {timelinePaths.length > 1 ? (
           <Select value={selectedPath} onValueChange={(value) => setChosenPath(value)}>
             <SelectTrigger size="sm" variant="ghost" aria-label="Timeline">
@@ -642,7 +642,7 @@ export default function TimelinePanel(props: {
             </SelectPopup>
           </Select>
         ) : (
-          <h2 className="min-w-0 truncate px-1.5 text-sm font-semibold">
+          <h2 className="min-w-0 truncate px-1.5 bay-label text-foreground">
             {timelineLabel(selectedPath)}
           </h2>
         )}
@@ -695,7 +695,7 @@ export default function TimelinePanel(props: {
       {preview !== null ? (
         <div
           role="status"
-          className="mx-3 mt-2 flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-info/40 bg-info/8 py-1.5 pr-1.5 pl-3 text-xs"
+          className="mx-2 mt-2 flex shrink-0 flex-wrap items-center gap-2 rounded-sm border border-info/40 bg-info/8 py-1.5 pr-1.5 pl-3 text-xs"
         >
           <span className="min-w-0 flex-1">
             <span className="font-medium">
@@ -840,7 +840,7 @@ export default function TimelinePanel(props: {
       )}
       {canWriteFiles ? (
         // The workspace's footer: recording runs against playback wherever the panels are.
-        <div className="flex h-11 shrink-0 items-center gap-2.5 border-t border-border/60 bg-background px-3">
+        <div className="flex h-11 shrink-0 items-center gap-2.5 bg-background dither-edge-t px-3 pt-1">
           <RecordVoiceOverButton
             environmentId={props.environmentId}
             workspaceRoot={props.workspaceRoot}

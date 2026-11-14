@@ -91,7 +91,7 @@ function RenderReport(props: {
   const [sheetUrl] = useAssetUrls(props.environmentId, resources);
   const findings = report.items.filter((item) => item.level !== "pass");
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-border/60 p-2">
+    <div className="flex flex-col gap-1.5 rounded-sm border border-border/60 p-2">
       <span className="text-muted-foreground">
         {fileName(report.exportPath)}, checked {dayOf(report.checkedAt)}.{" "}
         {report.items.length - findings.length} of {report.items.length} checks passed.
@@ -297,7 +297,7 @@ export function PreflightStrip(props: {
         : step.detail;
 
   return (
-    <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border/60 px-2 text-2xs">
+    <div className="flex h-8 shrink-0 items-center gap-2 dither-edge-b px-2 pb-1 text-2xs">
       <Popover
         open={open}
         onOpenChange={(next) => {
@@ -318,10 +318,10 @@ export function PreflightStrip(props: {
         >
           <span aria-hidden className="flex items-center gap-0.5">
             {steps.map((step) => (
-              <span key={step.id} className={cn("h-2 w-1 rounded-full", DOT[step.state])} />
+              <span key={step.id} className={cn("h-2 w-1", DOT[step.state])} />
             ))}
           </span>
-          <span className="tabular-nums">
+          <span className="font-mono tabular-nums">
             {done}/{steps.length}
           </span>
         </PopoverTrigger>
@@ -331,10 +331,7 @@ export function PreflightStrip(props: {
               {steps.map((step) => (
                 <li key={step.id} className="flex flex-col gap-1.5">
                   <div className="flex min-h-5 items-center gap-2">
-                    <span
-                      aria-hidden
-                      className={cn("size-1.5 shrink-0 rounded-full", DOT[step.state])}
-                    />
+                    <span aria-hidden className={cn("size-1.5 shrink-0", DOT[step.state])} />
                     <span className="shrink-0 font-medium">{step.label}</span>
                     <span className={cn("min-w-0 flex-1 truncate", DETAIL[step.state])}>
                       {detail(step)}
@@ -404,7 +401,7 @@ export function PreflightStrip(props: {
         </span>
       ) : (
         <>
-          <span className="shrink-0 font-medium">{headline.label}</span>
+          <span className="shrink-0 bay-label text-foreground/85">{headline.label}</span>
           <span className={cn("min-w-0 flex-1 truncate", DETAIL[headline.state])}>
             {detail(headline)}
           </span>

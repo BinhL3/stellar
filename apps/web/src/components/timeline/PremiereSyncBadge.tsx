@@ -119,20 +119,20 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
           <button
             type="button"
             aria-label="Premiere sync"
-            className="flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-input py-0.5 pr-2 pl-0.5 text-2xs text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-popup-open:bg-accent"
+            className="flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-sm border border-input py-0.5 pr-2 pl-0.5 text-2xs text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-popup-open:bg-accent"
           />
         }
       >
-        <span className="flex h-full items-center rounded-sm bg-premiere-bg px-1 font-bold text-premiere">
+        <span className="flex h-full items-center rounded-xs bg-premiere-bg px-1 font-bold text-premiere">
           Pr
         </span>
-        {short !== null ? <span className="font-medium">{short}</span> : null}
+        {short !== null ? <span className="bay-label">{short}</span> : null}
         {props.syncing ? (
           <Spinner size="xs" />
         ) : (
           <span
             aria-hidden
-            className={cn("size-1.5 rounded-full", state === null ? "bg-warning" : DOT[state])}
+            className={cn("size-1.5", state === null ? "bg-warning" : DOT[state])}
           />
         )}
       </PopoverTrigger>

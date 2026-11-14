@@ -8,6 +8,7 @@ import { Kbd } from "~/components/ui/kbd";
 import { Toggle } from "~/components/ui/toggle";
 import { cn } from "~/lib/utils";
 
+import { Bay } from "./bay";
 import { MarkerEditor, type MarkerPatch } from "./MarkerEditor";
 import { MarkerGlyph, markerTitle } from "./markerLook";
 
@@ -34,10 +35,10 @@ export function MarkersPanel(props: {
   );
   return (
     <div className="flex h-full min-h-0 flex-col bg-card text-card-foreground">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-2 text-xs">
-        <span className="px-1 text-muted-foreground">
+      <Bay.Toolbar>
+        <Bay.Label className="px-1">
           {markers.length - resolved} open{resolved > 0 ? `, ${resolved} resolved` : ""}
-        </span>
+        </Bay.Label>
         <span className="ml-auto flex items-center gap-1">
           {resolved > 0 ? (
             <Toggle size="xs" pressed={showResolved} onPressedChange={setShowResolved}>
@@ -52,7 +53,7 @@ export function MarkersPanel(props: {
             </Button>
           ) : null}
         </span>
-      </div>
+      </Bay.Toolbar>
       {markers.length === 0 ? (
         <Empty>
           <EmptyHeader>
@@ -68,18 +69,14 @@ export function MarkersPanel(props: {
           {listed.map((marker) => {
             const selected = marker.id === props.selectedId;
             return (
-              <li key={marker.id} className={cn("rounded-md", selected && "bg-accent/60")}>
-                <button
-                  type="button"
+              <Bay.Item key={marker.id} selected={selected}>
+                <Bay.ItemButton
+                  selected={selected}
                   aria-expanded={selected}
                   onClick={() => {
                     props.onSeek(marker.frame);
                     props.onSelect(selected ? null : marker.id);
                   }}
-                  className={cn(
-                    "flex w-full cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                    !selected && "hover:bg-accent",
-                  )}
                 >
                   <MarkerGlyph marker={marker} className="mt-1" />
                   <span className="w-12 shrink-0 font-mono text-2xs leading-5 text-muted-foreground tabular-nums">
@@ -106,7 +103,7 @@ export function MarkersPanel(props: {
                       className="mt-1 size-3 shrink-0 text-muted-foreground"
                     />
                   ) : null}
-                </button>
+                </Bay.ItemButton>
                 {selected ? (
                   <div className="px-2 pt-0.5 pb-2">
                     <MarkerEditor
@@ -117,7 +114,7 @@ export function MarkersPanel(props: {
                     />
                   </div>
                 ) : null}
-              </li>
+              </Bay.Item>
             );
           })}
         </ul>
