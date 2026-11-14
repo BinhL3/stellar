@@ -415,7 +415,7 @@ function GroupActions(props: IDockviewHeaderActionsProps) {
 function NoPanels(_props: IWatermarkPanelProps) {
   const controls = useTimelineLayoutStore((state) => state.active?.controls ?? null);
   return (
-    <Empty>
+    <Empty backdrop="ambient">
       <EmptyHeader>
         <EmptyTitle>Every panel is closed</EmptyTitle>
       </EmptyHeader>
