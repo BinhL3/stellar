@@ -1750,6 +1750,7 @@ export default function TimelineViewer(props: {
     >
       <TimelineWorkspace
         projectKey={props.workspace.projectKey}
+        portrait={frame !== null && frame.height > frame.width}
         panels={{
           monitor,
           timeline: tracksPanel,

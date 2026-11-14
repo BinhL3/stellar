@@ -33,6 +33,7 @@ import {
   TIMELINE_PANEL_IDS,
   TIMELINE_PANEL_TITLES,
   type TimelinePanelId,
+  type TimelinePanelPlacement,
   timelinePanelPlacement,
   useTimelineLayoutStore,
 } from "./timelineLayoutStore";
@@ -81,32 +82,59 @@ const SCRIPT_WIDTH_PX = 320;
 // Below this window width the script starts closed, so the timeline keeps its room.
 const SCRIPT_DEFAULT_OPEN_PX = 1280;
 const SAVE_DELAY_MS = 400;
+const PORTRAIT_MONITOR_MIN_PX = 240;
 
 const openPanels = (api: DockviewApi) =>
   TIMELINE_PANEL_IDS.filter((id) => api.getPanel(id) !== undefined);
 
-const addTimelinePanel = (api: DockviewApi, id: TimelinePanelId) => {
-  const position = timelinePanelPlacement(id, openPanels(api));
+const addTimelinePanel = (
+  api: DockviewApi,
+  id: TimelinePanelId,
+  placed?: { readonly position: TimelinePanelPlacement; readonly initialWidth?: number },
+) => {
+  const position = placed ? placed.position : timelinePanelPlacement(id, openPanels(api));
+  const initialWidth =
+    placed?.initialWidth ?? (id === "monitor" || id === "timeline" ? undefined : SCRIPT_WIDTH_PX);
   api.addPanel({
     id,
     component: id,
     title: TIMELINE_PANEL_TITLES[id],
     ...CONSTRAINTS[id],
-    ...(id === "monitor" || id === "timeline" ? {} : { initialWidth: SCRIPT_WIDTH_PX }),
+    ...(initialWidth === undefined ? {} : { initialWidth }),
     ...(position === null ? {} : { position }),
   });
 };
 
-/** Monitor on top, the timeline under it, the script as a column on the right when there's room. */
-const buildDefaultLayout = (api: DockviewApi) => {
-  addTimelinePanel(api, "monitor");
-  addTimelinePanel(api, "timeline");
-  if (window.innerWidth >= SCRIPT_DEFAULT_OPEN_PX) addTimelinePanel(api, "script");
+/**
+ * A wide picture sits on top with the timeline under it and the script as a column on the right
+ * when there's room. A tall picture gets a full-height column sized to it, and the script and
+ * the timeline share what is left, so a vertical video isn't a strip between two bars.
+ */
+const buildDefaultLayout = (api: DockviewApi, portrait: boolean) => {
+  if (!portrait) {
+    addTimelinePanel(api, "monitor");
+    addTimelinePanel(api, "timeline");
+    if (window.innerWidth >= SCRIPT_DEFAULT_OPEN_PX) addTimelinePanel(api, "script");
+    api.getPanel("monitor")?.api.setActive();
+    return;
+  }
+  addTimelinePanel(api, "timeline", { position: null });
+  if (window.innerWidth >= SCRIPT_DEFAULT_OPEN_PX) {
+    addTimelinePanel(api, "script", {
+      position: { referencePanel: "timeline", direction: "above" },
+    });
+  }
+  addTimelinePanel(api, "monitor", {
+    position: { direction: "right" },
+    initialWidth: Math.round(
+      Math.max(PORTRAIT_MONITOR_MIN_PX, Math.min(api.width / 2, (api.height * 9) / 16)),
+    ),
+  });
   api.getPanel("monitor")?.api.setActive();
 };
 
-const restoreLayout = (api: DockviewApi, projectKey: string) => {
-  const saved = savedTimelineLayout(projectKey);
+const restoreLayout = (api: DockviewApi, layoutKey: string, portrait: boolean) => {
+  const saved = savedTimelineLayout(layoutKey);
   if (saved !== null) {
     try {
       // Saved panels carry the minimum sizes they were made with; today's apply instead.
@@ -125,7 +153,7 @@ const restoreLayout = (api: DockviewApi, projectKey: string) => {
     }
     api.clear();
   }
-  buildDefaultLayout(api);
+  buildDefaultLayout(api, portrait);
 };
 
 const isTyping = (target: EventTarget | null) =>
@@ -142,10 +170,14 @@ const sameIds = (a: ReadonlyArray<string>, b: ReadonlyArray<string>) =>
  */
 export function TimelineWorkspace(props: {
   readonly projectKey: string;
+  /** The picture is taller than it is wide. */
+  readonly portrait: boolean;
   readonly panels: TimelineWorkspacePanels;
 }) {
   const [api, setApi] = useState<DockviewApi | null>(null);
-  const { projectKey } = props;
+  const { projectKey, portrait } = props;
+  // Each shape keeps its own arrangement, so a project with both doesn't fight over one.
+  const layoutKey = portrait ? `${projectKey}:portrait` : projectKey;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Follows dockview's layout events and saves the arrangement as the user changes it.
   useEffect(() => {
@@ -161,7 +193,7 @@ export function TimelineWorkspace(props: {
       reset: () => {
         if (api.hasMaximizedGroup()) api.exitMaximizedGroup();
         api.clear();
-        buildDefaultLayout(api);
+        buildDefaultLayout(api, portrait);
       },
     };
     let published: { open: ReadonlyArray<string>; visible: ReadonlyArray<string> } | null = null;
@@ -183,7 +215,7 @@ export function TimelineWorkspace(props: {
     const save = () => {
       saveTimer = null;
       if (api.panels.length > 0)
-        useTimelineLayoutStore.getState().saveLayout(projectKey, api.toJSON());
+        useTimelineLayoutStore.getState().saveLayout(layoutKey, api.toJSON());
     };
     // Like Premiere, the key acts on the panel under the pointer, whichever panel has focus.
     const onMaximizeKey = (event: KeyboardEvent) => {
@@ -222,10 +254,10 @@ export function TimelineWorkspace(props: {
         useTimelineLayoutStore.getState().setActive(null);
       }
     };
-  }, [api, projectKey]);
+  }, [api, projectKey, layoutKey, portrait]);
 
   const onReady = (event: DockviewReadyEvent) => {
-    restoreLayout(event.api, projectKey);
+    restoreLayout(event.api, layoutKey, portrait);
     setApi(event.api);
   };
 
@@ -233,6 +265,7 @@ export function TimelineWorkspace(props: {
     <PanelsContext value={props.panels}>
       <div className="min-h-0 min-w-0 flex-1">
         <DockviewReact
+          key={layoutKey}
           theme={THEME}
           components={PANEL_COMPONENTS}
           rightHeaderActionsComponent={MaximizeAction}
