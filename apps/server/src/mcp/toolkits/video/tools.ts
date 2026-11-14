@@ -202,8 +202,11 @@ const PremierePushTool = Tool.make("video_premiere_push", {
 
 const ProjectStartTool = Tool.make("video_project_start", {
   description:
-    "Start a video project from an idea, before footage or a Premiere project exists. Makes `<parentFolder>/<title>` with Footage, Audio, B-roll, Graphics, Premiere, Exports and Stellar folders and adds it as a project. Save the Premiere project into its Premiere folder later, then `video_premiere_pull`.",
-  parameters: Schema.Struct({ title: Schema.String, parentFolder: Schema.String }),
+    "Start a video project from an idea, before footage or a Premiere project exists. Makes `<parentFolder>/<title>` with Footage, Audio, B-roll, Graphics, Premiere, Exports and Stellar folders and adds it as a project. Omit `parentFolder` unless the user names a folder: it defaults to the user's projects folder. Save the Premiere project into its Premiere folder later, then `video_premiere_pull`.",
+  parameters: Schema.Struct({
+    title: Schema.String,
+    parentFolder: Schema.optionalKey(Schema.String),
+  }),
   success: VideoProjectCreateFromIdeaResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",

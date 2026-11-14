@@ -293,6 +293,12 @@ export function createProjectEnvironmentAtoms<R, E>(
       scheduler: projectScheduler,
       concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
     }),
+    projectsFolder: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:video-projects:projects-folder",
+      tag: WS_METHODS.videoProjectsProjectsFolder,
+      // Settings and drives change while it sits unread, so reopening the dialog asks again.
+      idleTtlMs: 5_000,
+    }),
     scanVideoIntake: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:video-projects:scan-intake",
       tag: WS_METHODS.videoProjectsScanIntake,

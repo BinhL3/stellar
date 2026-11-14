@@ -206,8 +206,8 @@ const WorkspaceRoot = TrimmedNonEmptyString.check(Schema.isMaxLength(4096));
 
 export const CarouselCreateInput = Schema.Struct({
   title: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
-  /** An existing folder on the host; the project's folder is created inside it. */
-  parentFolder: WorkspaceRoot,
+  /** An existing folder on the host to create the project's folder in; omitted, the projects folder. */
+  parentFolder: Schema.optionalKey(WorkspaceRoot),
 });
 export type CarouselCreateInput = typeof CarouselCreateInput.Type;
 

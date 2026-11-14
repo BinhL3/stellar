@@ -163,6 +163,10 @@ describe("ServerSettings secret providers", () => {
       secretProviders: { vault: openbao, personal: onePassword("my.1password.com") },
     });
     expect(decoded.worktreesDirectory).toBe("/work");
+    expect(decoded.projectsFolder).toBe("~/Movies/Stellar");
+    expect(
+      decodeServerSettings({ projectsFolder: " /Volumes/Drive/Projects " }).projectsFolder,
+    ).toBe("/Volumes/Drive/Projects");
     expect(encodeServerSettings(decoded).secretProviders).toEqual({
       vault: openbao,
       personal: onePassword("my.1password.com"),

@@ -580,8 +580,8 @@ export type VideoProjectCreateResult = typeof VideoProjectCreateResult.Type;
 
 export const VideoProjectCreateFromIdeaInput = Schema.Struct({
   title: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
-  /** An existing folder on the host; the project's folder is created inside it. */
-  parentFolder: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** An existing folder on the host to create the project's folder in; omitted, the projects folder. */
+  parentFolder: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(4096))),
 });
 export type VideoProjectCreateFromIdeaInput = typeof VideoProjectCreateFromIdeaInput.Type;
 
@@ -592,6 +592,16 @@ export const VideoProjectCreateFromIdeaResult = Schema.Struct({
   existed: Schema.Boolean,
 });
 export type VideoProjectCreateFromIdeaResult = typeof VideoProjectCreateFromIdeaResult.Type;
+
+/** Where new projects go by default, as the host resolved it. */
+export const VideoProjectsFolderResult = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  /** False until the first project is made there; it is created then. */
+  exists: Schema.Boolean,
+  /** Why no project can be made there now, such as its drive being disconnected. */
+  unavailable: Schema.NullOr(Schema.String),
+});
+export type VideoProjectsFolderResult = typeof VideoProjectsFolderResult.Type;
 
 export const VideoProjectScanIntakeInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),

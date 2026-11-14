@@ -56,6 +56,8 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import { parentFolderFor } from "../videoProject/ProjectsFolder.ts";
 
 export class CarouselError extends Schema.TaggedError<CarouselError>()("CarouselError", {
   reason: Schema.String,
@@ -148,6 +150,7 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const projects = yield* ProjectService.ProjectService;
+  const settings = yield* ServerSettings.ServerSettingsService;
   const random = yield* SecureRandom.SecureRandom;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const downloads = path.join(yield* HostProcess.HomeDirectory, "Downloads");
@@ -266,15 +269,16 @@ const make = Effect.gen(function* () {
       if (folderName === "" || folderName.startsWith(".")) {
         return yield* new CarouselError({ reason: "Give the project a name." });
       }
-      const parent = yield* fileSystem.stat(input.parentFolder).pipe(Effect.option);
-      if (
-        !path.isAbsolute(input.parentFolder) ||
-        Option.isNone(parent) ||
-        parent.value.type !== "Directory"
-      ) {
-        return yield* new CarouselError({ reason: "Choose an existing folder to create it in." });
-      }
-      const root = path.join(input.parentFolder, folderName);
+      const projectsFolder = yield* settings.getSettings.pipe(
+        Effect.map((current) => current.projectsFolder),
+        Effect.orElseSucceed(() => ""),
+      );
+      const parentFolder = yield* parentFolderFor(input.parentFolder, projectsFolder).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.mapError((error) => new CarouselError({ reason: error.reason })),
+      );
+      const root = path.join(parentFolder, folderName);
       const workspaceRoot = path.join(root, STELLAR_FOLDER);
       const holdsCarousel = yield* isCarousel(workspaceRoot);
       // A carousel file in a video's folder would turn that project into a carousel.

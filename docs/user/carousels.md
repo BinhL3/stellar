@@ -7,9 +7,10 @@ at once: the agent's edits appear on the slide as it makes them.
 ## Start one
 
 On a new thread's screen choose **or start a new video or carousel**, pick
-**Photo carousel**, name it and choose a folder. Stellar makes a folder with
-`Photos`, `Exports` and `Stellar` inside it. Open the **Carousel** tab in the
-right panel to work on it.
+**Photo carousel** and name it. Stellar makes a folder with `Photos`, `Exports`
+and `Stellar` inside it in your projects folder, `~/Movies/Stellar` unless you
+change it in **Settings → General → Projects folder**. Open the **Carousel** tab
+in the right panel to work on it.
 
 ## Add photos
 

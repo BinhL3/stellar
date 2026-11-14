@@ -102,8 +102,11 @@ const ExportTool = Tool.make("carousel_export", {
 
 const StartTool = Tool.make("carousel_start", {
   description:
-    "Start an Instagram photo carousel project. Makes `<parentFolder>/<title>` with Photos, Exports and Stellar folders and adds it as a project; its carousel is edited from a thread in that project.",
-  parameters: Schema.Struct({ title: Schema.String, parentFolder: Schema.String }),
+    "Start an Instagram photo carousel project. Makes `<parentFolder>/<title>` with Photos, Exports and Stellar folders and adds it as a project; its carousel is edited from a thread in that project. Omit `parentFolder` unless the user names a folder: it defaults to the user's projects folder.",
+  parameters: Schema.Struct({
+    title: Schema.String,
+    parentFolder: Schema.optionalKey(Schema.String),
+  }),
   success: CarouselCreateResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
