@@ -34,7 +34,7 @@ export function MarkerEditor(props: {
       onKeyDown={(event) => event.stopPropagation()}
     >
       <div className="flex items-center gap-1.5 text-muted-foreground">
-        <span className="font-mono text-2xs tabular-nums">{props.timecode}</span>
+        <span className="font-mono text-2xs text-foreground tabular-nums">{props.timecode}</span>
         {marker.clipId !== null ? (
           <span>· on a clip{marker.track ? ` (${marker.track})` : ""}</span>
         ) : null}
@@ -90,9 +90,11 @@ export function MarkerEditor(props: {
                 aria-label={MARKER_COLOR_LABELS[color] ?? color}
                 onClick={() => change({ color })}
                 className={cn(
-                  "size-4 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                  "size-4 cursor-pointer rounded-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   markerFill(color),
-                  marker.color === color && "ring-2 ring-foreground/70 ring-inset",
+                  marker.color === color
+                    ? "ring-2 ring-foreground"
+                    : "opacity-45 hover:opacity-100",
                 )}
               />
             ))}

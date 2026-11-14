@@ -49,7 +49,7 @@ export function PremierePullNotice(props: {
   return (
     <div
       role="status"
-      className="mx-3 mt-2 flex shrink-0 items-start gap-2 rounded-lg border border-border bg-card py-1.5 pr-1.5 pl-3 text-xs shadow-xs/5"
+      className="mx-2 mt-2 flex shrink-0 items-start gap-2 rounded-sm border border-border bg-card py-1.5 pr-1.5 pl-3 text-xs"
     >
       <div className="flex max-h-48 min-w-0 flex-1 flex-col gap-1 overflow-y-auto py-0.5">
         <span className="font-medium">{pullTitle(pull)}</span>

@@ -16,7 +16,8 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "~/components/u
 import { Spinner } from "~/components/ui/spinner";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { cn } from "~/lib/utils";
+
+import { Bay } from "./bay";
 
 const WHO: Record<
   VideoTimelineVersion["by"],
@@ -42,7 +43,7 @@ export type VersionPreview = VideoTimelineVersionView;
 function ChangeList(props: { readonly title: string; readonly changes: ReadonlyArray<string> }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="font-medium text-foreground/90">{props.title}</span>
+      <Bay.Label className="text-foreground/80">{props.title}</Bay.Label>
       {props.changes.length === 0 ? (
         <span className="text-muted-foreground">Nothing.</span>
       ) : (
@@ -167,28 +168,27 @@ export function HistoryPanel(props: {
         const who = WHO[version.by];
         const WhoIcon = who.icon;
         return (
-          <li key={version.id} className={cn("rounded-md", shown && "bg-accent/60")}>
-            <button
-              type="button"
+          <Bay.Item key={version.id} selected={shown}>
+            <Bay.ItemButton
+              selected={shown}
               aria-expanded={shown}
               aria-current={isCurrent && preview === null ? "true" : undefined}
               onClick={() => void open(version, isCurrent)}
-              className={cn(
-                "flex w-full cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                !shown && "hover:bg-accent",
-              )}
             >
               <WhoIcon aria-hidden className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="flex min-w-0 items-baseline gap-1.5 text-sm leading-5">
                   <span className="min-w-0 truncate">{version.label}</span>
                   {isCurrent ? (
-                    <span className="shrink-0 text-2xs font-medium text-primary">Now</span>
+                    <Bay.Label className="flex shrink-0 items-center gap-1 text-primary">
+                      <Bay.Mark />
+                      Now
+                    </Bay.Label>
                   ) : null}
                 </span>
-                <span className="text-2xs text-muted-foreground">
+                <Bay.Label>
                   {who.label} · {when(version.at)} · {version.id}
-                </span>
+                </Bay.Label>
                 {!shown && version.changes[0] !== undefined ? (
                   <span className="truncate text-xs text-muted-foreground">
                     {version.changes[0]}
@@ -197,9 +197,9 @@ export function HistoryPanel(props: {
                 ) : null}
               </span>
               {opening === version.id ? <Spinner /> : null}
-            </button>
+            </Bay.ItemButton>
             {shown && preview !== null ? (
-              <div className="flex flex-col gap-2.5 px-2 pt-1 pb-2.5 pl-7.5 text-xs">
+              <div className="mr-2 mb-2.5 ml-7.5 flex flex-col gap-2.5 border-t border-dotted border-input pt-2 text-xs">
                 <ChangeList title="What this version changed" changes={version.changes} />
                 <ChangeList
                   title="Changed since, in the timeline now"
@@ -224,7 +224,7 @@ export function HistoryPanel(props: {
                 ) : null}
               </div>
             ) : null}
-          </li>
+          </Bay.Item>
         );
       })}
     </ol>

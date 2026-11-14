@@ -49,6 +49,7 @@ import { previewEnvironment } from "~/state/preview";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useVoiceRecorder } from "../videoProject/useVoiceRecorder";
+import { Bay } from "./bay";
 import { MAX_IMPORT_BYTES, ScriptLineVoiceOver } from "./ScriptLineVoiceOver";
 import { beatAtFrame, beatTime, groupBeatsBySection } from "./scriptBeats";
 import { useTimelinePlayer } from "./timelinePlayer";
@@ -88,7 +89,7 @@ function BeatList(props: {
         // oxlint-disable-next-line react/no-array-index-key
         <section key={index} className="flex flex-col">
           {group.section !== null ? (
-            <h3 className="sticky top-0 z-10 border-b border-border/60 bg-card px-4 pt-3 pb-1.5 text-xs font-semibold text-foreground">
+            <h3 className="sticky top-0 z-10 bg-card dither-edge-b px-4 pt-3 pb-2.5 bay-label text-foreground/85">
               {group.section}
             </h3>
           ) : null}
@@ -98,7 +99,7 @@ function BeatList(props: {
               if (startFrame === null) {
                 return (
                   <div key={beat.id} className="flex items-start gap-0.5">
-                    <p className="flex min-w-0 flex-1 gap-2 rounded-md px-2 py-1.5 text-sm leading-5 text-muted-foreground">
+                    <p className="flex min-w-0 flex-1 gap-2 rounded-sm px-2 py-1.5 text-sm leading-5 text-muted-foreground">
                       <span
                         aria-hidden
                         className="w-9 shrink-0 font-mono text-2xs leading-5 text-muted-foreground/60"
@@ -120,9 +121,9 @@ function BeatList(props: {
                     aria-current={current ? "true" : undefined}
                     onClick={() => player.seek(startFrame)}
                     className={cn(
-                      "relative flex min-w-0 flex-1 cursor-pointer gap-2 rounded-md px-2 py-1.5 text-left text-sm leading-5 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                      "before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full",
-                      current ? "bg-primary/10 before:bg-primary" : "hover:bg-accent",
+                      "relative flex min-w-0 flex-1 cursor-pointer gap-2 rounded-sm px-2 py-1.5 text-left text-sm leading-5 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                      "before:absolute before:inset-y-0 before:left-0 before:w-0.5",
+                      current ? "bg-accent/60 before:bg-primary" : "hover:bg-accent/70",
                     )}
                   >
                     <span
@@ -472,10 +473,10 @@ export function ScriptPanel(props: {
       aria-label="Script"
       className="@container/script flex h-full min-h-0 min-w-0 flex-col bg-card text-xs"
     >
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 pr-1.5 pl-4">
+      <Bay.Toolbar className="pr-1.5 pl-4">
         <h2 className="sr-only">Script</h2>
         {view !== null && view.beats.length > 0 ? (
-          <span className="min-w-0 truncate text-2xs text-muted-foreground tabular-nums @max-[15rem]/script:hidden">
+          <span className="min-w-0 truncate bay-label text-muted-foreground tabular-nums @max-[15rem]/script:hidden">
             {placed} of {view.beats.length} placed
           </span>
         ) : null}
@@ -528,7 +529,7 @@ export function ScriptPanel(props: {
             <XIcon />
           </Button>
         </span>
-      </div>
+      </Bay.Toolbar>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {pasted !== null ? (
           <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
@@ -591,8 +592,8 @@ export function ScriptPanel(props: {
                   Paste script
                 </Button>
                 {linkForm ? (
-                  <div className="flex w-full flex-col gap-1.5 border-t border-border/60 pt-4">
-                    <p className="text-2xs text-muted-foreground">Or link its Google Doc</p>
+                  <div className="flex w-full flex-col gap-1.5 border-t border-dotted border-input pt-4">
+                    <p className="bay-label text-muted-foreground">Or link its Google Doc</p>
                     {linkForm}
                   </div>
                 ) : null}
@@ -604,7 +605,7 @@ export function ScriptPanel(props: {
         )}
       </div>
       {view !== null && !empty && pasted === null ? (
-        <div className="flex shrink-0 flex-col gap-2 border-t border-border/60 px-4 py-2.5">
+        <div className="flex shrink-0 flex-col gap-2 dither-edge-t px-4 pt-3.5 pb-2.5">
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 text-2xs leading-4 text-muted-foreground">
               {view.savedAt !== null ? `Snapshot saved ${savedLabel(view.savedAt)}. ` : ""}

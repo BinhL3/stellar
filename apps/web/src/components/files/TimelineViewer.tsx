@@ -315,7 +315,7 @@ function SpeedBadge(props: { readonly store: ValueStore }) {
   const speed = useSyncExternalStore(props.store.subscribe, props.store.get);
   if (speed === 0 || speed === 1) return null;
   return (
-    <span className="rounded-sm bg-primary/15 px-1 text-2xs font-medium text-primary tabular-nums">
+    <span className="rounded-xs border border-primary/50 px-1 font-mono text-2xs text-primary tabular-nums">
       {speed < 0 ? "◀ " : ""}
       {Math.abs(speed)}×
     </span>
@@ -330,7 +330,7 @@ function PlayPauseButton(props: {
   const playing = useSyncExternalStore(props.store.subscribe, props.store.get) !== 0;
   return (
     <Button
-      size="icon-sm-pill"
+      size="icon-sm"
       aria-label={playing ? "Pause" : "Play"}
       disabled={props.disabled}
       onClick={props.onToggle}
@@ -347,8 +347,8 @@ function PlayheadTimecode(props: {
 }) {
   const frame = useSyncExternalStore(props.store.subscribe, props.store.get);
   return (
-    <span className="font-mono text-xs whitespace-nowrap tabular-nums">
-      <span className="font-medium text-foreground">{timecode(frame, props.rate)}</span>
+    <span className="font-mono text-xs tracking-wider whitespace-nowrap tabular-nums">
+      <span className="text-sm font-medium text-foreground">{timecode(frame, props.rate)}</span>
       <span className="text-muted-foreground"> / {timecode(props.duration, props.rate)}</span>
     </span>
   );
@@ -1130,15 +1130,16 @@ export default function TimelineViewer(props: {
       onPointerDown={(event) => {
         if (!isTyping(event.target)) event.currentTarget.focus({ preventScroll: true });
       }}
-      className="@container/viewer flex h-full min-h-0 min-w-0 flex-1 flex-col outline-none"
+      className="edit-bay @container/viewer flex h-full min-h-0 min-w-0 flex-1 flex-col outline-none"
     >
       {children}
     </div>
   );
   const pendingBar =
     edits.length > 0 ? (
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 bg-warning/10 px-3 py-2 text-xs">
-        <span className="font-medium">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-y border-warning/35 bg-background px-3 py-1.5 text-xs">
+        <span aria-hidden className="block size-1.5 shrink-0 dither-block text-warning" />
+        <span className="bay-label text-warning">
           {edits.length} pending {edits.length === 1 ? "edit" : "edits"}
         </span>
         <span className="truncate text-muted-foreground">
@@ -1163,9 +1164,9 @@ export default function TimelineViewer(props: {
       <>
         {/* The tracks show pending edits; without them on screen, the monitor does. */}
         {previewOnly ? pendingBar : null}
-        <div className="flex min-h-0 flex-1 flex-col items-center gap-2 px-3 pt-3 pb-1.5">
+        <div className="flex min-h-0 flex-1 flex-col items-center">
           <div
-            className="flex min-h-0 w-full flex-1 items-center justify-center rounded-lg bg-viewer p-2 ring-1 ring-border/60 ring-inset"
+            className="flex min-h-0 w-full flex-1 items-center justify-center bg-viewer p-2"
             onContextMenu={showPreviewMenu}
           >
             <TimelinePreview
@@ -1182,19 +1183,21 @@ export default function TimelineViewer(props: {
             />
           </div>
           {previewOnly ? (
-            <PreviewScrubber
-              barRef={scrubRef}
-              headRef={scrubHeadRef}
-              duration={layout.durationFrames}
-              marks={marks}
-              disabled={!playable}
-              playhead={currentFrame}
-              onSeek={seek}
-              onMarks={updateMarks}
-              onContextMenu={showPreviewMenu}
-            />
+            <div className="w-full px-3 pt-1">
+              <PreviewScrubber
+                barRef={scrubRef}
+                headRef={scrubHeadRef}
+                duration={layout.durationFrames}
+                marks={marks}
+                disabled={!playable}
+                playhead={currentFrame}
+                onSeek={seek}
+                onMarks={updateMarks}
+                onContextMenu={showPreviewMenu}
+              />
+            </div>
           ) : null}
-          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-x-2 gap-y-1 text-xs [grid-template-areas:'time_transport_tools'] @max-[30rem]/viewer:grid-cols-[auto_1fr] @max-[30rem]/viewer:[grid-template-areas:'time_tools'_'transport_transport'] @max-[20rem]/viewer:grid-cols-1 @max-[20rem]/viewer:[grid-template-areas:'time'_'transport'_'tools']">
+          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-x-2 gap-y-1 dither-edge-t px-3 pt-2.5 pb-1.5 text-xs [grid-template-areas:'time_transport_tools'] @max-[30rem]/viewer:grid-cols-[auto_1fr] @max-[30rem]/viewer:[grid-template-areas:'time_tools'_'transport_transport'] @max-[20rem]/viewer:grid-cols-1 @max-[20rem]/viewer:[grid-template-areas:'time'_'transport'_'tools']">
             <div className="flex min-w-0 items-center gap-1.5 [grid-area:time] @max-[20rem]/viewer:justify-center">
               <PlayheadTimecode store={playheadStore} rate={rate} duration={duration} />
               <SpeedBadge store={speedStore} />
@@ -1308,7 +1311,7 @@ export default function TimelineViewer(props: {
       <div
         role="toolbar"
         aria-label="Timeline tools"
-        className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 bg-background px-2"
+        className="flex h-9 shrink-0 items-center gap-2 bg-background dither-edge-b px-2 pb-1"
       >
         <div className="flex items-center gap-0.5">
           {playable ? (
@@ -1392,7 +1395,7 @@ export default function TimelineViewer(props: {
             </Tooltip>
           ) : null}
         </div>
-        <div className="ml-auto flex items-center rounded-md border border-border/80 text-xs">
+        <div className="ml-auto flex items-center rounded-sm border border-border/80 text-xs">
           <Button
             size="icon-xs"
             variant="ghost"
@@ -1447,7 +1450,7 @@ export default function TimelineViewer(props: {
               {marks.in !== null || marks.out !== null ? (
                 <span
                   aria-hidden
-                  className="absolute inset-y-0 bg-primary/15"
+                  className="absolute inset-y-0 bg-primary/12"
                   style={{
                     left: percent(marks.in ?? 0),
                     width: percent((marks.out ?? duration) - (marks.in ?? 0)),
@@ -1478,7 +1481,7 @@ export default function TimelineViewer(props: {
               {ticks.map((tick) => (
                 <span
                   key={tick}
-                  className="absolute inset-y-0 border-l border-foreground/20 pt-1 pl-1 font-mono text-2xs leading-none text-muted-foreground tabular-nums"
+                  className="absolute inset-y-0 border-l border-foreground/20 pt-1 pl-1 font-mono text-2xs leading-none tracking-wider text-muted-foreground tabular-nums"
                   style={{ left: percent(tick) }}
                 >
                   {rulerLabel(tick, rate)}
@@ -1509,8 +1512,8 @@ export default function TimelineViewer(props: {
                 ref={headRef}
                 className="pointer-events-none absolute inset-y-0 left-0 w-0"
               >
-                <span className="absolute top-1 -left-[5px] h-3 w-[11px] rounded-t-xs bg-destructive [clip-path:polygon(0_0,100%_0,100%_60%,50%_100%,0_60%)]" />
-                <span className="absolute top-3.5 bottom-0 left-0 w-px bg-destructive" />
+                <span className="absolute top-1 -left-[5px] h-3 w-[11px] bg-foreground [clip-path:polygon(0_0,100%_0,100%_60%,50%_100%,0_60%)]" />
+                <span className="absolute top-3.5 bottom-0 left-0 w-px bg-foreground" />
               </span>
             </TimelineRuler>
           </div>
@@ -1518,7 +1521,9 @@ export default function TimelineViewer(props: {
             <div
               key={track.name}
               className={cn(
+                // Picture lanes sit a step above the sound lanes; a heavier rule parts the two.
                 "flex h-11 border-b border-border/50",
+                track.kind === "Video" && "bg-foreground/3",
                 track.kind === "Audio" &&
                   tracks[row - 1]?.kind === "Video" &&
                   "border-t-2 border-t-input",
@@ -1532,7 +1537,7 @@ export default function TimelineViewer(props: {
                   aria-hidden
                   className={cn(
                     "h-full w-[3px] shrink-0",
-                    track.kind === "Video" ? FILL_CLASS.video : FILL_CLASS.audio,
+                    track.kind === "Video" ? "bg-clip-video-tint/80" : "bg-clip-audio-tint/80",
                   )}
                 />
                 {track.kind === "Video" ? (
@@ -1540,7 +1545,7 @@ export default function TimelineViewer(props: {
                 ) : (
                   <AudioLinesIcon aria-hidden className="size-3 shrink-0 opacity-70" />
                 )}
-                <span className="truncate font-mono text-2xs font-semibold text-foreground/85">
+                <span className="truncate bay-label font-semibold text-foreground/85">
                   {track.name}
                 </span>
               </div>
@@ -1560,7 +1565,7 @@ export default function TimelineViewer(props: {
                     <span
                       key={`ghost:${item.key}`}
                       aria-hidden
-                      className="pointer-events-none absolute inset-y-1 rounded-sm border border-dashed border-foreground/35 bg-foreground/5"
+                      className="pointer-events-none absolute inset-y-1 rounded-xs border border-dashed border-foreground/35 dither-field"
                       style={{
                         left: percent(item.startFrame),
                         width: percent(item.endFrame - item.startFrame),
@@ -1617,16 +1622,16 @@ export default function TimelineViewer(props: {
                       className={cn(
                         // The lane-coloured border keeps a gap at every cut; the tinted top edge
                         // names the kind even where a clip is too short for its name.
-                        "group/clip absolute inset-y-1 flex flex-col overflow-hidden rounded-sm border border-lanes px-1.5 pt-1 text-left text-2xs leading-none whitespace-nowrap outline-none",
+                        "group/clip absolute inset-y-1 flex flex-col overflow-hidden rounded-xs border border-lanes px-1.5 pt-1 text-left text-2xs leading-none whitespace-nowrap outline-none",
                         "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-current before:opacity-90",
-                        "after:pointer-events-none after:absolute after:inset-0 after:bg-white/0 hover:after:bg-white/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                        "after:pointer-events-none after:absolute after:inset-0 after:bg-white/0 hover:after:bg-white/8 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                         FILL_CLASS[kind],
                         TINT_CLASS[kind],
                         isSelected &&
-                          "z-10 ring-2 ring-primary ring-offset-1 ring-offset-lanes after:bg-white/10",
+                          "z-10 ring-2 ring-primary ring-offset-1 ring-offset-lanes before:h-[3px] before:bg-primary before:opacity-100 after:bg-white/12",
                         editable && "cursor-grab touch-none active:cursor-grabbing",
                         touched.has(item.key) &&
-                          "z-10 outline-2 -outline-offset-2 outline-white/90 outline-dashed",
+                          "z-10 outline-2 -outline-offset-2 outline-warning outline-dashed",
                         drag?.active && drag.id === item.key && "opacity-90",
                         !item.clip.enabled && "opacity-40 saturate-0",
                       )}
@@ -1669,7 +1674,9 @@ export default function TimelineViewer(props: {
                         <span className="relative flex min-w-0 items-center gap-1 text-white">
                           <KindIcon className="size-3 shrink-0 opacity-75" />
                           {animated ? <SparklesIcon className="size-3 shrink-0" /> : null}
-                          <span className="truncate font-medium">{clipTitle(kind, item)}</span>
+                          <span className="truncate font-medium text-white/95">
+                            {clipTitle(kind, item)}
+                          </span>
                           {widthPx > 120 ? (
                             <span className="ml-auto shrink-0 pl-1 font-mono text-3xs text-white/65 tabular-nums">
                               {seconds(item.endFrame - item.startFrame, rate)}
@@ -1686,12 +1693,12 @@ export default function TimelineViewer(props: {
           <div
             aria-hidden
             ref={lineRef}
-            className="pointer-events-none absolute top-0 bottom-0 left-0 z-30 w-px bg-destructive"
+            className="pointer-events-none absolute top-0 bottom-0 left-0 z-30 w-px bg-foreground"
           />
         </div>
       </TrackScroller>
       {pendingBar}
-      <div className="flex max-h-56 min-h-10 shrink-0 flex-col justify-center overflow-auto bg-background px-3 py-2 text-xs">
+      <div className="flex max-h-56 min-h-10 shrink-0 flex-col justify-center overflow-auto bg-background dither-edge-t px-3 pt-3 pb-2 text-xs">
         {selected ? (
           <ClipDetails
             track={selected.track}
@@ -1710,11 +1717,18 @@ export default function TimelineViewer(props: {
             <p className="min-w-0 truncate">Select a clip to see its details.</p>
             <ul
               aria-label="Clip colours"
-              className="ml-auto flex shrink-0 items-center gap-2.5 text-2xs @max-[26rem]/viewer:hidden"
+              className="ml-auto flex shrink-0 items-center gap-3 bay-label @max-[26rem]/viewer:hidden"
             >
               {LEGEND.map(([kind, label]) => (
-                <li key={kind} className="flex items-center gap-1">
-                  <span aria-hidden className={cn("size-2 rounded-xs", FILL_CLASS[kind])} />
+                <li key={kind} className="flex items-center gap-1.5">
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "size-2 border-t-2 border-current",
+                      FILL_CLASS[kind],
+                      TINT_CLASS[kind],
+                    )}
+                  />
                   {label}
                 </li>
               ))}
@@ -1802,7 +1816,7 @@ function TrackScroller(props: {
     <div
       ref={scrollerRef}
       onScroll={(event) => props.onScroll(event.currentTarget.scrollLeft)}
-      className="min-h-0 flex-1 overflow-auto border-b border-border/60 bg-lanes"
+      className="min-h-0 flex-1 overflow-auto bg-lanes"
     >
       {props.children}
     </div>
@@ -1985,7 +1999,7 @@ function TimelineRuler(props: {
       aria-valuemin={0}
       aria-valuemax={duration}
       aria-valuenow={0}
-      className="relative flex-1 cursor-pointer touch-none border-b border-border/60 select-none"
+      className="relative flex-1 cursor-pointer touch-none select-none"
       {...drag}
       onContextMenu={props.onContextMenu}
     >
@@ -2021,11 +2035,11 @@ function PreviewScrubber(props: {
       aria-valuemax={duration}
       aria-valuenow={0}
       aria-disabled={disabled}
-      className="group/scrub relative h-6 w-full cursor-pointer touch-none outline-none select-none"
+      className="group/scrub relative h-6 w-full cursor-pointer touch-none outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       {...drag}
       onContextMenu={props.onContextMenu}
     >
-      <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/25 transition-[height] group-hover/scrub:h-1.5" />
+      <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 bg-foreground/20 transition-[height] group-hover/scrub:h-1.5" />
       {hasRange ? (
         <>
           <span
@@ -2047,7 +2061,7 @@ function PreviewScrubber(props: {
         </>
       ) : null}
       <span aria-hidden ref={headRef} className="pointer-events-none absolute inset-0">
-        <span className="absolute top-1/2 -left-px h-4 w-0.5 -translate-y-1/2 rounded-full bg-foreground shadow-sm transition-[height] group-hover/scrub:h-5" />
+        <span className="absolute top-1/2 -left-px h-4 w-0.5 -translate-y-1/2 bg-foreground transition-[height] group-hover/scrub:h-5" />
       </span>
     </div>
   );
@@ -2063,8 +2077,8 @@ function InOutReadout(props: {
   const start = props.marks.in ?? 0;
   const stop = props.marks.out ?? props.end;
   return (
-    <span className="ml-1 flex items-center gap-1 rounded-sm bg-primary/15 pl-1.5 text-primary tabular-nums">
-      <span className="text-2xs font-medium">In/Out</span>
+    <span className="ml-1 flex items-center gap-1.5 rounded-xs border border-primary/50 pl-1.5 font-mono text-primary tabular-nums">
+      <span className="bay-label">In/Out</span>
       <span aria-label="In to out duration">{timecode(Math.max(0, stop - start), props.rate)}</span>
       <Tooltip>
         <TooltipTrigger
@@ -2163,15 +2177,16 @@ function ClipDetails(props: {
         <span
           aria-hidden
           className={cn(
-            "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-white",
+            "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-xs border-t-2 border-current",
             FILL_CLASS[kind],
+            TINT_CLASS[kind],
           )}
         >
           <KindIcon className="size-3.5" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{clipTitle(kind, item)}</p>
-          <p className="text-muted-foreground tabular-nums">
+          <p className="bay-label text-muted-foreground tabular-nums">
             {track.name} · {timecode(item.startFrame, rate)} ·{" "}
             {seconds(item.endFrame - item.startFrame, rate)}
           </p>
@@ -2219,7 +2234,7 @@ function ClipDetails(props: {
             >
               <TooltipTrigger
                 render={
-                  <span className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-2xs" />
+                  <span className="flex items-center gap-1 rounded-xs border border-border px-1.5 py-0.5 font-mono text-2xs" />
                 }
               >
                 {effect.animated ? <SparklesIcon className="size-3" /> : null}

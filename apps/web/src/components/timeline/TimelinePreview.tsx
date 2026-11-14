@@ -66,7 +66,7 @@ export function TimelinePreview(props: {
       className="relative h-full max-w-full"
       style={{ aspectRatio: `${props.frame.width} / ${props.frame.height}` }}
     >
-      <canvas ref={canvasRef} className="size-full rounded-sm bg-black" />
+      <canvas ref={canvasRef} className="size-full bg-black" />
       {notDrawn.length > 0 ? (
         <Tooltip>
           <TooltipTrigger

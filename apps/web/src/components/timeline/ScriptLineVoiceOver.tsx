@@ -127,20 +127,20 @@ function Takes(
                   onClick={() => {
                     if (!chosen) props.onChoose(take.id);
                   }}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-default disabled:hover:bg-transparent"
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm px-1.5 py-1 text-left text-xs outline-none hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-default disabled:hover:bg-transparent"
                 >
                   <span
                     aria-hidden
                     className={cn(
-                      "size-3 shrink-0 rounded-full border",
-                      chosen ? "border-primary bg-primary" : "border-input",
+                      "size-2.5 shrink-0 rounded-xs border",
+                      chosen ? "border-primary dither-block text-primary" : "border-input",
                     )}
                   />
                   <span className="shrink-0">{label}</span>
                   <span className="shrink-0 text-muted-foreground tabular-nums">
                     {take.seconds.toFixed(1)}s
                   </span>
-                  <span className="min-w-0 truncate text-2xs text-muted-foreground">
+                  <span className="min-w-0 truncate bay-label text-muted-foreground">
                     {placed ? "on timeline" : take.source === "recorded" ? "" : take.source}
                   </span>
                 </button>

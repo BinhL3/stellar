@@ -64,7 +64,7 @@ export function RulerMarkers(props: {
               />
             }
           >
-            <span className="h-2 w-0.5 rounded-t-full bg-primary/55 group-hover/tick:h-3 group-hover/tick:bg-primary group-focus-visible/tick:bg-primary" />
+            <span className="h-2 w-0.5 bg-foreground/45 group-hover/tick:h-3 group-hover/tick:bg-primary group-focus-visible/tick:bg-primary" />
           </TooltipTrigger>
           <TooltipPopup side="top">{tick.label}</TooltipPopup>
         </Tooltip>
@@ -78,7 +78,7 @@ export function RulerMarkers(props: {
               <span
                 aria-hidden
                 className={cn(
-                  "pointer-events-none absolute top-0 h-1 rounded-r-full opacity-50",
+                  "pointer-events-none absolute top-0 h-1 opacity-50",
                   markerFill(marker.color),
                   marker.resolved && "opacity-25",
                 )}
@@ -131,7 +131,7 @@ export function RulerMarkers(props: {
               className={cn(
                 "absolute top-0 z-20 flex h-4 w-4 -translate-x-1/2 touch-none items-start justify-center rounded-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                 onChange ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
-                isSelected && "ring-1 ring-foreground/60",
+                isSelected && "bg-foreground/15 ring-1 ring-foreground/70",
               )}
               style={{ left: percent(frame) }}
             >
