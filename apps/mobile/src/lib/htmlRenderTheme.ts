@@ -2,6 +2,7 @@ import { HTML_RENDER_DEFAULT_FONTS, htmlRenderTheme } from "@t3tools/shared/html
 
 import {
   DEFAULT_MOBILE_THEME_ID,
+  getMobileThemeAppearance,
   getMobileThemeColors,
   nativeColors,
   type MobileThemeId,
@@ -49,5 +50,9 @@ export function mobileHtmlRenderTheme(input: {
       : palette,
   );
   const canvas = v[input.platform === "android" ? "--color-thread-canvas" : "--color-screen"];
-  return htmlRenderTheme({ ...colors, canvas }, HTML_RENDER_DEFAULT_FONTS);
+  return htmlRenderTheme(
+    { ...colors, canvas },
+    HTML_RENDER_DEFAULT_FONTS,
+    getMobileThemeAppearance(input.themeId),
+  );
 }

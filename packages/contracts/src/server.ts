@@ -555,7 +555,6 @@ const EnvironmentThemeColors = Schema.Record(
 const environmentThemeFields = {
   version: Schema.optional(Schema.Literal(1)),
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(48)),
-  /** Themes predate the dark-only app, so "light" still decodes; see environmentThemeFileHasColors. */
   appearance: Schema.Literals(["light", "dark"]),
   /** Derive the palette from canvas/accent, then overlay colors; without them, colors is the palette. */
   canvas: Schema.optional(EnvironmentThemeColor),
@@ -582,12 +581,11 @@ export const EnvironmentTheme = Schema.Struct({
 });
 export type EnvironmentTheme = typeof EnvironmentTheme.Type;
 
-/** Clients are dark-only, so a light theme counts only when it carries a dark variant. */
 export function environmentThemeFileHasColors(file: EnvironmentThemeFile): boolean {
-  const hasRoles = (colors: typeof file.colors) =>
-    colors !== undefined && Object.keys(colors).length > 0;
-  if (file.appearance === "light") return hasRoles(file.variants?.dark);
-  return (file.canvas !== undefined && file.accent !== undefined) || hasRoles(file.colors);
+  return (
+    (file.canvas !== undefined && file.accent !== undefined) ||
+    (file.colors !== undefined && Object.keys(file.colors).length > 0)
+  );
 }
 
 /** tailnet means this machine's Tailscale interface; other private addresses are lan. */

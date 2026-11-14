@@ -146,6 +146,26 @@ describe("DesktopSettings", () => {
       ),
   );
 
+  it.effect("persists the window appearance and drops one Electron could not paint", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        const light = { appearance: "light", background: "#f6f2eb" } as const;
+        assert.isTrue((yield* settings.setWindowAppearance(light)).changed);
+        assert.isFalse((yield* settings.setWindowAppearance({ ...light })).changed);
+        assert.deepEqual((yield* settings.load).windowAppearance, light);
+
+        yield* fileSystem.writeFileString(
+          environment.desktopSettingsPath,
+          `{ "windowAppearance": { "appearance": "light", "background": "red" } }\n`,
+        );
+        assert.isNull((yield* settings.load).windowAppearance);
+      }),
+    ),
+  );
+
   it.effect("falls back to defaults when the settings file is malformed", () =>
     withSettings(
       Effect.gen(function* () {
@@ -175,6 +195,7 @@ describe("DesktopSettings", () => {
             "tailscaleServeEnabled": true,
             "tailscaleServePort": 8443,
             "mainWindowBounds": { "x": 120, "y": 80, "width": 1280, "height": 900 },
+            "windowAppearance": { "appearance": "light", "background": "#f6f2eb" },
           }\n`,
         );
 
@@ -188,6 +209,7 @@ describe("DesktopSettings", () => {
           tailscaleServePort: 8443,
           updateChannel: "latest",
           updateChannelConfiguredByUser: false,
+          windowAppearance: { appearance: "light", background: "#f6f2eb" },
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,
@@ -319,6 +341,7 @@ describe("DesktopSettings", () => {
           tailscaleServePort: 443,
           updateChannel: "nightly",
           updateChannelConfiguredByUser: false,
+          windowAppearance: null,
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,
@@ -348,6 +371,7 @@ describe("DesktopSettings", () => {
           tailscaleServePort: 443,
           updateChannel: "latest",
           updateChannelConfiguredByUser: true,
+          windowAppearance: null,
           wslBackendEnabled: false,
           wslOnly: false,
           wslDistro: null,

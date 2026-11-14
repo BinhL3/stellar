@@ -199,7 +199,7 @@ describe("Open VSX themes", () => {
     );
   });
 
-  it("downloads a verified VSIX, reads JSONC includes, and leaves out light variants", async () => {
+  it("downloads a verified VSIX, reads JSONC includes, and keeps light variants light", async () => {
     const zip = new JSZip();
     zip.file("extension/.gitkeep", "");
     for (let index = 0; index < 3_000; index += 1) {
@@ -313,11 +313,12 @@ describe("Open VSX themes", () => {
 
     const themes = await importOpenVsxThemeExtension(extension);
 
-    expect(themes).toHaveLength(2);
-    expect(new Set(themes.map((theme) => theme.id)).size).toBe(2);
+    expect(themes).toHaveLength(3);
+    expect(new Set(themes.map((theme) => theme.id)).size).toBe(3);
     expect(themes.every((theme) => /^ovx-[a-z0-9-]+-[0-9a-f]{12}$/.test(theme.id))).toBe(true);
     expect(themes.every((theme) => theme.collection?.id === "open-vsx:demo.theme")).toBe(true);
-    expect(themes.map((theme) => theme.label)).not.toContain("Demo Light");
+    expect(themes.find((theme) => theme.label === "Demo Light")?.appearance).toBe("light");
+    expect(themes.find((theme) => theme.label === "Demo Dark")).not.toHaveProperty("appearance");
     const darkColors = themes.find((theme) => theme.label === "Demo Dark")!.colors;
     expect(themeColorToHex(darkColors.canvas)).toBe("#111111");
     expect(themeColorToHex(darkColors.text)).toBe("#eeeeee");

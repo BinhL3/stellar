@@ -10,7 +10,11 @@ import * as Semaphore from "effect/Semaphore";
 
 import * as Electron from "electron";
 
-import { type DesktopSnapShotEvent, DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
+import {
+  type DesktopSnapShotEvent,
+  type DesktopWindowAppearance,
+  DEFAULT_CLIENT_SETTINGS,
+} from "@t3tools/contracts";
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -20,6 +24,7 @@ import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import { getDesktopUrl } from "../electron/ElectronProtocol.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import { DEFAULT_WINDOW_APPEARANCE, titleBarSymbolColor } from "./windowAppearance.ts";
 import {
   MENU_ACTION_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
@@ -64,7 +69,6 @@ function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
 }
 
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
-const TITLEBAR_SYMBOL_COLOR = "#f8fafc";
 const MAIN_WINDOW_BOUNDS_PERSIST_DEBOUNCE_MS = 500;
 const DEVELOPMENT_LOAD_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const;
 const RENDERER_RECOVERY_RELOAD_DELAY_MS = 500;
@@ -138,8 +142,6 @@ function getIconOption(
   });
 }
 
-const WINDOW_BACKGROUND_COLOR = "#000000";
-
 type DisplayBounds = Pick<Electron.Rectangle, "x" | "y" | "width" | "height">;
 
 function windowFitsWithinDisplay(
@@ -179,11 +181,11 @@ export function resolveInitialMainWindowBounds(
   return DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE;
 }
 
-function buildConnectingSplashDataUrl(): string {
-  const background = WINDOW_BACKGROUND_COLOR;
-  const label = "#9ca3af";
-  const accent = "#f8fafc";
-  const track = "rgba(248,250,252,0.18)";
+function buildConnectingSplashDataUrl({ appearance, background }: DesktopWindowAppearance): string {
+  const light = appearance === "light";
+  const label = light ? "#6b7280" : "#9ca3af";
+  const accent = light ? "#1f2937" : "#f8fafc";
+  const track = light ? "rgba(31,41,55,0.18)" : "rgba(248,250,252,0.18)";
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSL…</div></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
@@ -236,7 +238,10 @@ function concealPendingQuitWindow(
   window.setOpacity(0);
 }
 
-function getWindowTitleBarOptions(platform: NodeJS.Platform): WindowTitleBarOptions {
+function getWindowTitleBarOptions(
+  appearance: DesktopWindowAppearance["appearance"],
+  platform: NodeJS.Platform,
+): WindowTitleBarOptions {
   if (platform === "darwin") {
     return {
       titleBarStyle: "hiddenInset",
@@ -252,7 +257,7 @@ function getWindowTitleBarOptions(platform: NodeJS.Platform): WindowTitleBarOpti
     titleBarOverlay: {
       color: TITLEBAR_COLOR,
       height: TITLEBAR_HEIGHT,
-      symbolColor: TITLEBAR_SYMBOL_COLOR,
+      symbolColor: titleBarSymbolColor(appearance),
     },
   };
 }
@@ -345,6 +350,7 @@ export const make = Effect.gen(function* () {
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const persistedSettings = yield* desktopSettings.get;
+    const windowAppearance = persistedSettings.windowAppearance ?? DEFAULT_WINDOW_APPEARANCE;
     const persistedBounds = persistedSettings.mainWindowBounds;
     const displayBoundsResult = yield* Effect.sync(() => {
       try {
@@ -375,10 +381,10 @@ export const make = Effect.gen(function* () {
       show: false,
       autoHideMenuBar: true,
       ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
-      backgroundColor: WINDOW_BACKGROUND_COLOR,
+      backgroundColor: windowAppearance.background,
       ...iconOption,
       title: environment.displayName,
-      ...getWindowTitleBarOptions(environment.platform),
+      ...getWindowTitleBarOptions(windowAppearance.appearance, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
         // Hidden-renderer throttling stalls first paint; re-enable it after the first reveal.
@@ -901,6 +907,8 @@ export const make = Effect.gen(function* () {
     if (Option.isSome(existingWindow)) return;
 
     if (yield* Ref.get(desktopState.quitting)) return;
+    const windowAppearance =
+      (yield* desktopSettings.get).windowAppearance ?? DEFAULT_WINDOW_APPEARANCE;
     const splash = yield* electronWindow.create({
       width: 360,
       height: 220,
@@ -912,7 +920,7 @@ export const make = Effect.gen(function* () {
       center: true,
       show: false,
       skipTaskbar: false,
-      backgroundColor: WINDOW_BACKGROUND_COLOR,
+      backgroundColor: windowAppearance.background,
       title: environment.displayName,
       webPreferences: {
         contextIsolation: true,
@@ -934,7 +942,7 @@ export const make = Effect.gen(function* () {
         splash.show();
       }
     });
-    void splash.loadURL(buildConnectingSplashDataUrl());
+    void splash.loadURL(buildConnectingSplashDataUrl(windowAppearance));
     yield* logWindowInfo("connecting splash shown");
   }).pipe(
     Effect.catch((error) =>

@@ -9,7 +9,7 @@ import {
   themeColorToHex,
 } from "../themePalette";
 import { useClientSettings } from "./useSettings";
-import { useTheme } from "./useTheme";
+import { useRenderedAppearance, useTheme } from "./useTheme";
 
 export function useHtmlRenderTheme() {
   const { theme } = useTheme();
@@ -21,6 +21,7 @@ export function useHtmlRenderTheme() {
   );
   const sans = useClientSettings((settings) => settings.fontFamilySans);
   const mono = useClientSettings((settings) => settings.fontFamilyCode);
+  const appearance = useRenderedAppearance();
   return htmlRenderTheme(
     Object.fromEntries(
       Object.entries(colors).map(([role, color]) => [role, themeColorToHex(color) ?? color]),
@@ -29,5 +30,6 @@ export function useHtmlRenderTheme() {
       sans: appearanceFontStack(sans, HTML_RENDER_DEFAULT_FONTS.sans),
       mono: appearanceFontStack(mono, HTML_RENDER_DEFAULT_FONTS.mono),
     },
+    appearance,
   );
 }

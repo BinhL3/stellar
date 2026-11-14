@@ -1,5 +1,6 @@
 import {
   flattenThemeColor,
+  type MobileThemeAppearance,
   themeColorWithAlpha,
   type MobileThemeVariables,
 } from "../lib/mobileTheme";
@@ -13,15 +14,18 @@ export interface WidgetPalette {
   danger: string;
 }
 
-// The widget extension reads `mode`, `light` and `dark`; all three now carry the one dark
-// palette, so a widget on a light home screen matches the app instead of the system.
+// The widget extension reads `mode`, `light` and `dark`. Both palettes are the active theme's,
+// so a widget matches the app's theme instead of the home screen's scheme.
 export interface WidgetTheme {
-  mode: "dark";
+  mode: MobileThemeAppearance;
   light: WidgetPalette;
   dark: WidgetPalette;
 }
 
-export function createWidgetTheme(variables: MobileThemeVariables): WidgetTheme {
+export function createWidgetTheme(
+  variables: MobileThemeVariables,
+  mode: MobileThemeAppearance,
+): WidgetTheme {
   const palette = {
     background: variables["--color-card"],
     foreground: variables["--color-foreground"],
@@ -34,5 +38,5 @@ export function createWidgetTheme(variables: MobileThemeVariables): WidgetTheme 
     ),
     danger: variables["--color-danger-foreground"],
   };
-  return { mode: "dark", light: palette, dark: palette };
+  return { mode, light: palette, dark: palette };
 }

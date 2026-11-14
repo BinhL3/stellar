@@ -30,6 +30,7 @@ import { getMobileThemeRuntimeVariables } from "../../../lib/mobileThemeVariable
 import type { MobileThemeVariables } from "../../../lib/mobileTheme";
 import {
   createMobileThemePatch,
+  getMobileThemeAppearance,
   resolveMobileThemeId,
   type MobileThemeAppearance,
   type MobileThemeId,
@@ -44,7 +45,7 @@ interface AppearancePreferencesContextValue {
   readonly themeId: MobileThemeId;
   readonly androidNavigationStyle: AndroidNavigationStyle;
   readonly setAndroidNavigationStyle: (value: AndroidNavigationStyle) => void;
-  /** Always "dark"; native views that take an appearance read it from here. */
+  /** The active theme's appearance; native views that take one read it from here. */
   readonly themeAppearance: MobileThemeAppearance;
   readonly systemColorsAvailable: boolean;
   readonly systemColorsActive: boolean;
@@ -101,6 +102,12 @@ function resolveThemeVariables(
     : base;
 }
 
+const themeAppearanceAtom = Atom.make((get) =>
+  getMobileThemeAppearance(
+    resolveMobileThemeId(storedPreferencesOf(get(mobilePreferencesAtom)) ?? {}),
+  ),
+);
+
 const baseFontSizeAtom = Atom.make(
   (get) =>
     resolveAppearancePreferences(storedPreferencesOf(get(mobilePreferencesAtom))).baseFontSize,
@@ -125,13 +132,18 @@ function applyBaseFontSize(baseFontSize: number) {
  * fast-refresh disposer release the replaced module's AppState listeners.
  */
 export function installAppearanceRuntime(): () => void {
-  // Stellar is dark-only: native controls, sheets and the keyboard never follow the system.
-  Appearance.setColorScheme("dark");
+  // Native controls, sheets and the keyboard follow the theme, never the system.
+  const unsubscribeAppearance = appAtomRegistry.subscribe(
+    themeAppearanceAtom,
+    (appearance) => Appearance.setColorScheme(appearance),
+    { immediate: true },
+  );
   const unsubscribeRuntime = appAtomRegistry.subscribe(baseFontSizeAtom, applyBaseFontSize, {
     immediate: true,
   });
   const releasePalette = appAtomRegistry.mount(systemColorPaletteAtom);
   return () => {
+    unsubscribeAppearance();
     unsubscribeRuntime();
     releasePalette();
   };
@@ -157,6 +169,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
   const systemColorPalette = useAtomValue(systemColorPaletteAtom);
   const themeVariables = resolveThemeVariables(themeId, systemColorPalette);
   const activeThemeName = getMobileUniwindThemeName(themeId);
+  const themeAppearance = getMobileThemeAppearance(themeId);
   const { baseFontSize, codeFontSize, codeWordBreak, terminalFontSize } = preferences;
   const appearance = useMemo(
     () => resolveAppearance({ baseFontSize, codeFontSize, codeWordBreak, terminalFontSize }),
@@ -200,7 +213,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       themeId,
       androidNavigationStyle,
       setAndroidNavigationStyle,
-      themeAppearance: "dark",
+      themeAppearance,
       systemColorsAvailable: isSystemColorsAvailable,
       systemColorsActive,
       themeVariables,
@@ -219,6 +232,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       themeId,
       androidNavigationStyle,
       setAndroidNavigationStyle,
+      themeAppearance,
       systemColorsActive,
       themeVariables,
       systemColorPalette,

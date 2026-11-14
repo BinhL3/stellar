@@ -2,7 +2,7 @@ import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/re
 
 import { languageOfInfoString, withInfoStringLanguage } from "~/composer-code-languages";
 
-import { RENDERED_APPEARANCE } from "../../hooks/useTheme";
+import { useRenderedAppearance } from "../../hooks/useTheme";
 import { MarkdownCodeBlockFrame } from "./MarkdownCodeBlock";
 import { ComposerCodeBlockLanguagePicker } from "./ComposerCodeBlockLanguagePicker";
 
@@ -12,7 +12,7 @@ export function ComposerCodeBlockNodeView({
   getPos,
   updateAttributes,
 }: NodeViewProps) {
-  const resolvedTheme = RENDERED_APPEARANCE;
+  const resolvedTheme = useRenderedAppearance();
   const info = typeof node.attrs.language === "string" ? node.attrs.language : "";
   const language = languageOfInfoString(info);
 

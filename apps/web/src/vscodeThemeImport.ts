@@ -1,4 +1,3 @@
-import * as Schema from "effect/Schema";
 import { parse, type ParseError } from "jsonc-parser";
 
 import {
@@ -10,6 +9,8 @@ import {
   themeColorToHex,
   themeIdFromName,
   THEME_FILE_VERSION,
+  themeAppearance,
+  type ThemeAppearance,
   type ThemeColorRole,
   type ThemeDefinition,
 } from "./themePalette";
@@ -143,22 +144,11 @@ export function parseThemeImport(source: string): ThemeDefinition {
     : parseThemeFile(JSON.parse(source));
 }
 
-/** A VS Code theme that is light, which a dark-only app has no use for. */
-export class LightThemeError extends Schema.TaggedError<LightThemeError>()("LightThemeError", {
-  themeName: Schema.String,
-}) {
-  override get message(): string {
-    return `“${this.themeName}” is a light theme. Stellar only uses dark themes.`;
-  }
-}
-
-export const isLightThemeError = Schema.is(LightThemeError);
-
-function isLightTheme(value: Record<string, unknown>, canvas: VsCodeRgb): boolean {
+function resolveAppearance(value: Record<string, unknown>, canvas: VsCodeRgb): ThemeAppearance {
   const type = typeof value.type === "string" ? value.type.toLowerCase() : null;
-  if (type === "light" || type === "hc-light") return true;
-  if (type === "dark" || type === "hc-black") return false;
-  return relativeLuminance(canvas) >= 0.179;
+  if (type === "light" || type === "hc-light") return "light";
+  if (type === "dark" || type === "hc-black") return "dark";
+  return relativeLuminance(canvas) < 0.179 ? "dark" : "light";
 }
 
 export function humanizeThemeName(raw: string): string {
@@ -203,9 +193,7 @@ export function parseVsCodeThemeFile(value: unknown): ThemeDefinition {
     );
   }
   const canvas = { r: canvasColor.r, g: canvasColor.g, b: canvasColor.b };
-  if (isLightTheme(value, canvas)) {
-    throw new LightThemeError({ themeName: resolveName(value) });
-  }
+  const appearance = resolveAppearance(value, canvas);
 
   const canvasHex = toHex(canvas);
   const raisedSurfaceCandidateHex = solidOver(
@@ -240,7 +228,7 @@ export function parseVsCodeThemeFile(value: unknown): ThemeDefinition {
     break;
   }
   if (!accentColor || !accentHex) {
-    const standardAccentHex = themeColorToHex(getDefaultThemeColors().accent)!;
+    const standardAccentHex = themeColorToHex(getDefaultThemeColors(appearance).accent)!;
     accentHex =
       [standardAccentHex, "#ffffff", "#000000"].find(
         (candidate) =>
@@ -294,7 +282,7 @@ export function parseVsCodeThemeFile(value: unknown): ThemeDefinition {
   const inputCandidates = [
     derived.input,
     derived.surfaceRaised,
-    getDefaultThemeColors().input,
+    getDefaultThemeColors(appearance).input,
     "#000000",
     "#ffffff",
     "#808080",
@@ -391,6 +379,7 @@ export function parseVsCodeThemeFile(value: unknown): ThemeDefinition {
     version: THEME_FILE_VERSION,
     ...(isReservedThemeId(generatedId) ? { id: `${generatedId}-vscode` } : {}),
     name,
+    appearance,
     colors: { ...derived, ...overrides },
   });
 }
@@ -403,6 +392,7 @@ export function resolveThemeLabelCollisions(
       return parseThemeFile({
         version: THEME_FILE_VERSION,
         name: name.slice(0, 48),
+        appearance: themeAppearance(theme),
         colors: theme.colors,
         ...(theme.managed ? { managed: true } : {}),
       });

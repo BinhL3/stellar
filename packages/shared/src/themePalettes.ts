@@ -4,6 +4,10 @@ export const BUILT_IN_THEME_IDS = [
   "darkroom",
   "studio",
   "drive-in",
+  "long-bien",
+  "sakura",
+  "shore",
+  "train-street",
 ] as const;
 
 export const DEFAULT_THEME_ID = "drive-in" satisfies (typeof BUILT_IN_THEME_IDS)[number];
@@ -45,6 +49,7 @@ export const UNPUBLISHABLE_THEME_IDS: ReadonlySet<string> = new Set([
 
 export type BuiltInThemeId = (typeof BUILT_IN_THEME_IDS)[number];
 export type MobileThemeId = (typeof MOBILE_THEME_IDS)[number];
+export type ThemeAppearance = "light" | "dark";
 
 export const THEME_COLOR_ROLES = [
   "canvas",
@@ -115,11 +120,80 @@ export type ThemeColors = Readonly<Record<ThemeColorRole, string>>;
 export type ThemeDefinition = Readonly<{
   id: string;
   label: string;
+  /** Light themes draw dark ink on light paper; absent means dark. */
+  appearance?: ThemeAppearance;
   colors: ThemeColors;
   collection?: Readonly<{ id: string; label: string }>;
   sidebarArtwork?: boolean;
   managed?: boolean;
 }>;
+
+export const themeAppearance = (theme: Pick<ThemeDefinition, "appearance">): ThemeAppearance =>
+  theme.appearance ?? "dark";
+
+export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {
+  searchMatchBackground: "#ffde8b",
+  searchMatchForeground: "#21180a",
+  searchMatchActiveBackground: "#eea52b",
+  searchMatchActiveForeground: "#21180a",
+  canvas: "#fcfcfc",
+  chrome: "#fcfcfc",
+  toolbar: "#fcfcfc",
+  toolbarForeground: "#27272a",
+  toolbarBorder: "#e4e4e7",
+  toolbarControl: "#ffffff",
+  toolbarControlForeground: "#27272a",
+  toolbarControlHover: "#f4f4f5",
+  surface: "#ffffff",
+  surfaceRaised: "#fcfcfc",
+  surfaceOverlay: "#ffffff",
+  text: "#27272a",
+  textMuted: "#71717b",
+  border: "#e4e4e7",
+  input: "#d4d4d8",
+  focus: "#1b4ed8",
+  accent: "#1b4ed8",
+  accentForeground: "#ffffff",
+  secondary: "#fafafa",
+  secondaryForeground: "#27272a",
+  muted: "#fafafa",
+  mutedForeground: "#71717b",
+  placeholder: "#71717b",
+  secondaryLabel: "#71717b",
+  iconMuted: "#71717b",
+  error: "#fb2c36",
+  errorForeground: "#c10007",
+  errorSurface: "#fcebec",
+  warning: "#fe9a00",
+  warningForeground: "#a84400",
+  warningSurface: "#fcf4e8",
+  update: "#1b4ed8",
+  updateForeground: "#1b4ed8",
+  updateSurface: "#e0e6f7",
+  accentSurface: "#f4f4f5",
+  accentSurfaceForeground: "#18181b",
+  messageSurface: "#f4f4f5",
+  messageForeground: "#27272a",
+  messageAction: "#1b4ed8",
+  messageActionForeground: "#ffffff",
+  messageActionHover: "#3160db",
+  codeBackground: "#ffffff",
+  codeForeground: "#27272a",
+  sidebar: "#fafafa",
+  sidebarForeground: "#27272a",
+  sidebarMutedForeground: "#71717b",
+  sidebarControlSurface: "#f4f4f5",
+  sidebarRowHover: "#fcfcfc",
+  sidebarRowActive: "#ffffff",
+  sidebarRowSelected: "#ffffff",
+  sidebarBorder: "#e4e4e7",
+  terminalBackground: "#fcfcfc",
+  terminalForeground: "#27272a",
+  terminalCursor: "#26384e",
+  terminalSelection: "#d0d6dd",
+  terminalScrollbar: "#d6d6d6",
+  terminalScrollbarHover: "#bdbdbd",
+};
 
 export const T3_CODE_DARK_THEME_COLORS: ThemeColors = {
   searchMatchBackground: "#8c6c1f",
@@ -337,10 +411,178 @@ export const DRIVE_IN_THEME: ThemeDefinition = {
   colors: editorPalette("#070a0e", "#0f131a", "#161b24", "#232a36", "#d0f26a"),
 };
 
+/**
+ * Light paper with darker inks. Text and muted text are tinted towards the paper's hue so they
+ * sit in the picture, and both clear 7:1 and 4.5:1 on every surface; the accent clears 4.5:1 on
+ * the canvas and carries white text.
+ */
+function paperPalette(tone: {
+  readonly chrome: string;
+  readonly canvas: string;
+  readonly surface: string;
+  readonly hover: string;
+  readonly raised: string;
+  readonly border: string;
+  readonly input: string;
+  readonly text: string;
+  readonly muted: string;
+  readonly accent: string;
+  readonly accentHover: string;
+  readonly accentSurface: string;
+  readonly selection: string;
+}): ThemeColors {
+  return {
+    ...T3_CODE_LIGHT_THEME_COLORS,
+    canvas: tone.canvas,
+    chrome: tone.canvas,
+    toolbar: tone.canvas,
+    toolbarForeground: tone.text,
+    toolbarBorder: tone.border,
+    toolbarControl: tone.surface,
+    toolbarControlForeground: tone.text,
+    toolbarControlHover: tone.hover,
+    surface: tone.surface,
+    surfaceRaised: tone.raised,
+    surfaceOverlay: tone.surface,
+    text: tone.text,
+    textMuted: tone.muted,
+    border: tone.border,
+    input: tone.input,
+    focus: tone.accent,
+    accent: tone.accent,
+    accentForeground: "#ffffff",
+    secondary: tone.surface,
+    secondaryForeground: tone.text,
+    muted: tone.surface,
+    mutedForeground: tone.muted,
+    placeholder: tone.muted,
+    secondaryLabel: tone.muted,
+    iconMuted: tone.muted,
+    update: tone.accent,
+    updateForeground: tone.accent,
+    updateSurface: tone.accentSurface,
+    accentSurface: tone.hover,
+    accentSurfaceForeground: tone.text,
+    messageSurface: tone.raised,
+    messageForeground: tone.text,
+    messageAction: tone.accent,
+    messageActionForeground: "#ffffff",
+    messageActionHover: tone.accentHover,
+    codeBackground: tone.surface,
+    codeForeground: tone.text,
+    sidebar: tone.chrome,
+    sidebarForeground: tone.text,
+    sidebarMutedForeground: tone.muted,
+    sidebarControlSurface: tone.surface,
+    sidebarRowHover: tone.hover,
+    sidebarRowActive: tone.surface,
+    sidebarRowSelected: tone.surface,
+    sidebarBorder: tone.border,
+    terminalBackground: tone.canvas,
+    terminalForeground: tone.text,
+    terminalCursor: tone.accent,
+    terminalSelection: tone.selection,
+    terminalScrollbar: tone.border,
+    terminalScrollbarHover: tone.muted,
+  };
+}
+
+// Hanoi at dawn: the rust truss of Long Biên over a pale, misty river.
+const LONG_BIEN_THEME: ThemeDefinition = {
+  id: "long-bien",
+  label: "Long Biên",
+  appearance: "light",
+  colors: paperPalette({
+    chrome: "#efe9df",
+    canvas: "#f6f2eb",
+    surface: "#fcfaf6",
+    hover: "#ece5da",
+    raised: "#efe8dd",
+    border: "#ddd3c5",
+    input: "#c9bcaa",
+    text: "#2a211b",
+    muted: "#615549",
+    accent: "#a3461f",
+    accentHover: "#8f3c1a",
+    accentSurface: "#f3e1d6",
+    selection: "#ecd3c3",
+  }),
+};
+
+// Cherry branches against a blush sky.
+const SAKURA_THEME: ThemeDefinition = {
+  id: "sakura",
+  label: "Sakura",
+  appearance: "light",
+  colors: paperPalette({
+    chrome: "#f6ecec",
+    canvas: "#fcf6f5",
+    surface: "#fffcfb",
+    hover: "#f3e5e5",
+    raised: "#f5e9e8",
+    border: "#e8d6d7",
+    input: "#d5bcbf",
+    text: "#2c1f23",
+    muted: "#6b5459",
+    accent: "#ad4466",
+    accentHover: "#983a59",
+    accentSurface: "#f6dfe6",
+    selection: "#f0d0db",
+  }),
+};
+
+// Morning surf on a pale beach.
+const SHORE_THEME: ThemeDefinition = {
+  id: "shore",
+  label: "Shore",
+  appearance: "light",
+  colors: paperPalette({
+    chrome: "#eaf0ef",
+    canvas: "#f3f6f5",
+    surface: "#fbfcfc",
+    hover: "#e3eae9",
+    raised: "#e7eeed",
+    border: "#d2dddc",
+    input: "#b9c9c8",
+    text: "#1b2628",
+    muted: "#4d5c59",
+    accent: "#2d6a80",
+    accentHover: "#255a6d",
+    accentSurface: "#dbe9ee",
+    selection: "#cfe1e7",
+  }),
+};
+
+// A Hanoi street the railway runs through: ochre walls, green shutters, noon light.
+const TRAIN_STREET_THEME: ThemeDefinition = {
+  id: "train-street",
+  label: "Train Street",
+  appearance: "light",
+  colors: paperPalette({
+    chrome: "#f1eadb",
+    canvas: "#f8f3e8",
+    surface: "#fdfbf5",
+    hover: "#eee6d5",
+    raised: "#f0e9da",
+    border: "#e0d5bf",
+    input: "#cbbd9f",
+    text: "#26231a",
+    muted: "#625b48",
+    accent: "#2e6a4c",
+    accentHover: "#265a40",
+    accentSurface: "#dceadf",
+    selection: "#d2e3d6",
+  }),
+};
+
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   DRIVE_IN_THEME,
   STELLAR_THEME,
   NIGHT_EDIT_THEME,
   DARKROOM_THEME,
   STUDIO_THEME,
+  LONG_BIEN_THEME,
+  SAKURA_THEME,
+  SHORE_THEME,
+  TRAIN_STREET_THEME,
 ];

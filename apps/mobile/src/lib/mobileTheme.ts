@@ -1,4 +1,5 @@
 import {
+  BUILT_IN_THEME_IDS,
   BUILT_IN_THEMES,
   DEFAULT_THEME_ID,
   STELLAR_THEME,
@@ -6,7 +7,10 @@ import {
   MOBILE_DEFAULT_THEME_ID,
   RENAMED_THEME_IDS,
   MOBILE_THEME_IDS as SHARED_MOBILE_THEME_IDS,
+  themeAppearance,
+  type BuiltInThemeId,
   type MobileThemeId as SharedMobileThemeId,
+  type ThemeAppearance,
   type ThemeColors,
 } from "@t3tools/shared/themePalettes";
 import {
@@ -17,8 +21,23 @@ import {
 export const DEFAULT_MOBILE_THEME_ID = MOBILE_DEFAULT_THEME_ID;
 export const MOBILE_THEME_IDS = [...SHARED_MOBILE_THEME_IDS, "material-you"] as const;
 export type MobileThemeId = SharedMobileThemeId | "material-you";
-/** The app is dark-only. The name stays for the native views that take an appearance. */
-export type MobileThemeAppearance = "dark";
+/** Each theme is light or dark; native views and the system chrome follow the active one. */
+export type MobileThemeAppearance = ThemeAppearance;
+
+export function builtInThemeAppearance(themeId: BuiltInThemeId): ThemeAppearance {
+  const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId);
+  return theme ? themeAppearance(theme) : "dark";
+}
+
+/** One Uniwind theme per built-in theme, named for the appearance it renders in. */
+export const BUILT_IN_UNIWIND_THEME_NAMES: ReadonlyArray<`${BuiltInThemeId}-${ThemeAppearance}`> =
+  BUILT_IN_THEME_IDS.map((themeId) => `${themeId}-${builtInThemeAppearance(themeId)}` as const);
+
+/** Neutral and Material You are dark; a built-in theme carries its own appearance. */
+export function getMobileThemeAppearance(themeId: MobileThemeId): MobileThemeAppearance {
+  const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId);
+  return theme ? themeAppearance(theme) : "dark";
+}
 
 export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
   readonly id: MobileThemeId;
@@ -311,7 +330,9 @@ export function createMobileThemeVariables(
   colors: ThemeColors,
   groupedCardColor = colors.surface,
   prominentAction: readonly [string, string] = [colors.text, colors.canvas],
+  appearance: MobileThemeAppearance = "dark",
 ) {
+  const dark = appearance === "dark";
   const c = nativeColors(colors);
   const groupedCard = themeColorToNativeColor(groupedCardColor);
   const textSurfaces = [
@@ -340,11 +361,11 @@ export function createMobileThemeVariables(
     ),
     "--color-thread-hover": c.sidebarRowHover,
     "--color-row-hover": c.toolbarControlHover,
-    "--color-composer-panel": themeColorWithAlpha(c.canvas, 0.92),
-    "--color-composer-surface": themeColorWithAlpha(groupedCard, 0.9),
+    "--color-composer-panel": themeColorWithAlpha(c.canvas, dark ? 0.92 : 0.88),
+    "--color-composer-surface": themeColorWithAlpha(groupedCard, dark ? 0.9 : 0.94),
     "--color-composer-border": themeColorWithAlpha(
       c.border,
-      groupedCard === c.surface ? 0.46 : 0.8,
+      groupedCard === c.surface ? (dark ? 0.46 : 0.54) : 0.8,
     ),
     "--color-foreground": c.text,
     "--color-foreground-secondary": themeColorWithContrast(c.textMuted, textSurfaces),
@@ -391,7 +412,7 @@ export function createMobileThemeVariables(
     "--color-header-foreground": c.toolbarForeground,
     "--color-header-border": c.toolbarBorder,
     "--color-glass-surface": withAlpha(c.surfaceOverlay, 0.74),
-    "--color-glass-fallback": themeColorWithAlpha(groupedCard, 0.9),
+    "--color-glass-fallback": themeColorWithAlpha(groupedCard, dark ? 0.9 : 0.94),
     "--color-glass-tint": withAlpha(c.surfaceOverlay, 0.22),
     "--color-status-bar": c.canvas,
     "--color-md-body": c.text,
@@ -403,7 +424,7 @@ export function createMobileThemeVariables(
     "--color-md-code-text": c.codeForeground,
     "--color-md-user-code-bg": withAlpha(c.messageForeground, 0.18),
     "--color-md-user-code-text": c.messageForeground,
-    "--color-md-user-fence-bg": withAlpha("#000000", 0.28),
+    "--color-md-user-fence-bg": withAlpha("#000000", dark ? 0.28 : 0.16),
     "--color-md-user-fence-text": c.messageForeground,
     "--color-md-hr": c.border,
     "--color-user-bubble": c.messageSurface,
@@ -413,7 +434,7 @@ export function createMobileThemeVariables(
       c.messageAction,
       c.messageSurface,
     ),
-    "--color-backdrop": withAlpha("#000000", 0.48),
+    "--color-backdrop": withAlpha("#000000", dark ? 0.48 : 0.22),
     "--color-drawer": c.sidebar,
     "--color-drawer-foreground": c.sidebarForeground,
     "--color-drawer-foreground-muted": themeColorWithContrast(c.sidebarMutedForeground, [
@@ -421,7 +442,7 @@ export function createMobileThemeVariables(
       c.sidebarRowHover,
     ]),
     "--color-drawer-border": c.sidebarBorder,
-    "--color-drawer-shadow": withAlpha("#000000", 0.32),
+    "--color-drawer-shadow": withAlpha("#000000", dark ? 0.32 : 0.12),
     "--color-dot-separator": withAlpha(c.textMuted, 0.35),
     "--color-wordmark": c.text,
     "--color-chevron": withAlpha(c.textMuted, 0.42),
@@ -451,6 +472,7 @@ export function getMobileThemeVariables(
       : colors,
     isDefault ? colors.sidebarRowActive : colors.muted,
     isDefault ? undefined : [colors.messageAction, colors.messageActionForeground],
+    getMobileThemeAppearance(themeId),
   );
 
   return overrides ? ({ ...baseVariables, ...overrides } as MobileThemeVariables) : baseVariables;

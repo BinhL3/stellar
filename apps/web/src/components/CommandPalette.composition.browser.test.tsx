@@ -18,7 +18,7 @@ vi.mock("~/branding", async (original) => ({
   SHOW_GIT_SURFACES: true,
 }));
 vi.mock("../hooks/useTheme", () => ({
-  RENDERED_APPEARANCE: "dark",
+  useRenderedAppearance: () => "dark",
   useTheme: () => ({ theme: "stellar", resolvedTheme: "dark" }),
 }));
 vi.mock("../hooks/useCustomThemes", () => ({ useCustomThemes: () => [] }));

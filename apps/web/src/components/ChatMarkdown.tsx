@@ -132,7 +132,7 @@ import {
 import { openInEditorMenuLabel } from "../editorLabels";
 import { resolveDiffThemeName } from "../lib/diffRendering";
 import { RenderErrorBoundary } from "./RenderErrorBoundary";
-import { RENDERED_APPEARANCE } from "../hooks/useTheme";
+import { useRenderedAppearance } from "../hooks/useTheme";
 import { useClientSettings } from "../hooks/useSettings";
 import { chatMarkdownClipboardPayload } from "../markdown-clipboard";
 import {
@@ -498,7 +498,7 @@ function useChatMarkdownState({
   sourceControlMedia = false,
   sourceControlMediaRepository,
 }: ChatMarkdownProps) {
-  const resolvedTheme = RENDERED_APPEARANCE;
+  const resolvedTheme = useRenderedAppearance();
   const markdownRef = useRef<HTMLElement>(null);
   const mediaRequestId = useRef(0);
   const mediaScopeKey = [

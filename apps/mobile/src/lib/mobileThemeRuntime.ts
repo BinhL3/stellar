@@ -1,20 +1,26 @@
 import { resolveTextScaleVariables } from "./appearancePreferences";
-import { BUILT_IN_THEME_IDS, type BuiltInThemeId } from "@t3tools/shared/themePalettes";
-import { DEFAULT_MOBILE_THEME_ID, type MobileThemeId } from "./mobileTheme";
+import type { ThemeName } from "uniwind";
+import {
+  BUILT_IN_UNIWIND_THEME_NAMES,
+  builtInThemeAppearance,
+  DEFAULT_MOBILE_THEME_ID,
+  type MobileThemeId,
+} from "./mobileTheme";
 
 // Uniwind always defines "light"; it carries the same dark variables as "dark".
-export type MobileUniwindThemeName = "dark" | `${BuiltInThemeId}-dark`;
+// The generated theme list names each built-in theme by its own appearance.
+export type MobileUniwindThemeName = Exclude<ThemeName, "light">;
 
 const UNIWIND_THEME_NAMES: ReadonlyArray<"light" | MobileUniwindThemeName> = [
   "light",
   "dark",
-  ...BUILT_IN_THEME_IDS.map((themeId) => `${themeId}-dark` as const),
+  ...(BUILT_IN_UNIWIND_THEME_NAMES as ReadonlyArray<MobileUniwindThemeName>),
 ];
 
 export function getMobileUniwindThemeName(themeId: MobileThemeId): MobileUniwindThemeName {
   return themeId === DEFAULT_MOBILE_THEME_ID || themeId === "material-you"
     ? "dark"
-    : `${themeId}-dark`;
+    : (`${themeId}-${builtInThemeAppearance(themeId)}` as MobileUniwindThemeName);
 }
 
 /** Text-scale variables live on every Uniwind theme, so a change is written to each. */

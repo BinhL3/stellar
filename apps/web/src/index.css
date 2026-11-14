@@ -3,6 +3,7 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark, .dark *));
+@custom-variant light (&:not(.dark, .dark *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
 
@@ -1419,7 +1420,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   --radius: 0.25rem;
   --background: var(--color-zinc-25);
   --app-chrome-background: var(--background);
@@ -1491,6 +1492,31 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --terminal-foreground: var(--foreground);
   --terminal-cursor: rgb(180 203 255);
   --terminal-selection-background: rgb(180 203 255 / 25%);
+}
+
+/* A light theme prints dark ink on light paper. Its palette sets the surfaces, text and accent
+   through the role mapping below; these are the tokens that mapping does not reach. */
+:root {
+  @variant light {
+    color-scheme: light;
+    --appearance-contrast-target: black;
+    --app-scrollbar-thumb: rgb(0 0 0 / 14%);
+    --app-scrollbar-thumb-hover: rgb(0 0 0 / 24%);
+    --info-foreground: var(--color-blue-700);
+    --guest-foreground: var(--color-fuchsia-600);
+    --success-foreground: var(--color-emerald-700);
+    --diff-modified-icon: color-mix(in srgb, var(--info-foreground) 50%, var(--muted-foreground));
+    --diff-addition-foreground: var(--color-emerald-700);
+    --diff-deletion-foreground: var(--color-red-700);
+  }
+}
+
+:root[data-diff-color-scheme="blue-orange"] {
+  @variant light {
+    --diff-addition: var(--color-blue-600);
+    --diff-deletion: var(--color-orange-600);
+    --diff-modified-icon: var(--muted-foreground);
+  }
 }
 
 /* Keep both sidebar implementations (default and legacy) on the same quiet

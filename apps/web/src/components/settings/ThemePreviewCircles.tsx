@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
-import { THEME_PREVIEW_RENDER_SPEC } from "@t3tools/shared/themePreview";
+import { THEME_PREVIEW_RENDER_SPECS } from "@t3tools/shared/themePreview";
 import { cn } from "../../lib/utils";
-import type { ThemeDefinition } from "../../themePalette";
+import { themeAppearance, type ThemeAppearance, type ThemeDefinition } from "../../themePalette";
 
 export type ThemeCardPreviewColors = Readonly<{
   canvas: string;
@@ -11,6 +11,7 @@ export type ThemeCardPreviewColors = Readonly<{
 export type ThemeCardDefinition = {
   id: string;
   label: string;
+  appearance: ThemeAppearance;
   colors: ThemeCardPreviewColors;
 };
 
@@ -18,6 +19,7 @@ export function getThemeCardDefinition(theme: ThemeDefinition): ThemeCardDefinit
   return {
     id: theme.id,
     label: theme.label,
+    appearance: themeAppearance(theme),
     colors: {
       canvas: theme.colors.canvas,
       accent: theme.colors.accent,
@@ -26,8 +28,11 @@ export function getThemeCardDefinition(theme: ThemeDefinition): ThemeCardDefinit
   };
 }
 
-function getThemePreviewStyle(colors: ThemeCardPreviewColors): CSSProperties {
-  const spec = THEME_PREVIEW_RENDER_SPEC;
+function getThemePreviewStyle(
+  colors: ThemeCardPreviewColors,
+  appearance: ThemeAppearance,
+): CSSProperties {
+  const spec = THEME_PREVIEW_RENDER_SPECS[appearance];
   const base = `color-mix(in oklab, ${colors.canvas} ${spec.baseWeight * 100}%, ${spec.baseTarget})`;
   const accentPosition = `${spec.accent.center[0] * 100}% ${spec.accent.center[1] * 100}%`;
   const actionPosition = `${spec.action.center[0] * 100}% ${spec.action.center[1] * 100}%`;
@@ -44,9 +49,11 @@ function getThemePreviewStyle(colors: ThemeCardPreviewColors): CSSProperties {
 
 export function ThemePreviewCircle({
   colors,
+  appearance,
   className,
 }: {
   colors: ThemeCardPreviewColors;
+  appearance: ThemeAppearance;
   className?: string;
 }) {
   return (
@@ -60,7 +67,10 @@ export function ThemePreviewCircle({
         boxShadow: "inset 0 0 0 1px rgb(255 255 255 / 0.14), 0 1px 2px rgb(0 0 0 / 0.18)",
       }}
     >
-      <span className="absolute inset-0 rounded-full" style={getThemePreviewStyle(colors)} />
+      <span
+        className="absolute inset-0 rounded-full"
+        style={getThemePreviewStyle(colors, appearance)}
+      />
     </span>
   );
 }

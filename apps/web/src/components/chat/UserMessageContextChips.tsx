@@ -1,6 +1,6 @@
 import { documentChipKindForFileName } from "~/pierre-icons";
 import { isSvgAttachment } from "@t3tools/shared/image";
-import { RENDERED_APPEARANCE } from "../../hooks/useTheme";
+import { useRenderedAppearance } from "../../hooks/useTheme";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
 import { useRightPanelStore } from "~/rightPanelStore";
@@ -537,7 +537,7 @@ export function UserMessageContextReferenceChip(props: {
 }
 
 function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentContext }) {
-  const renderedAppearance = RENDERED_APPEARANCE;
+  const renderedAppearance = useRenderedAppearance();
   const ctx = use(TimelineRowCtx);
   const fenceLanguage = comment.fenceLanguage ?? "diff";
   const renderablePatch = getRenderablePatch(

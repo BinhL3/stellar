@@ -3,13 +3,19 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import tailwindColors from "tailwindcss/colors";
-import { BUILT_IN_THEME_IDS, type BuiltInThemeId } from "@t3tools/shared/themePalettes";
+import {
+  BUILT_IN_THEME_IDS,
+  type BuiltInThemeId,
+  type ThemeAppearance,
+} from "@t3tools/shared/themePalettes";
 
 import {
   createMobileThemeVariables,
   getMobileThemeColors,
   getMobileThemeVariables,
   DEFAULT_MOBILE_THEME_ID,
+  BUILT_IN_UNIWIND_THEME_NAMES,
+  builtInThemeAppearance,
 } from "../src/lib/mobileTheme.ts";
 
 const GENERATED_CSS_PATH = NodePath.resolve(import.meta.dirname, "../generated-uniwind-themes.css");
@@ -49,77 +55,121 @@ const color = (family: TailwindColorFamily, shade?: TailwindColorShade, opacity 
   return `color-mix(in srgb, ${value} ${percentage}%, transparent)`;
 };
 
-// Named for the light and dark values they once switched between; only the dark one is left.
-const ADAPTIVE_COLORS: Readonly<Record<string, string>> = {
-  "--color-adaptive-amber-50-950-a40": color("amber", 950, 0.4),
-  "--color-adaptive-amber-200-900-a60": color("amber", 900, 0.6),
-  "--color-adaptive-amber-500-a12-a16": color("amber", 500, 0.16),
-  "--color-adaptive-amber-500-a10-400-a10": color("amber", 400, 0.1),
-  "--color-adaptive-amber-500-a25-400-a25": color("amber", 400, 0.25),
-  "--color-adaptive-amber-700-300": color("amber", 300),
-  "--color-adaptive-amber-700-400": color("amber", 400),
-  "--color-adaptive-amber-800-200": color("amber", 200),
-  "--color-adaptive-blue-50-blue-400-a14": color("blue", 400, 0.14),
-  "--color-adaptive-blue-300-a50-blue-400-a28": color("blue", 400, 0.28),
-  "--color-adaptive-blue-500-a20-blue-400-a15": color("blue", 400, 0.15),
-  "--color-adaptive-blue-500-400": color("blue", 400),
-  "--color-adaptive-blue-600-400": color("blue", 400),
-  "--color-adaptive-black-a10-a25": color("black", undefined, 0.25),
-  "--color-adaptive-black-a15-a35": color("black", undefined, 0.35),
-  "--color-adaptive-black-a2p5-white-a2p5": color("white", undefined, 0.025),
-  "--color-adaptive-emerald-500-a12-a16": color("emerald", 500, 0.16),
-  "--color-adaptive-emerald-600-400": color("emerald", 400),
-  "--color-adaptive-emerald-700-300": color("emerald", 300),
-  "--color-adaptive-fuchsia-500-a50-300-a40": color("fuchsia", 300, 0.4),
-  "--color-adaptive-fuchsia-600-300": color("fuchsia", 300),
-  "--color-adaptive-indigo-500-a12-a16": color("indigo", 500, 0.16),
-  "--color-adaptive-indigo-600-300": color("indigo", 300),
-  "--color-adaptive-indigo-700-300": color("indigo", 300),
-  "--color-adaptive-neutral-100-900": color("neutral", 900),
-  "--color-adaptive-neutral-200-700-a60": color("neutral", 700, 0.6),
-  "--color-adaptive-neutral-200-800": color("neutral", 800),
-  "--color-adaptive-neutral-200-a70-white-a8": color("white", undefined, 0.08),
-  "--color-adaptive-neutral-200-white-a6": color("white", undefined, 0.06),
-  "--color-adaptive-neutral-200-white-a8": color("white", undefined, 0.08),
-  "--color-adaptive-neutral-200-a80-white-a8": color("white", undefined, 0.08),
-  "--color-adaptive-neutral-300-a60-white-a12": color("white", undefined, 0.12),
-  "--color-adaptive-neutral-400-500": color("neutral", 500),
-  "--color-adaptive-neutral-400-a60-500-a60": color("neutral", 500, 0.6),
-  "--color-adaptive-neutral-400-a80-500-a80": color("neutral", 500, 0.8),
-  "--color-adaptive-neutral-500-a10-a16": color("neutral", 500, 0.16),
-  "--color-adaptive-neutral-500-400": color("neutral", 400),
-  "--color-adaptive-neutral-500-500": color("neutral", 500),
-  "--color-adaptive-neutral-600-300": color("neutral", 300),
-  "--color-adaptive-neutral-600-400": color("neutral", 400),
-  "--color-adaptive-neutral-950-50": color("neutral", 50),
-  "--color-adaptive-neutral-950-a5-white-a5": color("white", undefined, 0.05),
-  "--color-adaptive-neutral-950-a10-white-a10": color("white", undefined, 0.1),
-  "--color-adaptive-red-50-950-a80": color("red", 950, 0.8),
-  "--color-adaptive-red-200-800": color("red", 800),
-  "--color-adaptive-red-600-a80-400-a80": color("red", 400, 0.8),
-  "--color-adaptive-red-700-300": color("red", 300),
-  "--color-adaptive-rose-100-500-a18": color("rose", 500, 0.18),
-  "--color-adaptive-rose-100-a80-500-a12": color("rose", 500, 0.12),
-  "--color-adaptive-rose-300-a70-400-a28": color("rose", 400, 0.28),
-  "--color-adaptive-rose-500-a12-a16": color("rose", 500, 0.16),
-  "--color-adaptive-rose-500-400": color("rose", 400),
-  "--color-adaptive-rose-600-400": color("rose", 400),
-  "--color-adaptive-rose-700-300": color("rose", 300),
-  "--color-adaptive-sky-500-a12-a16": color("sky", 500, 0.16),
-  "--color-adaptive-sky-500-a10-400-a10": color("sky", 400, 0.1),
-  "--color-adaptive-sky-500-a25-400-a25": color("sky", 400, 0.25),
-  "--color-adaptive-sky-600-400": color("sky", 400),
-  "--color-adaptive-sky-700-300": color("sky", 300),
-  "--color-adaptive-violet-500-a12-a16": color("violet", 500, 0.16),
-  "--color-adaptive-violet-600-400": color("violet", 400),
-  "--color-adaptive-violet-700-300": color("violet", 300),
-  "--color-adaptive-white-neutral-950-a70": color("neutral", 950, 0.7),
-  "--color-adaptive-zinc-500-a12-a16": color("zinc", 500, 0.16),
-  "--color-adaptive-zinc-500-400": color("zinc", 400),
-  "--color-adaptive-zinc-600-300": color("zinc", 300),
+// Named palette themes need semantic appearance variables because their names are neither light nor dark.
+const ADAPTIVE_COLORS: Readonly<Record<string, readonly [light: string, dark: string]>> = {
+  "--color-adaptive-amber-50-950-a40": [color("amber", 50), color("amber", 950, 0.4)],
+  "--color-adaptive-amber-200-900-a60": [color("amber", 200), color("amber", 900, 0.6)],
+  "--color-adaptive-amber-500-a12-a16": [color("amber", 500, 0.12), color("amber", 500, 0.16)],
+  "--color-adaptive-amber-500-a10-400-a10": [color("amber", 500, 0.1), color("amber", 400, 0.1)],
+  "--color-adaptive-amber-500-a25-400-a25": [color("amber", 500, 0.25), color("amber", 400, 0.25)],
+  "--color-adaptive-amber-700-300": [color("amber", 700), color("amber", 300)],
+  "--color-adaptive-amber-700-400": [color("amber", 700), color("amber", 400)],
+  "--color-adaptive-amber-800-200": [color("amber", 800), color("amber", 200)],
+  "--color-adaptive-blue-50-blue-400-a14": [color("blue", 50), color("blue", 400, 0.14)],
+  "--color-adaptive-blue-300-a50-blue-400-a28": [color("blue", 300, 0.5), color("blue", 400, 0.28)],
+  "--color-adaptive-blue-500-a20-blue-400-a15": [color("blue", 500, 0.2), color("blue", 400, 0.15)],
+  "--color-adaptive-blue-500-400": [color("blue", 500), color("blue", 400)],
+  "--color-adaptive-blue-600-400": [color("blue", 600), color("blue", 400)],
+  "--color-adaptive-black-a10-a25": [
+    color("black", undefined, 0.1),
+    color("black", undefined, 0.25),
+  ],
+  "--color-adaptive-black-a15-a35": [
+    color("black", undefined, 0.15),
+    color("black", undefined, 0.35),
+  ],
+  "--color-adaptive-black-a2p5-white-a2p5": [
+    color("black", undefined, 0.025),
+    color("white", undefined, 0.025),
+  ],
+  "--color-adaptive-emerald-500-a12-a16": [
+    color("emerald", 500, 0.12),
+    color("emerald", 500, 0.16),
+  ],
+  "--color-adaptive-emerald-600-400": [color("emerald", 600), color("emerald", 400)],
+  "--color-adaptive-emerald-700-300": [color("emerald", 700), color("emerald", 300)],
+  "--color-adaptive-fuchsia-500-a50-300-a40": [
+    color("fuchsia", 500, 0.5),
+    color("fuchsia", 300, 0.4),
+  ],
+  "--color-adaptive-fuchsia-600-300": [color("fuchsia", 600), color("fuchsia", 300)],
+  "--color-adaptive-indigo-500-a12-a16": [color("indigo", 500, 0.12), color("indigo", 500, 0.16)],
+  "--color-adaptive-indigo-600-300": [color("indigo", 600), color("indigo", 300)],
+  "--color-adaptive-indigo-700-300": [color("indigo", 700), color("indigo", 300)],
+  "--color-adaptive-neutral-100-900": [color("neutral", 100), color("neutral", 900)],
+  "--color-adaptive-neutral-200-700-a60": [color("neutral", 200), color("neutral", 700, 0.6)],
+  "--color-adaptive-neutral-200-800": [color("neutral", 200), color("neutral", 800)],
+  "--color-adaptive-neutral-200-a70-white-a8": [
+    color("neutral", 200, 0.7),
+    color("white", undefined, 0.08),
+  ],
+  "--color-adaptive-neutral-200-white-a6": [color("neutral", 200), color("white", undefined, 0.06)],
+  "--color-adaptive-neutral-200-white-a8": [color("neutral", 200), color("white", undefined, 0.08)],
+  "--color-adaptive-neutral-200-a80-white-a8": [
+    color("neutral", 200, 0.8),
+    color("white", undefined, 0.08),
+  ],
+  "--color-adaptive-neutral-300-a60-white-a12": [
+    color("neutral", 300, 0.6),
+    color("white", undefined, 0.12),
+  ],
+  "--color-adaptive-neutral-400-500": [color("neutral", 400), color("neutral", 500)],
+  "--color-adaptive-neutral-400-a60-500-a60": [
+    color("neutral", 400, 0.6),
+    color("neutral", 500, 0.6),
+  ],
+  "--color-adaptive-neutral-400-a80-500-a80": [
+    color("neutral", 400, 0.8),
+    color("neutral", 500, 0.8),
+  ],
+  "--color-adaptive-neutral-500-a10-a16": [color("neutral", 500, 0.1), color("neutral", 500, 0.16)],
+  "--color-adaptive-neutral-500-400": [color("neutral", 500), color("neutral", 400)],
+  "--color-adaptive-neutral-500-500": [color("neutral", 500), color("neutral", 500)],
+  "--color-adaptive-neutral-600-300": [color("neutral", 600), color("neutral", 300)],
+  "--color-adaptive-neutral-600-400": [color("neutral", 600), color("neutral", 400)],
+  "--color-adaptive-neutral-950-50": [color("neutral", 950), color("neutral", 50)],
+  "--color-adaptive-neutral-950-a5-white-a5": [
+    color("neutral", 950, 0.05),
+    color("white", undefined, 0.05),
+  ],
+  "--color-adaptive-neutral-950-a10-white-a10": [
+    color("neutral", 950, 0.1),
+    color("white", undefined, 0.1),
+  ],
+  "--color-adaptive-red-50-950-a80": [color("red", 50), color("red", 950, 0.8)],
+  "--color-adaptive-red-200-800": [color("red", 200), color("red", 800)],
+  "--color-adaptive-red-600-a80-400-a80": [color("red", 600, 0.8), color("red", 400, 0.8)],
+  "--color-adaptive-red-700-300": [color("red", 700), color("red", 300)],
+  "--color-adaptive-rose-100-500-a18": [color("rose", 100), color("rose", 500, 0.18)],
+  "--color-adaptive-rose-100-a80-500-a12": [color("rose", 100, 0.8), color("rose", 500, 0.12)],
+  "--color-adaptive-rose-300-a70-400-a28": [color("rose", 300, 0.7), color("rose", 400, 0.28)],
+  "--color-adaptive-rose-500-a12-a16": [color("rose", 500, 0.12), color("rose", 500, 0.16)],
+  "--color-adaptive-rose-500-400": [color("rose", 500), color("rose", 400)],
+  "--color-adaptive-rose-600-400": [color("rose", 600), color("rose", 400)],
+  "--color-adaptive-rose-700-300": [color("rose", 700), color("rose", 300)],
+  "--color-adaptive-sky-500-a12-a16": [color("sky", 500, 0.12), color("sky", 500, 0.16)],
+  "--color-adaptive-sky-500-a10-400-a10": [color("sky", 500, 0.1), color("sky", 400, 0.1)],
+  "--color-adaptive-sky-500-a25-400-a25": [color("sky", 500, 0.25), color("sky", 400, 0.25)],
+  "--color-adaptive-sky-600-400": [color("sky", 600), color("sky", 400)],
+  "--color-adaptive-sky-700-300": [color("sky", 700), color("sky", 300)],
+  "--color-adaptive-violet-500-a12-a16": [color("violet", 500, 0.12), color("violet", 500, 0.16)],
+  "--color-adaptive-violet-600-400": [color("violet", 600), color("violet", 400)],
+  "--color-adaptive-violet-700-300": [color("violet", 700), color("violet", 300)],
+  "--color-adaptive-white-neutral-950-a70": [color("white"), color("neutral", 950, 0.7)],
+  "--color-adaptive-zinc-500-a12-a16": [color("zinc", 500, 0.12), color("zinc", 500, 0.16)],
+  "--color-adaptive-zinc-500-400": [color("zinc", 500), color("zinc", 400)],
+  "--color-adaptive-zinc-600-300": [color("zinc", 600), color("zinc", 300)],
 };
 
-export const customThemeNames = BUILT_IN_THEME_IDS.map((themeId) => `${themeId}-dark`);
+export const customThemeNames = BUILT_IN_UNIWIND_THEME_NAMES;
+
+const adaptiveVariablesFor = (appearance: ThemeAppearance) =>
+  Object.fromEntries(
+    Object.entries(ADAPTIVE_COLORS).map(([name, [light, dark]]) => [
+      name,
+      appearance === "light" ? light : dark,
+    ]),
+  );
 
 // Profile pages must match Clerk's build-time palette even with a named app theme.
 const clerkColors = (() => {
@@ -153,7 +203,10 @@ const clerkVariables = {
 
 const variablesFor = (themeId: BuiltInThemeId | typeof DEFAULT_MOBILE_THEME_ID) => ({
   ...getMobileThemeVariables(themeId),
-  ...ADAPTIVE_COLORS,
+  ...adaptiveVariablesFor(
+    themeId === DEFAULT_MOBILE_THEME_ID ? "dark" : builtInThemeAppearance(themeId),
+  ),
+  // Clerk's pages keep its build-time dark palette whatever the app theme.
   ...clerkVariables,
 });
 
@@ -170,7 +223,9 @@ export const renderUniwindThemesCSS = () => {
     // Uniwind requires a "light" theme. It carries the dark values, so nothing can paint light.
     renderVariant("light", defaults),
     renderVariant("dark", defaults),
-    ...BUILT_IN_THEME_IDS.map((themeId) => renderVariant(`${themeId}-dark`, variablesFor(themeId))),
+    ...BUILT_IN_THEME_IDS.map((themeId, index) =>
+      renderVariant(BUILT_IN_UNIWIND_THEME_NAMES[index]!, variablesFor(themeId)),
+    ),
   ];
   return [
     "/* Generated by scripts/generate-uniwind-themes.mts. Do not edit manually. */",

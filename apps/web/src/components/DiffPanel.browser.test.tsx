@@ -72,7 +72,7 @@ vi.mock("~/hooks/useSettings", () => ({
   updateClientSettings: async () => {},
 }));
 vi.mock("~/hooks/useTheme", () => ({
-  RENDERED_APPEARANCE: "dark",
+  useRenderedAppearance: () => "dark",
 }));
 vi.mock("~/state/queries", () => ({
   useCheckpointDiff: () => ({ data: null, error: null, isPending: false }),

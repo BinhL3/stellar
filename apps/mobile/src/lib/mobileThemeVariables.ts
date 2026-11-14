@@ -2,6 +2,7 @@ import defaultThemeVariables from "../../generated-uniwind-default-theme-variabl
 import {
   DEFAULT_MOBILE_THEME_ID,
   flattenThemeColor,
+  getMobileThemeAppearance,
   getMobileThemeVariables,
   themeColorWithAlpha,
   themeColorWithContrast,
@@ -57,11 +58,14 @@ function platformThemeVariables(themeId: MobileThemeId, platform: string): Mobil
 
   // Android paints the drawer as the page inside a lighter frame, so dark cards lift off both.
   const screen = variables["--color-screen"];
-  const groupedCard = themeColorWithContrast(
-    variables["--color-grouped-card"],
-    [screen, flattenThemeColor(frame, screen)],
-    1.2,
-  );
+  const groupedCard =
+    getMobileThemeAppearance(themeId) === "dark"
+      ? themeColorWithContrast(
+          variables["--color-grouped-card"],
+          [screen, flattenThemeColor(frame, screen)],
+          1.2,
+        )
+      : variables["--color-grouped-card"];
   const readableOnCard = (role: (typeof CARD_TEXT_ROLES)[number]) =>
     [role, themeColorWithContrast(variables[role], groupedCard)] as const;
   return {

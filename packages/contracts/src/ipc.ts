@@ -93,6 +93,13 @@ export const DesktopRuntimeArchSchema = Schema.Literals(["arm64", "x64", "other"
 export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly"]);
 export const DesktopAppStageLabelSchema = Schema.Literals(["Alpha", "Beta", "Dev", "Nightly"]);
 
+/** The active theme's appearance and canvas, so native chrome and the window's first frame match it. */
+export const DesktopWindowAppearanceSchema = Schema.Struct({
+  appearance: Schema.Literals(["light", "dark"]),
+  background: Schema.String.check(Schema.isPattern(/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i)),
+});
+export type DesktopWindowAppearance = typeof DesktopWindowAppearanceSchema.Type;
+
 export interface DesktopAppBranding {
   baseName: string;
   stageLabel: DesktopAppStageLabel;
@@ -1105,6 +1112,7 @@ export interface DesktopBridge {
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   pickProjectFavicon: (initialPath?: string) => Promise<string | null>;
   pickThemeFiles: () => Promise<readonly PickedThemeFile[] | null>;
+  setWindowAppearance: (appearance: DesktopWindowAppearance) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
     position?: { x: number; y: number },

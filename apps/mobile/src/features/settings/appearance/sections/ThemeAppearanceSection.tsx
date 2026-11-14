@@ -2,10 +2,11 @@ import { memo, useId } from "react";
 import { Pressable, View } from "react-native";
 import Svg, { Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 
-import { mixThemePreviewBase, THEME_PREVIEW_RENDER_SPEC } from "@t3tools/shared/themePreview";
+import { mixThemePreviewBase, THEME_PREVIEW_RENDER_SPECS } from "@t3tools/shared/themePreview";
 
 import { AppText as Text } from "../../../../components/ui/AppText";
 import {
+  getMobileThemeAppearance,
   getMobileThemePreviewColors,
   MOBILE_THEME_OPTIONS,
   type MobileThemeId,
@@ -24,7 +25,8 @@ const PreviewOrb = memo(function PreviewOrb(props: { readonly themeId: MobileThe
     props.themeId === "material-you" && palette
       ? { canvas: palette.surface, accent: palette.primary, messageAction: palette.tertiary }
       : getMobileThemePreviewColors(props.themeId);
-  const spec = THEME_PREVIEW_RENDER_SPEC;
+  const appearance = getMobileThemeAppearance(props.themeId);
+  const spec = THEME_PREVIEW_RENDER_SPECS[appearance];
   const accentRadius = Math.hypot(
     Math.max(spec.accent.center[0], 1 - spec.accent.center[0]),
     Math.max(spec.accent.center[1], 1 - spec.accent.center[1]),
@@ -36,7 +38,12 @@ const PreviewOrb = memo(function PreviewOrb(props: { readonly themeId: MobileThe
   return (
     <View
       className="size-16 overflow-hidden rounded-full border"
-      style={{ borderColor: "rgba(255, 255, 255, 0.14)" }}
+      style={{
+        borderColor:
+          getMobileThemeAppearance(props.themeId) === "dark"
+            ? "rgba(255, 255, 255, 0.14)"
+            : "rgba(0, 0, 0, 0.1)",
+      }}
     >
       <Svg accessibilityElementsHidden height="100%" viewBox="0 0 64 64" width="100%">
         <Defs>
@@ -82,7 +89,7 @@ const PreviewOrb = memo(function PreviewOrb(props: { readonly themeId: MobileThe
             <Stop offset="100%" stopColor={colors.messageAction} stopOpacity={0} />
           </RadialGradient>
         </Defs>
-        <Circle cx="32" cy="32" fill={mixThemePreviewBase(colors)} r="32" />
+        <Circle cx="32" cy="32" fill={mixThemePreviewBase(colors, appearance)} r="32" />
         <Circle cx="32" cy="32" fill={`url(#${actionGradientId})`} r="32" />
         <Circle cx="32" cy="32" fill={`url(#${accentGradientId})`} r="32" />
       </Svg>

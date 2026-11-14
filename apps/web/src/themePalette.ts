@@ -16,7 +16,10 @@ import {
   STELLAR_THEME,
   RENAMED_THEME_IDS,
   RESERVED_THEME_IDS,
+  T3_CODE_LIGHT_THEME_COLORS,
   THEME_COLOR_ROLES,
+  themeAppearance,
+  type ThemeAppearance,
   type ThemeColorRole,
   type ThemeColors,
   type ThemeDefinition,
@@ -31,6 +34,7 @@ import { appAtomRegistry, subscribeAtomChanges } from "./rpc/atomRegistry";
 import { themeServerEnvironmentThemesAtom } from "./state/server";
 
 export {
+  themeAppearance,
   DARKROOM_THEME,
   DEFAULT_THEME_ID,
   NIGHT_EDIT_THEME,
@@ -38,7 +42,7 @@ export {
   STELLAR_THEME,
   THEME_COLOR_ROLES,
 };
-export type { ThemeColorRole, ThemeColors, ThemeDefinition };
+export type { ThemeAppearance, ThemeColorRole, ThemeColors, ThemeDefinition };
 
 export const THEME_FILE_VERSION = 1 as const;
 export const CUSTOM_THEMES_STORAGE_KEY = "t3code:themes:v1";
@@ -55,8 +59,7 @@ export type ThemeFile = Readonly<{
   version: typeof THEME_FILE_VERSION;
   id: string;
   name: string;
-  /** Always "dark"; kept so files stay readable by versions that had a light appearance. */
-  appearance: "dark";
+  appearance: ThemeAppearance;
   colors: ThemeColorOverrides;
   collection?: ThemeCollection;
   managed?: boolean;
@@ -74,10 +77,15 @@ type CustomThemeLibrarySnapshot =
 
 let customThemeLibrarySnapshot: CustomThemeLibrarySnapshot | null = null;
 const themePreviewListeners = new Set<() => void>();
-let themePreviewActive = false;
+let themePreviewAppearance: ThemeAppearance | null = null;
 
 export function getThemePreviewSidebarArtwork(): boolean | null {
-  return themePreviewActive ? false : null;
+  return themePreviewAppearance !== null ? false : null;
+}
+
+/** The appearance of an editor draft shown in place of the theme, or null when none is. */
+export function getThemePreviewAppearance(): ThemeAppearance | null {
+  return themePreviewAppearance;
 }
 
 export function subscribeToThemePreview(listener: () => void): () => void {
@@ -85,9 +93,9 @@ export function subscribeToThemePreview(listener: () => void): () => void {
   return () => themePreviewListeners.delete(listener);
 }
 
-function setThemePreviewActive(active: boolean): void {
-  if (themePreviewActive === active) return;
-  themePreviewActive = active;
+function setThemePreviewAppearance(appearance: ThemeAppearance | null): void {
+  if (themePreviewAppearance === appearance) return;
+  themePreviewAppearance = appearance;
   for (const listener of themePreviewListeners) listener();
 }
 
@@ -96,17 +104,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Themes written before the app went dark-only may be light with a dark variant. Returns the
- * colors to read, or null when the theme only ever had a light palette.
+ * The palette a stored, published or imported theme shows. A theme saved while themes paired a
+ * light and a dark palette keeps showing its dark variant, as it has since; one with only a light
+ * palette is a light theme.
  */
-function darkColorsOf(value: {
+function paletteOf(value: {
   readonly appearance?: unknown;
   readonly colors?: unknown;
   readonly variants?: unknown;
-}): unknown {
-  if (value.appearance === undefined || value.appearance === "dark") return value.colors;
-  if (value.appearance !== "light" || !isRecord(value.variants)) return null;
-  return value.variants.dark ?? null;
+}): { readonly colors: unknown; readonly appearance: ThemeAppearance } {
+  if (value.appearance !== "light") return { colors: value.colors, appearance: "dark" };
+  const dark = isRecord(value.variants) ? value.variants.dark : undefined;
+  return dark === undefined
+    ? { colors: value.colors, appearance: "light" }
+    : { colors: dark, appearance: "dark" };
+}
+
+/** Light paper makes a light theme, whatever a file declared, so the chrome around it follows. */
+function canvasAppearance(colors: ThemeColors): ThemeAppearance {
+  return themeRelativeLuminance(parseThemeRgbColor(colors.canvas, FALLBACK_CANVAS)) > 0.4
+    ? "light"
+    : "dark";
+}
+
+function withCanvasAppearance(theme: ThemeDefinition): ThemeDefinition {
+  const { appearance: _declared, ...rest } = theme;
+  return canvasAppearance(theme.colors) === "light" ? { ...rest, appearance: "light" } : rest;
 }
 
 export function isThemeColor(value: unknown): value is string {
@@ -143,26 +166,27 @@ function lenientThemeColorOverrides(
   return overrides;
 }
 
-function parseStoredThemeColors(value: unknown): ThemeColors | null {
+function parseStoredThemeColors(value: unknown, appearance: ThemeAppearance): ThemeColors | null {
   if (!isRecord(value)) return null;
-  return { ...getDefaultThemeColors(), ...lenientThemeColorOverrides(value) };
+  return { ...getDefaultThemeColors(appearance), ...lenientThemeColorOverrides(value) };
 }
 
 function parseStoredTheme(value: unknown): ThemeDefinition | null {
   if (!isRecord(value)) return null;
   if (!isThemeId(value.id) || RESERVED_THEME_IDS.has(value.id)) return null;
   if (!isThemeLabel(value.label)) return null;
-  const colors = parseStoredThemeColors(darkColorsOf(value));
+  const palette = paletteOf(value);
+  const colors = parseStoredThemeColors(palette.colors, palette.appearance);
   if (!colors) return null;
   const collection = parseThemeCollection(value.collection);
 
-  return {
+  return withCanvasAppearance({
     id: value.id,
     label: value.label.trim(),
     colors,
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
-  };
+  });
 }
 
 function parseStoredThemes(storedThemes: ReadonlyArray<unknown>): ReadonlyArray<ThemeDefinition> {
@@ -224,17 +248,22 @@ export function getCustomThemes(): ReadonlyArray<ThemeDefinition> {
 }
 
 function environmentThemeDefinition(theme: EnvironmentTheme): ThemeDefinition | null {
+  const palette = paletteOf(theme);
+  // Seeds describe the theme's own palette, so a light theme with a dark variant ignores them.
   const seeded =
-    theme.appearance === "dark" && theme.canvas !== undefined && theme.accent !== undefined;
-  const overrides = darkColorsOf(theme);
-  const colors = lenientThemeColorOverrides(isRecord(overrides) ? overrides : {});
+    theme.appearance === palette.appearance &&
+    theme.canvas !== undefined &&
+    theme.accent !== undefined;
+  const colors = lenientThemeColorOverrides(isRecord(palette.colors) ? palette.colors : {});
   if (!seeded && Object.keys(colors).length === 0) return null;
 
-  return {
+  return withCanvasAppearance({
     id: theme.id,
     label: theme.name,
     colors: {
-      ...(seeded ? createVividThemeColors(theme.canvas!, theme.accent!) : getDefaultThemeColors()),
+      ...(seeded
+        ? createVividThemeColors(theme.canvas!, theme.accent!)
+        : getDefaultThemeColors(palette.appearance)),
       ...colors,
     },
     // Only the pure seeded form is guided-generator output. An exported file,
@@ -244,7 +273,7 @@ function environmentThemeDefinition(theme: EnvironmentTheme): ThemeDefinition | 
     ...(seeded && theme.colors === undefined && theme.variants === undefined
       ? { managed: true }
       : {}),
-  };
+  });
 }
 
 /**
@@ -352,7 +381,10 @@ function themeIdFromPreference(theme: ThemePreference): string {
 }
 
 /** Completes a palette that omits roles, so a partial custom theme keeps the neutral base it was drawn on. */
-export function getDefaultThemeColors(): ThemeColors {
+export function getDefaultThemeColors(appearance: ThemeAppearance = "dark"): ThemeColors {
+  if (appearance === "light") {
+    return (defaultLightThemeColors ??= decodeThemeColors(T3_CODE_LIGHT_THEME_COLORS));
+  }
   return (defaultThemeColors ??= decodeThemeColors(STELLAR_THEME.colors));
 }
 
@@ -366,6 +398,7 @@ type ThemeOklch = { L: number; C: number; h: number };
 type ParsedThemeColor = { color: ThemeOklch; alpha: number };
 
 let defaultThemeColors: ThemeColors | undefined;
+let defaultLightThemeColors: ThemeColors | undefined;
 
 const THEME_LIGHT_FOREGROUND: ThemeRgbColor = { r: 255, g: 250, b: 255 };
 const THEME_DARK_FOREGROUND: ThemeRgbColor = { r: 36, g: 21, b: 35 };
@@ -1366,15 +1399,13 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
     value.appearance !== "dark" &&
     value.appearance !== "light"
   ) {
-    throw new Error('Theme files may only set appearance to "dark".');
+    throw new Error('Theme files may only set appearance to "light" or "dark".');
   }
   if (value.variants !== undefined && !isRecord(value.variants)) {
     throw new Error("Theme variants must be an object.");
   }
-  const rawColors = darkColorsOf(value);
-  if (rawColors === null) {
-    throw new Error(`"${name.trim()}" only has a light palette, and Stellar is dark.`);
-  }
+  const palette = paletteOf(value);
+  const rawColors = palette.colors;
   if (!isRecord(rawColors)) throw new Error("Theme files need a colors object.");
 
   const id = value.id === undefined ? themeIdFromName(name) : value.id;
@@ -1391,13 +1422,13 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
     throw new Error("Theme collections need a valid id and label.");
   }
 
-  return {
+  return withCanvasAppearance({
     id,
     label: name.trim(),
-    colors: { ...getDefaultThemeColors(), ...overrides },
+    colors: { ...getDefaultThemeColors(palette.appearance), ...overrides },
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
-  };
+  });
 }
 
 export function serializeThemeFile(theme: ThemeDefinition): string {
@@ -1406,7 +1437,7 @@ export function serializeThemeFile(theme: ThemeDefinition): string {
     version: THEME_FILE_VERSION,
     id: canonicalTheme.id,
     name: canonicalTheme.label,
-    appearance: "dark",
+    appearance: themeAppearance(canonicalTheme),
     colors: canonicalTheme.colors,
     ...(canonicalTheme.collection ? { collection: canonicalTheme.collection } : {}),
     ...(canonicalTheme.managed ? { managed: true } : {}),
@@ -1491,11 +1522,13 @@ export function applyThemeColorPreview(colors: ThemeColors): void {
   if (!root?.style) return;
 
   root.dataset.themeId = THEME_PREVIEW_ID;
+  const appearance = canvasAppearance(colors);
+  applyAppearanceClass(root, appearance);
   for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
     if (isThemeColor(value)) root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
   applyContextChipVariables(root, colors);
-  setThemePreviewActive(true);
+  setThemePreviewAppearance(appearance);
 }
 
 export function applyThemePalette(theme: ThemePreference): void {
@@ -1504,13 +1537,19 @@ export function applyThemePalette(theme: ThemePreference): void {
   const root = document.documentElement;
   if (!root?.style) return;
 
-  setThemePreviewActive(false);
+  setThemePreviewAppearance(null);
   const palette = getActiveThemeDefinition(theme);
   root.dataset.themeId = palette.id;
+  applyAppearanceClass(root, themeAppearance(palette));
   for (const [role, value] of Object.entries(palette.colors) as Array<[ThemeColorRole, string]>) {
     root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
   applyContextChipVariables(root, palette.colors);
+}
+
+// Tailwind's `dark:` variant and the light token block in index.css key off this class.
+function applyAppearanceClass(root: HTMLElement, appearance: ThemeAppearance): void {
+  root.classList.toggle("dark", appearance === "dark");
 }
 
 export function isKnownThemePreference(theme: string): boolean {
