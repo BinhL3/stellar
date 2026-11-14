@@ -302,9 +302,11 @@ const dunes: Scene = {
           const slope = (ridge(x + 0.02) - ridge(x - 0.02)) / 0.04;
           // The face turned to the sun catches it; the lee side is in shadow.
           const towards = Math.max(-1, Math.min(1, (sunX - x) / 0.2));
-          const facing = smooth(-0.12, 0.12, slope * towards);
+          // Wide ramps: a narrow one turns each ridge peak into a vertical seam down the dune.
+          const facing = smooth(-0.45, 0.45, slope * towards);
           const below = y - top;
-          const crest = below < dot * 1.5 ? 0.35 * facing : 0;
+          // A fading rim rather than a hard one-dot line, which steps visibly on shallow slopes.
+          const crest = 0.3 * facing * Math.exp(-below / (dot * 3));
           const ripple = depth === 1 ? 0.08 * smooth(0.55, 0.9, noise1(y * 160 + x * 14, 44)) : 0;
           return (0.08 + 0.52 * facing) * Math.exp(-below / 0.12) + crest + ripple;
         },

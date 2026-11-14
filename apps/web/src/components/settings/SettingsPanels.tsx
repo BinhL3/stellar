@@ -435,7 +435,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
       ? ["Contrast"]
       : []),
-    ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
     ...(settings.backdropTreatment !== DEFAULT_UNIFIED_SETTINGS.backdropTreatment ||
     settings.backdropStrength !== DEFAULT_UNIFIED_SETTINGS.backdropStrength ||
     Object.keys(settings.backdropParams).length > 0
@@ -616,7 +615,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
-      glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       backdropTreatment: DEFAULT_UNIFIED_SETTINGS.backdropTreatment,
       backdropStrength: DEFAULT_UNIFIED_SETTINGS.backdropStrength,
       backdropParams: DEFAULT_UNIFIED_SETTINGS.backdropParams,

@@ -82,14 +82,6 @@ function startClientAppearance(): void {
     if (previous?.appearanceContrast !== settings.appearanceContrast) {
       applyAppearanceContrast(root, settings.appearanceContrast);
     }
-    if (previous?.glassOpacity !== settings.glassOpacity) {
-      root.style.setProperty("--glass-opacity", `${settings.glassOpacity}%`);
-      if (settings.glassOpacity === 100) {
-        root.style.setProperty("--glass-blur", "0px");
-      } else {
-        root.style.removeProperty("--glass-blur");
-      }
-    }
     if (
       previous?.fontFamilySans !== settings.fontFamilySans ||
       previous.fontFamilyCode !== settings.fontFamilyCode ||
