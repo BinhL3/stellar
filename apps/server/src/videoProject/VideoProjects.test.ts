@@ -413,10 +413,16 @@ it.live(
         ours,
       );
 
-      // An agent's read merges on its own, and is told what the user did in Premiere.
+      // An agent's read merges on its own, and is told what the user did in Premiere. It may name
+      // the sequence rather than the file; the resource forks an exFAT drive leaves are not timelines.
       yield* save(220);
       assert.strictEqual((yield* sync()).state, "conflict");
-      const reread = yield* videoProjects.readTimeline({ workspaceRoot });
+      const fork = path.join(path.dirname(timelineFile), `._${path.basename(timelinePath)}`);
+      yield* fs.writeFileString(fork, "\u0000");
+      const reread = yield* videoProjects.readTimeline({ workspaceRoot, timeline: "Polish v1" });
+      assert.strictEqual(reread.timeline, timelinePath);
+      assert.notInclude(reread.timelines, `timelines/._${path.basename(timelinePath)}`);
+      yield* fs.remove(fork);
       assert.strictEqual(reread.premiere, "edited");
       assert.include(reread.changes, `Changed in Premiere since your last read (${timelinePath}):`);
       assert.include(reread.changes, `Edited here, not in Premiere yet (${timelinePath}):`);

@@ -125,7 +125,7 @@ import {
 } from "@t3tools/timeline/premiereSync";
 import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import { buildProjectProxies, markProxiesBuilding } from "@t3tools/timeline/proxyBuilder";
-import { pullToProject } from "@t3tools/timeline/pullToProject";
+import { pullToProject, timelineFileName } from "@t3tools/timeline/pullToProject";
 import { alignBeats, assignBeatIds, parseScript } from "@t3tools/timeline/script";
 import {
   addTake,
@@ -1492,7 +1492,8 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed((): Array<string> => []),
       Effect.map((names) =>
         names
-          .filter((name) => name.endsWith(".otio"))
+          // `._` files are the resource forks macOS writes beside each file on an exFAT drive.
+          .filter((name) => name.endsWith(".otio") && !name.startsWith("."))
           .map((name) => `timelines/${name}`)
           .toSorted(),
       ),
@@ -1978,8 +1979,28 @@ const make = Effect.gen(function* () {
   )(function* (input) {
     const { result, view: synced } = yield* syncForAgent(input.workspaceRoot);
     const timelines = yield* listTimelines(input.workspaceRoot);
-    const chosen =
-      input.timeline ?? (yield* defaultTimeline(input.workspaceRoot, timelines)) ?? null;
+    // A timeline is named by its path, its file name, or the sequence name it was pulled under.
+    const named =
+      input.timeline === undefined
+        ? undefined
+        : timelines.find((candidate) =>
+            [
+              input.timeline,
+              `timelines/${input.timeline}`,
+              `timelines/${timelineFileName(input.timeline ?? "")}`,
+            ].includes(candidate),
+          );
+    if (input.timeline !== undefined && named === undefined) {
+      // The sync above may have merged Premiere's save: what it dropped is said here or never.
+      const changes = changesText(result);
+      return yield* new VideoProjectError({
+        reason: [
+          `No timeline ${input.timeline}. This project has: ${timelines.join(", ") || "none"}.`,
+          ...(changes === "" ? [] : [changes]),
+        ].join("\n"),
+      });
+    }
+    const chosen = named ?? (yield* defaultTimeline(input.workspaceRoot, timelines)) ?? null;
     if (chosen === null) {
       return {
         timelines,
