@@ -897,6 +897,8 @@ export const VideoProjectSaveVoiceOverInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   /** The recording as the browser made it (WebM or MP4 audio). */
   recording: Schema.Uint8ArrayFromBase64,
+  /** Channels the WAV keeps: 2 for a stereo take, 1 folds any to mono. Omitted keeps the recording's. */
+  channels: Schema.optional(Schema.Literals([1, 2])),
 });
 export type VideoProjectSaveVoiceOverInput = typeof VideoProjectSaveVoiceOverInput.Type;
 

@@ -385,6 +385,9 @@ export type ModelPreferences = {
 export const VoiceShortcutMode = Schema.Literals(["auto", "hold", "toggle"]);
 export type VoiceShortcutMode = typeof VoiceShortcutMode.Type;
 
+export const VoiceOverChannels = Schema.Literals(["mono", "stereo"]);
+export type VoiceOverChannels = typeof VoiceOverChannels.Type;
+
 /**
  * Where this device sends microphone audio. A cloud grant names the forwarding environment and
  * the provider; an OpenRouter grant also names the exact model, since OpenRouter has no default.
@@ -572,6 +575,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   // Device-local input device id. An empty string follows the operating system default.
   voiceMicrophone: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  // Voice-over's own device, since a narration mic is often not the dictation one. Same "" rule.
+  voiceOverMicrophone: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  voiceOverChannels: VoiceOverChannels.pipe(Schema.withDecodingDefault(Effect.succeed("mono"))),
   voiceShortcutMode: VoiceShortcutMode.pipe(Schema.withDecodingDefault(Effect.succeed("auto"))),
   speechLanguage: SpeechLanguage.pipe(Schema.withDecodingDefault(Effect.succeed("auto"))),
   speechTranslateToEnglish: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -1965,6 +1971,8 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   voiceMicrophone: Schema.optionalKey(Schema.String),
+  voiceOverMicrophone: Schema.optionalKey(Schema.String),
+  voiceOverChannels: Schema.optionalKey(VoiceOverChannels),
   voiceShortcutMode: Schema.optionalKey(VoiceShortcutMode),
   speechLanguage: Schema.optionalKey(SpeechLanguage),
   speechTranslateToEnglish: Schema.optionalKey(Schema.Boolean),

@@ -1423,46 +1423,84 @@ it.live("plans a push from Premiere's last save, and says why when it can't", ()
 
 // Stands in for ffmpeg and ffprobe, which CI doesn't have: a "recording" is its length in
 // seconds as text, encoding copies that (or the length of the stretch asked for), and probing
-// reads it back. Every other command runs for real.
-const fakeEncoder = Layer.effect(
-  ChildProcessSpawner.ChildProcessSpawner,
-  Effect.gen(function* () {
+// reads it back. Every other command runs for real. `encodes` collects each ffmpeg call's args.
+const recordingEncoder = (encodes: Array<ReadonlyArray<string>>) =>
+  Layer.effect(
+    ChildProcessSpawner.ChildProcessSpawner,
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const real = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const answer = (stdout: string) =>
+        ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(1),
+          exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+          isRunning: Effect.succeed(false),
+          kill: () => Effect.void,
+          unref: Effect.succeed(Effect.void),
+          stdin: Sink.drain,
+          stdout: Stream.make(new TextEncoder().encode(stdout)),
+          stderr: Stream.empty,
+          all: Stream.empty,
+          getInputFd: () => Sink.drain,
+          getOutputFd: () => Stream.empty,
+        });
+      return ChildProcessSpawner.make((command) =>
+        Effect.gen(function* () {
+          if (!ChildProcess.isStandardCommand(command)) return yield* real.spawn(command);
+          const args = command.args.map(String);
+          const target = args.at(-1) ?? "";
+          if (command.command === "ffprobe") {
+            return answer(yield* fs.readFileString(target).pipe(Effect.orDie));
+          }
+          if (command.command !== "ffmpeg" || !args.includes("-i"))
+            return yield* real.spawn(command);
+          encodes.push(args);
+          const after = (flag: string) => args[args.indexOf(flag) + 1] ?? "";
+          const whole = yield* fs.readFileString(after("-i")).pipe(Effect.orDie);
+          const seconds = args.includes("-to")
+            ? String(Math.round((Number(after("-to")) - Number(after("-ss"))) * 100) / 100)
+            : whole;
+          yield* fs.writeFileString(target, seconds).pipe(Effect.orDie);
+          return answer("");
+        }),
+      );
+    }),
+  ).pipe(Layer.provide(NodeServices.layer));
+const fakeEncoder = recordingEncoder([]);
+
+it.live("keeps a stereo voice-over take in two channels and folds a mono one to one", () => {
+  const created: Array<string> = [];
+  const encodes: Array<ReadonlyArray<string>> = [];
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const real = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const answer = (stdout: string) =>
-      ChildProcessSpawner.makeHandle({
-        pid: ChildProcessSpawner.ProcessId(1),
-        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
-        isRunning: Effect.succeed(false),
-        kill: () => Effect.void,
-        unref: Effect.succeed(Effect.void),
-        stdin: Sink.drain,
-        stdout: Stream.make(new TextEncoder().encode(stdout)),
-        stderr: Stream.empty,
-        all: Stream.empty,
-        getInputFd: () => Sink.drain,
-        getOutputFd: () => Stream.empty,
-      });
-    return ChildProcessSpawner.make((command) =>
-      Effect.gen(function* () {
-        if (!ChildProcess.isStandardCommand(command)) return yield* real.spawn(command);
-        const args = command.args.map(String);
-        const target = args.at(-1) ?? "";
-        if (command.command === "ffprobe") {
-          return answer(yield* fs.readFileString(target).pipe(Effect.orDie));
-        }
-        if (command.command !== "ffmpeg" || !args.includes("-i")) return yield* real.spawn(command);
-        const after = (flag: string) => args[args.indexOf(flag) + 1] ?? "";
-        const whole = yield* fs.readFileString(after("-i")).pipe(Effect.orDie);
-        const seconds = args.includes("-to")
-          ? String(Math.round((Number(after("-to")) - Number(after("-ss"))) * 100) / 100)
-          : whole;
-        yield* fs.writeFileString(target, seconds).pipe(Effect.orDie);
-        return answer("");
-      }),
-    );
-  }),
-).pipe(Layer.provide(NodeServices.layer));
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-vo-" });
+    const workspaceRoot = path.join(root, "Short", ".stellar");
+    yield* fs.makeDirectory(workspaceRoot, { recursive: true });
+    created.push(workspaceRoot);
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const recording = new TextEncoder().encode("2");
+    for (const channels of [2, 1, undefined] as const) {
+      yield* videoProjects.saveVoiceOver({ workspaceRoot, recording, channels });
+    }
+    const channelsOf = (args: ReadonlyArray<string>) =>
+      args.includes("-ac") ? args[args.indexOf("-ac") + 1] : "as recorded";
+    assert.deepStrictEqual(encodes.filter((args) => args.includes("pcm_s24le")).map(channelsOf), [
+      "2",
+      "1",
+      "as recorded",
+    ]);
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provide(recordingEncoder(encodes)),
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
 
 it.live("places a line's take on a cut, and re-recording the line re-times only that beat", () => {
   const created: Array<string> = [];

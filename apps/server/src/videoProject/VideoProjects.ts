@@ -2231,6 +2231,7 @@ const make = Effect.gen(function* () {
           "-vn",
           "-ar",
           "48000",
+          ...(input.channels === undefined ? [] : ["-ac", String(input.channels)]),
           "-c:a",
           "pcm_s24le",
           target,

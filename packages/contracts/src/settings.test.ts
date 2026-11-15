@@ -523,6 +523,21 @@ describe("voice settings", () => {
     }
   });
 
+  it("records voice-over in mono from the system default until a device and stereo are chosen", () => {
+    expect(decodeClientSettings({})).toMatchObject({
+      voiceOverMicrophone: "",
+      voiceOverChannels: "mono",
+    });
+    expect(
+      decodeClientSettings({ voiceMicrophone: "dictation", voiceOverChannels: "stereo" }),
+    ).toMatchObject({
+      voiceMicrophone: "dictation",
+      voiceOverMicrophone: "",
+      voiceOverChannels: "stereo",
+    });
+    expect(() => decodeClientSettingsPatch({ voiceOverChannels: "surround" })).toThrow();
+  });
+
   it("keeps the correction cue personal and project vocabulary on the environment", () => {
     expect(decodeClientSettings({}).speechCorrectionWord).toBe("");
     expect(() => decodeClientSettingsPatch({ speechCorrectionWord: "x".repeat(51) })).toThrow();
