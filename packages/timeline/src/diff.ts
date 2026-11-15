@@ -445,6 +445,8 @@ interface Ripple {
   readonly tracks: ReadonlyArray<string>;
   readonly held: ReadonlyArray<string>;
   readonly pairs: ReadonlyArray<Pair>;
+  /** The clips just before the step whose tails moved with it: a ripple trim made it. */
+  readonly anchors: ReadonlyArray<Pair>;
 }
 
 interface Analysis {
@@ -620,6 +622,10 @@ const analyze = (baseTimeline: Timeline, nextTimeline: Timeline): Analysis => {
             (keptOn.get(name) ?? []).some((pair) => !moved.has(pair) && pair.from >= group.from),
         ),
       pairs: members(group).filter((pair) => !moved.has(pair)),
+      anchors: group.shifts.flatMap((shift) => {
+        const before = shift.kept[shift.at - 1];
+        return before !== undefined && before.trimEnd !== 0 ? [before] : [];
+      }),
     };
   });
 
@@ -1120,47 +1126,62 @@ export const mergeTimelines = (base: Timeline, ours: Timeline, theirs: Timeline)
     }
   }
 
-  for (const pair of mine.pairs) {
+  // A ripple trim's tail goes with its ripple: a longer tail lands once the ripple makes room,
+  // and a ripple whose trim was dropped is dropped too, or it would open a gap where it was.
+  const anchors = new Set(mine.ripples.flatMap((ripple) => ripple.anchors));
+  const droppedTails = new Set<Pair>();
+  const tails: Array<Pair> = [];
+  const trim = (pair: Pair, edge: "start" | "end", phase: "before" | "after") => {
     const theirPair = their.byBaseId.get(pair.base.id);
-    for (const edge of ["start", "end"] as const) {
-      const ourTrim = edge === "start" ? pair.trimStart : pair.trimEnd;
-      if (ourTrim === 0) continue;
-      const change = trimmedChange(pair, { start: edge === "start", end: edge === "end" });
-      if (theirPair === undefined) {
-        conflict(change, `${at(pair.base)} was deleted in Premiere, so its trim was dropped.`);
-        continue;
-      }
-      const theirTrim = edge === "start" ? theirPair.trimStart : theirPair.trimEnd;
-      if (theirTrim === ourTrim) continue;
-      if (theirTrim !== 0) {
-        conflict(
-          change,
-          `${at(pair.base)} had its ${edge} trimmed on both sides; Premiere's trim was kept.`,
-        );
-        continue;
-      }
-      const id = theirPair.next.id;
-      const current = clipsNow().get(id);
-      const frame = (current?.[edge] ?? 0) + ourTrim;
-      const trimmed =
-        current !== undefined &&
-        edit(
-          [{ kind: "trim", clipId: id, edge, frame }],
-          (clips) => clips.get(id)?.[edge] === frame,
-        );
-      if (!trimmed) {
-        conflict(
-          change,
-          `${at(pair.base)} has no room in Premiere's version for the trim of its ${edge} made here.`,
-        );
-      }
+    const ourTrim = edge === "start" ? pair.trimStart : pair.trimEnd;
+    if (ourTrim === 0) return;
+    const change = trimmedChange(pair, { start: edge === "start", end: edge === "end" });
+    const drop = (message: string) => {
+      conflict(change, message);
+      if (edge === "end") droppedTails.add(pair);
+    };
+    if (theirPair === undefined) {
+      drop(`${at(pair.base)} was deleted in Premiere, so its trim was dropped.`);
+      return;
     }
+    const theirTrim = edge === "start" ? theirPair.trimStart : theirPair.trimEnd;
+    if (theirTrim === ourTrim) return;
+    if (theirTrim !== 0) {
+      drop(`${at(pair.base)} had its ${edge} trimmed on both sides; Premiere's trim was kept.`);
+      return;
+    }
+    if (edge === "end" && ourTrim > 0 && phase === "before" && anchors.has(pair)) {
+      tails.push(pair);
+      return;
+    }
+    const id = theirPair.next.id;
+    const current = clipsNow().get(id);
+    const frame = (current?.[edge] ?? 0) + ourTrim;
+    const trimmed =
+      current !== undefined &&
+      edit([{ kind: "trim", clipId: id, edge, frame }], (clips) => clips.get(id)?.[edge] === frame);
+    if (!trimmed) {
+      drop(
+        `${at(pair.base)} has no room in Premiere's version for the trim of its ${edge} made here.`,
+      );
+    }
+  };
+  for (const pair of mine.pairs) {
+    trim(pair, "start", "before");
+    trim(pair, "end", "before");
   }
 
   // Ascending, so each ripple's point already carries the ones applied before it.
   const applied: Array<Ripple> = [];
   for (const ripple of mine.ripples) {
     if (their.ripples.some((other) => other.from === ripple.from && other.by === ripple.by)) {
+      continue;
+    }
+    if (ripple.anchors.some((pair) => droppedTails.has(pair))) {
+      conflict(
+        rippledChange(ripple, mine),
+        `The trim that moved the clips on ${list(ripple.tracks)} from ${clock(ripple.from, rate)} on was dropped, so they were not moved ${length(ripple.by, rate)} ${ripple.by < 0 ? "earlier" : "later"} either.`,
+      );
       continue;
     }
     const baseNames = new Map([...trackOf].map(([from, to]) => [to, from]));
@@ -1222,6 +1243,8 @@ export const mergeTimelines = (base: Timeline, ours: Timeline, theirs: Timeline)
       );
     }
   }
+
+  for (const pair of tails) trim(pair, "end", "after");
 
   /** A frame of ours in the merged timeline: back through our ripples, forward through all applied. */
   const merged = (frame: number, ourTrack: string) => {

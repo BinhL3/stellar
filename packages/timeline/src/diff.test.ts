@@ -486,6 +486,26 @@ describe("mergeTimelines", () => {
     });
   });
 
+  it("lands a ripple trim with its ripple, and drops both when Premiere deleted the clip", () => {
+    const ours = edited(
+      { kind: "rippleTrim", clipId: "v1", edge: "end", frame: 130 },
+      { kind: "trim", clipId: "a1", edge: "end", frame: 130 },
+    );
+    const theirs = repulled(edited({ kind: "removeRange", start: 0, end: 100, ripple: true }));
+    const kept = mergeTimelines(base, ours, repulled(scaled(base, "v3", 120)));
+    expect(kept.conflicts).toEqual([]);
+    expect(spans(kept.timeline)).toEqual(spans(ours));
+
+    const merge = mergeTimelines(base, ours, theirs);
+    expect(spans(merge.timeline)).toEqual(spans(theirs));
+    expect(merge.conflicts.map((conflict) => conflict.message)).toEqual([
+      "v1 on V1 at 0:00 was deleted in Premiere, so its trim was dropped.",
+      "a1 on A1 at 0:00 was deleted in Premiere, so its trim was dropped.",
+      "The trim that moved the clips on V1 from 0:03 on was dropped, so they were not moved 1.0s later either.",
+      "The trim that moved the clips on A1 from 0:03 on was dropped, so they were not moved 1.0s later either.",
+    ]);
+  });
+
   it("applies once what both sides did alike", () => {
     const ours = edited(ourCut, { kind: "setEnabled", clipId: "v1", enabled: false });
     const theirs = repulled(edited(ourCut));
