@@ -57,8 +57,8 @@ export function ImportFootageButton(props: {
   /** Called once the copy has started; progress then comes from the project's intake status. */
   readonly onStarted: () => void;
   readonly size?: "sm" | "micro";
-  /** A toolbar's icon, named by its tooltip, instead of the worded button. */
-  readonly iconOnly?: boolean;
+  /** A quiet toolbar button with a short name, explained by its tooltip. */
+  readonly toolbar?: boolean;
 }) {
   const scan = useAtomCommand(projectEnvironment.scanVideoIntake, { reportFailure: false });
   const startImport = useAtomCommand(projectEnvironment.importVideoFootage, {
@@ -132,12 +132,12 @@ export function ImportFootageButton(props: {
 
   return (
     <>
-      {props.iconOnly ? (
+      {props.toolbar ? (
         <Tooltip>
           <TooltipTrigger
             render={
               <Button
-                size="icon-sm"
+                size="xs"
                 variant="ghost"
                 aria-label="Import footage"
                 disabled={busy !== null}
@@ -146,6 +146,7 @@ export function ImportFootageButton(props: {
             }
           >
             {busy === "scanning" ? <Spinner size="xs" /> : <ImportIcon />}
+            Import
           </TooltipTrigger>
           <TooltipPopup side="bottom">Import footage from Downloads</TooltipPopup>
         </Tooltip>

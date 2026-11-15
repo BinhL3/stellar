@@ -466,6 +466,10 @@ export default function TimelineViewer(props: {
   readonly premiere?: ReactNode;
   /** The monitor bar's actions, beside the frame's aspect, in the dock. */
   readonly monitorTools?: ReactNode;
+  /** Beside play in the monitor's transport; in the tracks' tools when nothing can play. */
+  readonly transportTools?: ReactNode;
+  /** At the start of the tracks' tools. */
+  readonly timelineTools?: ReactNode;
   /**
    * With a project, the monitor, tracks and side panels are panels in a dock that keeps the project's
    * layout; without one (a timeline file opened on its own) only the tracks show.
@@ -1450,7 +1454,7 @@ export default function TimelineViewer(props: {
         ) : null}
         {/* The tracks show pending edits; without them on screen, the monitor does. */}
         {previewOnly ? pendingBar : null}
-        <div className="flex min-h-0 flex-1 flex-col items-center">
+        <div className="@container/monitor flex min-h-0 w-full flex-1 flex-col items-center">
           <div
             className="relative isolate flex min-h-0 w-full flex-1 items-center justify-center p-2 [container-type:size]"
             onContextMenu={showPreviewMenu}
@@ -1484,8 +1488,8 @@ export default function TimelineViewer(props: {
               />
             </div>
           ) : null}
-          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-x-2 gap-y-1 px-3 py-2 text-xs [grid-template-areas:'time_transport_tools'] @max-[30rem]/viewer:grid-cols-[auto_1fr] @max-[30rem]/viewer:[grid-template-areas:'time_tools'_'transport_transport'] @max-[20rem]/viewer:grid-cols-1 @max-[20rem]/viewer:[grid-template-areas:'time'_'transport'_'tools']">
-            <div className="flex min-w-0 items-center gap-1.5 [grid-area:time] @max-[20rem]/viewer:justify-center">
+          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-x-2 gap-y-1 px-3 py-2 text-xs [grid-template-areas:'time_transport_tools'] @max-[40rem]/monitor:grid-cols-[auto_1fr] @max-[40rem]/monitor:[grid-template-areas:'time_tools'_'transport_transport'] @max-[20rem]/monitor:grid-cols-1 @max-[20rem]/monitor:[grid-template-areas:'time'_'transport'_'tools']">
+            <div className="flex min-w-0 items-center gap-1.5 [grid-area:time] @max-[20rem]/monitor:justify-center">
               <PlayheadTimecode store={playheadStore} rate={rate} duration={duration} />
               <SpeedBadge store={speedStore} />
               <BackdropHoldWhilePlaying store={speedStore} />
@@ -1544,8 +1548,11 @@ export default function TimelineViewer(props: {
                   <SkipForwardIcon />
                 </Button>
               </Bay.Reveal>
+              {props.transportTools ? (
+                <span className="ml-2 flex">{props.transportTools}</span>
+              ) : null}
             </div>
-            <div className="flex min-w-0 items-center justify-end gap-1 [grid-area:tools] @max-[20rem]/viewer:justify-center">
+            <div className="flex min-w-0 items-center justify-end gap-1 [grid-area:tools] @max-[20rem]/monitor:justify-center">
               {props.onReference ? (
                 <Bay.Reveal>
                   <Tooltip>
@@ -1620,6 +1627,8 @@ export default function TimelineViewer(props: {
     <>
       <PanelTools panel="timeline">
         <div role="toolbar" aria-label="Timeline tools" className="flex items-center gap-0.5">
+          {props.timelineTools}
+          {props.media && frame ? null : props.transportTools}
           <ToolPicker tool={tool} editable={editable} keymap={shortcuts.keymap} onPick={setTool} />
           {editable ? (
             <Tooltip>

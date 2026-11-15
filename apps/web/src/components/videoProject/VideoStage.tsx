@@ -4,14 +4,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
 import { toastManager } from "~/components/ui/toast";
+import { cn } from "~/lib/utils";
 import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -48,18 +42,16 @@ const parseProjectFile = (text: string | undefined): Record<string, unknown> => 
 const stageOf = (file: Record<string, unknown>): Stage | null =>
   STAGES.find((stage) => stage.value === file["stage"])?.value ?? null;
 
+export type VideoStageState = ReturnType<typeof useVideoStage>;
+
 /**
- * Shows and sets a video project's stage. Until someone sets it, a project with a pulled
+ * A video project's stage and how to set it. Until someone sets it, a project with a pulled
  * timeline reads as Rough cut and one without as Scripting.
  */
-export function VideoStageSelect(props: {
+export function useVideoStage(props: {
   readonly environmentId: EnvironmentId;
   readonly workspaceRoot: string;
   readonly hasTimeline: boolean;
-  /** Ghost sits quietly in a toolbar beside a more important control. */
-  readonly variant?: "ghost";
-  /** Shows the stage's name alone, where the control's place already says what it is. */
-  readonly bare?: boolean;
 }) {
   const file = useProjectFileQuery(props.environmentId, props.workspaceRoot, VIDEO_PROJECT_FILE);
   const canWrite = useEnvironmentScope(props.environmentId, AuthFilesystemWriteScope);
@@ -68,6 +60,7 @@ export function VideoStageSelect(props: {
   const stage = stageOf(contents) ?? (props.hasTimeline ? "rough-cut" : "scripting");
 
   const setStage = async (next: Stage) => {
+    if (next === stage) return;
     const result = await writeFile({
       environmentId: props.environmentId,
       input: {
@@ -90,33 +83,67 @@ export function VideoStageSelect(props: {
     }
   };
 
+  return {
+    stage,
+    label: STAGES.find((candidate) => candidate.value === stage)?.label ?? stage,
+    canWrite,
+    setStage,
+  };
+}
+
+/** The stages left to right, the current one marked; picking one moves the project there. */
+export function VideoStageStepper(props: { readonly state: VideoStageState }) {
+  const { stage, canWrite, setStage } = props.state;
+  const current = STAGES.findIndex((candidate) => candidate.value === stage);
   return (
-    <Select
-      value={stage}
-      disabled={!canWrite}
-      onValueChange={(value) => {
-        const next = STAGES.find((candidate) => candidate.value === value);
-        if (next !== undefined && next.value !== stage) void setStage(next.value);
-      }}
-    >
-      <SelectTrigger
-        size="sm"
-        aria-label="Stage"
-        {...(props.variant ? { variant: props.variant } : {})}
-      >
-        <SelectValue>
-          {(value: string) =>
-            `${props.bare ? "" : "Stage: "}${STAGES.find((candidate) => candidate.value === value)?.label ?? value}`
-          }
-        </SelectValue>
-      </SelectTrigger>
-      <SelectPopup align="start" alignItemWithTrigger={false}>
-        {STAGES.map((candidate) => (
-          <SelectItem key={candidate.value} value={candidate.value}>
-            {candidate.label}
-          </SelectItem>
-        ))}
-      </SelectPopup>
-    </Select>
+    <ol aria-label="Stage" className="flex">
+      {STAGES.map((candidate, index) => {
+        const isCurrent = index === current;
+        return (
+          <li key={candidate.value} className="relative flex min-w-0 flex-1 flex-col items-center">
+            {index > 0 ? (
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute top-2.5 right-1/2 left-[-50%] h-px",
+                  index <= current ? "bg-foreground/50" : "bg-border",
+                )}
+              />
+            ) : null}
+            <button
+              type="button"
+              aria-current={isCurrent ? "step" : undefined}
+              disabled={!canWrite}
+              onClick={() => void setStage(candidate.value)}
+              className="group/stage relative flex w-full cursor-pointer flex-col items-center gap-1 rounded-sm px-0.5 pt-1 pb-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-default"
+            >
+              <span aria-hidden className="flex h-3 items-center justify-center">
+                <span
+                  className={cn(
+                    "rounded-full ring-4 ring-popover",
+                    isCurrent
+                      ? "size-3 bg-primary"
+                      : index < current
+                        ? "bg-foreground/50"
+                        : "bg-border group-hover/stage:bg-muted-foreground group-disabled/stage:bg-border",
+                    isCurrent ? null : "size-2",
+                  )}
+                />
+              </span>
+              <span
+                className={cn(
+                  "text-center text-2xs leading-tight",
+                  isCurrent
+                    ? "font-medium text-foreground"
+                    : "text-muted-foreground group-hover/stage:text-foreground group-disabled/stage:text-muted-foreground",
+                )}
+              >
+                {candidate.label}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

@@ -28,6 +28,7 @@ import { toastManager } from "~/components/ui/toast";
 import { cn } from "~/lib/utils";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { type VideoStageState, VideoStageStepper } from "../videoProject/VideoStage";
 
 type Action = NonNullable<VideoPreflightStep["action"]>;
 type State = VideoPreflightStep["state"];
@@ -144,12 +145,14 @@ function RenderReport(props: {
 }
 
 /**
- * The run of a short as a row of pips in the Timeline tab's bar, one per step. The full list,
- * with what moves each step on, opens from them. A step that went wrong is also said in words
- * beside them; a step that is merely next is not.
+ * Where the short is, in one control in the Timeline tab's bar: its stage, and a pip per step
+ * of the run. It opens the stages, to move the project along, over the full list of steps with
+ * what moves each one on. A step that went wrong is also said in words beside it; a step that is
+ * merely next is not.
  */
 export function PreflightStrip(props: {
   readonly environmentId: EnvironmentId;
+  readonly stage: VideoStageState;
   readonly workspaceRoot: string;
   /**
    * What the tab already loads that the steps are derived from: the last sync with Premiere,
@@ -236,12 +239,13 @@ export function PreflightStrip(props: {
     props.canWrite && !checking && !props.uncommittedEdits ? () => void runCheck() : null,
   );
 
-  if (loaded === null) return null;
-  const { preflight } = loaded;
-  const reading = [reloads, sync, timeline, proxies, intake, transcripts].some(
-    (value, index) => value !== loaded.readFor[index],
-  );
-  const { steps } = preflight;
+  const preflight = loaded?.preflight ?? null;
+  const reading =
+    loaded === null ||
+    [reloads, sync, timeline, proxies, intake, transcripts].some(
+      (value, index) => value !== loaded.readFor[index],
+    );
+  const steps = preflight?.steps ?? [];
   const headline = preflightHeadline(steps);
   const done = steps.filter((step) => step.state === "done").length;
 
@@ -255,7 +259,7 @@ export function PreflightStrip(props: {
       input: { workspaceRoot: props.workspaceRoot, posted, ...(posted ? { urls } : {}) },
     });
     if (result._tag === "Success") {
-      setLoaded({ ...loaded, preflight: result.value });
+      setLoaded({ preflight: result.value, readFor: loaded?.readFor ?? [] });
       setLinks(null);
     } else if (!isAtomCommandInterrupted(result)) {
       toastManager.add({
@@ -298,7 +302,7 @@ export function PreflightStrip(props: {
   const detail = (step: VideoPreflightStep) =>
     step.id === "render" && checking
       ? "Checking the export…"
-      : step.id === "posted" && preflight.posted !== null && preflight.posted.at > 0
+      : step.id === "posted" && preflight?.posted && preflight.posted.at > 0
         ? `${dayOf(preflight.posted.at)} · ${step.detail}`
         : step.detail;
 
@@ -316,84 +320,107 @@ export function PreflightStrip(props: {
       >
         <PopoverTrigger
           render={
-            <button
-              type="button"
-              aria-label={`Run: ${done} of ${steps.length} steps done`}
+            <Button
+              size="xs"
+              variant="outline"
+              aria-label={
+                preflight === null
+                  ? `Stage: ${props.stage.label}`
+                  : `Stage: ${props.stage.label}. ${done} of ${steps.length} steps done`
+              }
               aria-busy={reading}
-              className="flex h-7 shrink-0 cursor-pointer items-center rounded-sm px-2 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-popup-open:bg-accent"
             />
           }
         >
-          <span aria-hidden className="flex items-center gap-0.5">
-            {steps.map((step) => (
-              <span key={step.id} className={cn("h-2.5 w-1 rounded-full", DOT[step.state])} />
-            ))}
-          </span>
+          <span>{props.stage.label}</span>
+          {preflight === null ? null : (
+            <>
+              <span aria-hidden className="flex items-center gap-0.5 pl-0.5">
+                {steps.map((step) => (
+                  <span key={step.id} className={cn("h-2.5 w-1 rounded-full", DOT[step.state])} />
+                ))}
+              </span>
+              <span className="text-muted-foreground tabular-nums">
+                {done}/{steps.length}
+              </span>
+            </>
+          )}
         </PopoverTrigger>
-        <PopoverPopup side="bottom" align="start" className="w-80">
-          <div className="flex flex-col gap-2 text-xs">
-            <ol className="flex flex-col gap-1.5">
-              {steps.map((step) => (
-                <li key={step.id} className="flex flex-col gap-1.5">
-                  <div className="flex min-h-5 items-center gap-2">
-                    <span aria-hidden className={cn("size-1.5 shrink-0", DOT[step.state])} />
-                    <span className="shrink-0 font-medium">{step.label}</span>
-                    <span className={cn("min-w-0 flex-1 truncate", DETAIL[step.state])}>
-                      {detail(step)}
-                    </span>
-                    {control(step)}
-                  </div>
-                  {step.id === "render" && preflight.render !== null ? (
-                    <RenderReport
-                      environmentId={props.environmentId}
-                      workspaceRoot={props.workspaceRoot}
-                      report={preflight.render}
-                    />
-                  ) : null}
-                  {step.id === "posted" && preflight.posted !== null
-                    ? preflight.posted.urls.map((url) => (
-                        <a
-                          key={url}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="truncate pl-3.5 text-muted-foreground underline-offset-2 hover:underline"
-                        >
-                          {url}
-                        </a>
-                      ))
-                    : null}
-                  {step.id === "posted" && links !== null ? (
-                    <form
-                      className="flex flex-col gap-1.5"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void recordPosted(true);
-                      }}
-                    >
-                      <Textarea
-                        aria-label="Links to the posts"
-                        size="sm"
-                        placeholder="Links to the posts, one per line (optional)"
-                        value={links}
-                        onChange={(event) => setLinks(event.target.value)}
-                      />
-                      <div className="flex justify-end gap-1">
-                        <Button size="xs" variant="ghost" onClick={() => setLinks(null)}>
-                          Cancel
-                        </Button>
-                        <Button size="xs" type="submit">
-                          Mark posted
-                        </Button>
+        <PopoverPopup side="bottom" align="start" className="w-88">
+          <div className="flex flex-col gap-3 text-xs">
+            <section className="flex flex-col gap-1.5">
+              <h3 className="label-caps text-muted-foreground">Stage</h3>
+              <VideoStageStepper state={props.stage} />
+            </section>
+            {preflight === null ? null : (
+              <section className="flex flex-col gap-1.5 border-t border-border/60 pt-3">
+                <h3 className="label-caps text-muted-foreground">
+                  Steps · {done} of {steps.length} done
+                </h3>
+                <ol className="flex flex-col gap-1.5">
+                  {steps.map((step) => (
+                    <li key={step.id} className="flex flex-col gap-1.5">
+                      <div className="flex min-h-5 items-center gap-2">
+                        <span aria-hidden className={cn("size-1.5 shrink-0", DOT[step.state])} />
+                        <span className="shrink-0 font-medium">{step.label}</span>
+                        <span className={cn("min-w-0 flex-1 truncate", DETAIL[step.state])}>
+                          {detail(step)}
+                        </span>
+                        {control(step)}
                       </div>
-                      <p className="text-muted-foreground">
-                        Ask the agent to set the catalog row to Posted; it updates the sheet.
-                      </p>
-                    </form>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
+                      {step.id === "render" && preflight.render !== null ? (
+                        <RenderReport
+                          environmentId={props.environmentId}
+                          workspaceRoot={props.workspaceRoot}
+                          report={preflight.render}
+                        />
+                      ) : null}
+                      {step.id === "posted" && preflight.posted !== null
+                        ? preflight.posted.urls.map((url) => (
+                            <a
+                              key={url}
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="truncate pl-3.5 text-muted-foreground underline-offset-2 hover:underline"
+                            >
+                              {url}
+                            </a>
+                          ))
+                        : null}
+                      {step.id === "posted" && links !== null ? (
+                        <form
+                          className="flex flex-col gap-1.5"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void recordPosted(true);
+                          }}
+                        >
+                          <Textarea
+                            aria-label="Links to the posts"
+                            size="sm"
+                            placeholder="Links to the posts, one per line (optional)"
+                            value={links}
+                            onChange={(event) => setLinks(event.target.value)}
+                          />
+                          <div className="flex justify-end gap-1">
+                            <Button size="xs" variant="ghost" onClick={() => setLinks(null)}>
+                              Cancel
+                            </Button>
+                            <Button size="xs" type="submit">
+                              Mark posted
+                            </Button>
+                          </div>
+                          <p className="text-muted-foreground">
+                            Ask the agent to set the catalog row to Posted; it updates the sheet.
+                          </p>
+                        </form>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
           </div>
         </PopoverPopup>
       </Popover>

@@ -13,7 +13,7 @@ import {
 } from "@t3tools/contracts";
 import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
 import { PROXY_INDEX_PATH, type ProxyIndex, STILL_PATH } from "@t3tools/timeline/proxies";
-import { LayoutPanelTopIcon, ShareIcon } from "lucide-react";
+import { ChevronDownIcon, LayoutPanelTopIcon, ShareIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useEffectEvent, useState } from "react";
 
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
@@ -27,16 +27,12 @@ import {
   MenuCheckboxItem,
   MenuItem,
   MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuRadioItemIndicator,
   MenuSeparator,
   MenuTrigger,
 } from "~/components/ui/menu";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -47,9 +43,9 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useProjectFileQuery } from "../files/projectFilesQueryState";
 import { ImportFootageButton } from "../videoProject/ImportFootageButton";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
-import { RecordVoiceOverButton } from "../videoProject/RecordVoiceOverButton";
+import { RecordVoiceOverButton, useVoiceOver } from "../videoProject/RecordVoiceOverButton";
 import { useProvideTimelineCommand } from "./timelineCommands";
-import { VideoStageSelect } from "../videoProject/VideoStageSelect";
+import { useVideoStage } from "../videoProject/VideoStage";
 import { Bay } from "./bay";
 import { cutName } from "./cutName";
 import { EditsPanel } from "./EditsPanel";
@@ -271,6 +267,22 @@ export default function TimelinePanel(props: {
       title: path === selectedPath ? timelineTitle(file.data?.contents) : null,
     });
   const composerRef = useComposerHandleContext();
+  const voiceOver = useVoiceOver({
+    environmentId: props.environmentId,
+    workspaceRoot: props.workspaceRoot,
+    enabled: canWriteFiles,
+    onSaved: (path) => {
+      // Hand the take to the chat, so asking the agent to place it is one sentence.
+      composerRef?.current?.insertTextAtEnd(`Voice-over take: ${path} `, {
+        ensureLeadingBoundary: true,
+      });
+    },
+  });
+  const stage = useVideoStage({
+    environmentId: props.environmentId,
+    workspaceRoot: props.workspaceRoot,
+    hasTimeline: timelinePaths.length > 0,
+  });
   // A reference: the timeline file as a chip, then a clip or moment in words, with stable clip
   // ids that the timeline's edits and an agent's tools both use.
   const reference = (description: string) => {
@@ -578,25 +590,27 @@ export default function TimelinePanel(props: {
   }, [wantsBeats, beatsKey]);
   const ticks = scriptBeats !== null && selectedPath !== null ? scriptTicks(scriptBeats.beats) : [];
 
-  const stageSelect = (
-    <VideoStageSelect
-      environmentId={props.environmentId}
-      workspaceRoot={props.workspaceRoot}
-      hasTimeline={timelinePaths.length > 0}
-      variant="ghost"
-      bare
-    />
-  );
-
-  const importFootage = (look?: "micro" | "icon") => (
+  const importFootage = (look?: "micro" | "toolbar") => (
     <ImportFootageButton
       environmentId={props.environmentId}
       workspaceRoot={props.workspaceRoot}
       onStarted={() => intakeFile.refresh()}
       {...(look === "micro" ? { size: look } : {})}
-      {...(look === "icon" ? { iconOnly: true } : {})}
+      {...(look === "toolbar" ? { toolbar: true } : {})}
     />
   );
+  // Recording sits under the picture and importing with the tracks; a closed panel hands its
+  // control to the next place along, ending at this tab's bar, so neither is ever out of reach.
+  const panelShown = (id: "monitor" | "timeline") =>
+    workspace === null || workspace.visible.includes(id);
+  const voiceOverAt = !canWriteFiles
+    ? null
+    : panelShown("monitor")
+      ? "monitor"
+      : panelShown("timeline")
+        ? "timeline"
+        : "bar";
+  const importAt = !canWriteFiles ? null : panelShown("timeline") ? "timeline" : "bar";
   const conforming = intake?.state === "conforming" ? intake.conform : undefined;
   const intakeNote =
     intake?.state === "copying" ? (
@@ -628,6 +642,7 @@ export default function TimelinePanel(props: {
   // The run's steps, under the bar. It reads what this tab already loads and adds no timer.
   const preflightStrip = (
     <PreflightStrip
+      stage={stage}
       environmentId={props.environmentId}
       workspaceRoot={props.workspaceRoot}
       watched={{
@@ -653,10 +668,7 @@ export default function TimelinePanel(props: {
   if (selectedPath === null) {
     return (
       <div className="edit-bay flex min-h-0 flex-1 flex-col">
-        <RightPanelToolbar>
-          {stageSelect}
-          {preflightStrip}
-        </RightPanelToolbar>
+        <RightPanelToolbar>{preflightStrip}</RightPanelToolbar>
         <Empty>
           <EmptyHeader>
             <EmptyTitle>{isBuilding ? "Footage is on its way" : "No timeline yet"}</EmptyTitle>
@@ -680,46 +692,41 @@ export default function TimelinePanel(props: {
     <div className="edit-bay flex min-h-0 flex-1 flex-col">
       <RightPanelToolbar>
         {timelinePaths.length > 1 ? (
-          <Select value={selectedPath} onValueChange={(value) => setChosenPath(value)}>
-            <SelectTrigger
-              size="sm"
-              variant="ghost"
-              aria-label="Timeline"
-              className="max-w-48 shrink-0"
+          <Menu>
+            <MenuTrigger
+              render={<Button size="sm" variant="ghost" aria-label="Cut" className="min-w-0" />}
             >
-              <SelectValue>{(value: string) => nameOf(value)}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="start" alignItemWithTrigger={false}>
-              {timelinePaths.map((path) => (
-                <SelectItem key={path} value={path}>
-                  {nameOf(path)}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
+              <h2 className="min-w-0 truncate text-sm font-semibold">{nameOf(selectedPath)}</h2>
+              <ChevronDownIcon className="text-muted-foreground" />
+            </MenuTrigger>
+            <MenuPopup align="start" side="bottom">
+              <MenuRadioGroup
+                value={selectedPath}
+                onValueChange={(value) => {
+                  if (typeof value === "string") setChosenPath(value);
+                }}
+              >
+                {timelinePaths.map((path) => (
+                  <MenuRadioItem key={path} value={path} closeOnClick>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 truncate">{nameOf(path)}</span>
+                      <MenuRadioItemIndicator />
+                    </span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuPopup>
+          </Menu>
         ) : (
-          <h2 className="min-w-0 truncate px-2 text-xs font-medium">{nameOf(selectedPath)}</h2>
+          <h2 className="min-w-0 truncate px-2 text-sm font-semibold">{nameOf(selectedPath)}</h2>
         )}
-        {stageSelect}
         {preflightStrip}
         {intakeNote}
-        <span className="flex shrink-0 items-center gap-0.5 @max-[52rem]/tabbar:ml-auto">
-          {canWriteFiles ? (
-            <>
-              <RecordVoiceOverButton
-                iconOnly
-                environmentId={props.environmentId}
-                workspaceRoot={props.workspaceRoot}
-                onSaved={(path) => {
-                  // Hand the take to the chat, so asking the agent to place it is one sentence.
-                  composerRef?.current?.insertTextAtEnd(`Voice-over take: ${path} `, {
-                    ensureLeadingBoundary: true,
-                  });
-                }}
-              />
-              {importFootage("icon")}
-            </>
+        <span className="flex shrink-0 items-center gap-1 @max-[52rem]/tabbar:ml-auto">
+          {voiceOverAt === "bar" ? (
+            <RecordVoiceOverButton voiceOver={voiceOver} tooltipSide="bottom" />
           ) : null}
+          {importAt === "bar" ? importFootage("toolbar") : null}
           <Menu>
             <Tooltip>
               <TooltipTrigger
@@ -833,6 +840,19 @@ export default function TimelinePanel(props: {
                   : {})}
                 opening={opening}
               />
+            }
+            transportTools={
+              voiceOverAt === "monitor" ? (
+                <RecordVoiceOverButton voiceOver={voiceOver} collapse="monitor" />
+              ) : null
+            }
+            timelineTools={
+              <>
+                {importAt === "timeline" ? importFootage("toolbar") : null}
+                {voiceOverAt === "timeline" ? (
+                  <RecordVoiceOverButton voiceOver={voiceOver} tooltipSide="bottom" />
+                ) : null}
+              </>
             }
             monitorTools={
               canWriteFiles ? (
