@@ -54,7 +54,7 @@ import { Bay } from "./bay";
 import { cutName } from "./cutName";
 import { EditsPanel } from "./EditsPanel";
 import { HistoryPanel, type VersionPreview } from "./HistoryPanel";
-import type { PremierePull } from "./premiereChanges";
+import { groupByTimeline, type PremierePull } from "./premiereChanges";
 import { PremierePullNotice } from "./PremierePullNotice";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
 import { PreflightStrip } from "./PreflightStrip";
@@ -341,7 +341,18 @@ export default function TimelinePanel(props: {
     // A pull can bring a sequence that had no timeline here.
     if (updated.length > 0 || changes.length > 0) refreshTimelines();
     if (changes.length > 0 || conflicts.length > 0) {
-      setPull({ changes, conflicts, merged: options?.merge === true, dismissed: false });
+      const paths = [
+        ...timelinePaths,
+        ...updated,
+        ...result.value.kept,
+        ...(result.value.linked ?? []),
+      ];
+      setPull({
+        changes: groupByTimeline(changes, paths, nameOf),
+        conflicts: groupByTimeline(conflicts, paths, nameOf),
+        merged: options?.merge === true,
+        dismissed: false,
+      });
     } else if (updated.length > 0) {
       toastManager.add({
         type: "success",

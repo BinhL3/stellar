@@ -691,7 +691,13 @@ export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOption
     const miniature = variant === "preview" ? Math.min(1, height / 640) : 1;
     const dithered = treatment === "dither" || treatment === "fluted";
     const own = options.stage ? canvas.getBoundingClientRect() : null;
-    const stage = options.stage?.getBoundingClientRect() ?? null;
+    const stageBox = options.stage?.getBoundingClientRect() ?? null;
+    // The stage's picture has nothing above or below it, so a surface with no rows beside the
+    // stage (a monitor docked under the chat) prints the scene in its own box instead.
+    const stage =
+      stageBox !== null && own !== null && own.bottom > stageBox.top && own.top < stageBox.bottom
+        ? stageBox
+        : null;
     const stageHeight = stage?.height ?? height;
     if (stage !== null && (stage.width < 8 || stage.height < 8)) return;
     const dot = Math.max(

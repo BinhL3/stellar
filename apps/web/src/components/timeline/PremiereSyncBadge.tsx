@@ -5,7 +5,12 @@ import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
 import type { PremierePull } from "./premiereChanges";
-import { DROPPED_EDITS_TITLE, PremiereChangeList, pullTitle } from "./PremierePullNotice";
+import {
+  DROPPED_EDITS_TITLE,
+  PremiereChangeGroups,
+  PremiereChangeList,
+  pullTitle,
+} from "./PremierePullNotice";
 
 export interface PremiereSyncStatus {
   readonly link: Pick<
@@ -187,12 +192,12 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
             <div className="flex flex-col gap-1">
               <span className="font-medium">{pullTitle(lastPull)}</span>
               {lastPull.changes.length > 0 ? (
-                <PremiereChangeList items={lastPull.changes} limit={3} />
+                <PremiereChangeGroups groups={lastPull.changes} limit={3} />
               ) : null}
               {lastPull.conflicts.length > 0 ? (
                 <>
                   <span className="text-warning">{DROPPED_EDITS_TITLE}</span>
-                  <PremiereChangeList items={lastPull.conflicts} limit={3} />
+                  <PremiereChangeGroups groups={lastPull.conflicts} limit={3} />
                 </>
               ) : null}
             </div>

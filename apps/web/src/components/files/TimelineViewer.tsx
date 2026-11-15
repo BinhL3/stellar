@@ -65,7 +65,7 @@ import { MarkersPanel } from "~/components/timeline/MarkersPanel";
 import { RulerMarkers, type ScriptTick } from "~/components/timeline/RulerMarkers";
 import type { PreviewEngine } from "~/components/timeline/previewEngine";
 import { useTimelineLayoutStore } from "~/components/timeline/timelineLayoutStore";
-import { useBackdropHold } from "~/components/backdrop/Backdrop";
+import { Backdrop, useBackdropHold } from "~/components/backdrop/Backdrop";
 import { TimelinePlayerContext } from "~/components/timeline/timelinePlayer";
 import { MonitorAudio } from "~/components/timeline/MonitorAudio";
 import { type PreviewMedia, TimelinePreview } from "~/components/timeline/TimelinePreview";
@@ -1452,9 +1452,10 @@ export default function TimelineViewer(props: {
         {previewOnly ? pendingBar : null}
         <div className="flex min-h-0 flex-1 flex-col items-center">
           <div
-            className="flex min-h-0 w-full flex-1 items-center justify-center p-2 [container-type:size]"
+            className="relative isolate flex min-h-0 w-full flex-1 items-center justify-center p-2 [container-type:size]"
             onContextMenu={showPreviewMenu}
           >
+            <Backdrop variant="ambient" stage="continue" className="bg-transparent" />
             <TimelinePreview
               layout={layout}
               frame={frame}
