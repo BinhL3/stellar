@@ -1289,7 +1289,62 @@ const trainStreet: Scene = {
   },
 };
 
+/** Nebula: the Milky Way's band crossing the sky on the diagonal, in clumped dots, over stars. */
+const nebula: Scene = {
+  hues: [-38, 26],
+  layers: ({ aspect }) => {
+    // Distance across the band and position along it; the band runs from the upper right down to
+    // the left edge, so the heading in the middle sits below its core.
+    const angle = -0.36;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const across = (x: number, y: number) => {
+      const dx = x - 0.12 * aspect;
+      const dy = y - 0.12;
+      return -dx * sin + dy * cos + 0.06 * (fbm1(dx * 2.2, 81) - 0.5);
+    };
+    const along = (x: number, y: number) => (x - 0.12 * aspect) * cos + (y - 0.12) * sin;
+    const glow = (x: number, y: number, width: number) => Math.exp(-((across(x, y) / width) ** 2));
+    // A dark rift splits the core, as the Great Rift does.
+    const rift = (x: number, y: number) =>
+      1 -
+      0.75 *
+        smooth(0.5, 0.68, fbm2(along(x, y) * 5 + 3, across(x, y) * 18, 83)) *
+        Math.exp(-((across(x, y) / 0.05) ** 2));
+    return [
+      ...stars(1.15, 1.3),
+      {
+        ink: 2,
+        depth: 0,
+        band: [-1, 1.2],
+        tone: (x, y) =>
+          0.3 * glow(x, y, 0.2) * smooth(0.35, 0.65, fbm2(x * 2.4, y * 2.4, 84)) * rift(x, y),
+      },
+      {
+        ink: 1,
+        depth: 0.05,
+        band: [-1, 1.1],
+        tone: (x, y) => {
+          const clumps = smooth(0.38, 0.72, fbm2(x * 5.5 + 7, y * 5.5, 85));
+          return 0.62 * glow(x, y, 0.16) * clumps * rift(x, y) * clearOfHeading(x, y) ** 2;
+        },
+      },
+      {
+        ink: 0,
+        depth: 0.08,
+        band: [-1, 1],
+        tone: (x, y, i, j) => {
+          const knots = smooth(0.6, 0.82, fbm2(x * 9 + 2, y * 9, 86));
+          const core = glow(x, y, 0.07) * knots * rift(x, y) * clearOfHeading(x, y) ** 2;
+          return core > 0.05 ? 0.8 * core : hash(i, j, 87) < 0.02 * glow(x, y, 0.12) ? 1 : 0;
+        },
+      },
+    ];
+  },
+};
+
 const SCENE_BY_THEME_ID: Readonly<Record<string, Scene>> = {
+  nebula,
   stellar: limb,
   "night-edit": city,
   darkroom: dunes,

@@ -430,6 +430,18 @@ function PlayheadTimecode(props: {
   );
 }
 
+/** The frame's shape as an editor names it (9:16, 4:5, 16:9), or a decimal ratio for odd sizes. */
+function aspectLabel(frame: { readonly width: number; readonly height: number }): string {
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const divisor = gcd(frame.width, frame.height);
+  const across = frame.width / divisor;
+  const down = frame.height / divisor;
+  if (across <= 32 && down <= 32) return `${across}:${down}`;
+  return frame.width >= frame.height
+    ? `${(frame.width / frame.height).toFixed(2)}:1`
+    : `1:${(frame.height / frame.width).toFixed(2)}`;
+}
+
 /**
  * Pass `media` to show the preview player and its transport above the tracks, and `onCommit` to
  * let people drag, trim and delete clips. Edits stay pending, drawn over the timeline and played
@@ -445,6 +457,8 @@ export default function TimelineViewer(props: {
   readonly onPendingEdits?: (pending: boolean) => void;
   /** The editing app's sync badge, shown in the transport row. */
   readonly premiere?: ReactNode;
+  /** The monitor bar's actions, beside the frame's aspect, in the dock. */
+  readonly monitorTools?: ReactNode;
   /**
    * With a project, the monitor, tracks and side panels are panels in a dock that keeps the project's
    * layout; without one (a timeline file opened on its own) only the tracks show.
@@ -1414,6 +1428,19 @@ export default function TimelineViewer(props: {
     "Program monitor",
     props.media && frame ? (
       <>
+        {props.workspace ? (
+          <PanelTools panel="monitor">
+            <div className="flex items-center gap-2">
+              <Bay.Hint
+                hint={`${frame.width} × ${frame.height}`}
+                className="bay-label text-muted-foreground"
+              >
+                {aspectLabel(frame)}
+              </Bay.Hint>
+              {props.monitorTools}
+            </div>
+          </PanelTools>
+        ) : null}
         {/* The tracks show pending edits; without them on screen, the monitor does. */}
         {previewOnly ? pendingBar : null}
         <div className="flex min-h-0 flex-1 flex-col items-center">

@@ -13,7 +13,7 @@ import {
 } from "@t3tools/contracts";
 import { FOOTAGE_TIMELINE_PATH } from "@t3tools/timeline/footage";
 import { PROXY_INDEX_PATH, type ProxyIndex, STILL_PATH } from "@t3tools/timeline/proxies";
-import { LayoutPanelTopIcon } from "lucide-react";
+import { LayoutPanelTopIcon, ShareIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useEffectEvent, useState } from "react";
 
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
@@ -816,6 +816,28 @@ export default function TimelinePanel(props: {
                   : {})}
                 opening={opening}
               />
+            }
+            monitorTools={
+              canWriteFiles ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={opening}
+                        onClick={() => void openInPremiere()}
+                      />
+                    }
+                  >
+                    {opening ? <Spinner size="xs" /> : <ShareIcon />}
+                    Finish in Premiere
+                  </TooltipTrigger>
+                  <TooltipPopup side="bottom">
+                    Open this cut in Premiere on the machine running Stellar to export it
+                  </TooltipPopup>
+                </Tooltip>
+              ) : null
             }
             workspace={{
               projectKey,

@@ -81,7 +81,10 @@ import {
   extendReplacementRangeForTrailingSpace,
   replaceTextRange,
 } from "../../composer-logic";
-import { DEFAULT_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
+import {
+  DEFAULT_COMPOSER_PLACEHOLDER,
+  VIDEO_COMPOSER_PLACEHOLDER,
+} from "../../composerPlaceholder";
 import {
   deriveComposerSendState,
   getAntigravitySendBlockReason,
@@ -352,6 +355,7 @@ export interface ChatComposerHandle {
 
 export interface ChatComposerProps {
   composerDraftTarget: ScopedThreadRef | DraftId;
+  videoProject?: boolean;
   environmentId: EnvironmentId;
   canOperateThread: boolean;
   attachmentUploadsCapabilityKnown: boolean;
@@ -514,6 +518,7 @@ const NO_PROVIDER_SLASH_COMMANDS: ServerProvider["slashCommands"] = [];
 export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps) {
   const {
     composerDraftTarget,
+    videoProject = false,
     environmentId,
     canOperateThread,
     attachmentUploadsCapabilityKnown,
@@ -3536,7 +3541,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                               ? "Choose a project above to start a thread"
                               : showProviderUnavailable
                                 ? "Enable a provider in Settings to send a message"
-                                : DEFAULT_COMPOSER_PLACEHOLDER
+                                : videoProject
+                                  ? VIDEO_COMPOSER_PLACEHOLDER
+                                  : DEFAULT_COMPOSER_PLACEHOLDER
                     }
                     disabled={
                       projectSelectionRequired ||

@@ -30,7 +30,8 @@ enforce it, so a component gets the look by using the ordinary utilities.
   true circles (avatars, status dots), not for pills.
 - No drop shadows and no backdrop blur. The `shadow-*` steps resolve to nothing; separate layers
   with a surface step (`background`, `card`, `popover`, `accent`) and a border.
-- Labels, tabs, section headers and small metadata use `label-caps`.
+- Section headers and small metadata use `label-caps`, in the UI face. Tabs are sentence case.
+  Mono is for code and timecode only.
 - A panel edge that ends uses `dither-rule-{b,t,s,e}` instead of a border. Dividers inside a
   panel stay hairlines.
 - The active item carries the accent checker: `dither-marker` where it can sit in the flow,

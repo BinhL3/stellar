@@ -8,6 +8,7 @@ export const BUILT_IN_THEME_IDS = [
   "sakura",
   "shore",
   "train-street",
+  "nebula",
 ] as const;
 
 export const DEFAULT_THEME_ID = "drive-in" satisfies (typeof BUILT_IN_THEME_IDS)[number];
@@ -575,6 +576,13 @@ const TRAIN_STREET_THEME: ThemeDefinition = {
   }),
 };
 
+// A clear night far from town: deep indigo, with the galaxy's violet as the one bright ink.
+const NEBULA_THEME: ThemeDefinition = {
+  id: "nebula",
+  label: "Nebula",
+  colors: editorPalette("#07061a", "#100e28", "#1a1838", "#2a2850", "#b4a6ff"),
+};
+
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   DRIVE_IN_THEME,
   STELLAR_THEME,
@@ -585,4 +593,5 @@ export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   SAKURA_THEME,
   SHORE_THEME,
   TRAIN_STREET_THEME,
+  NEBULA_THEME,
 ];

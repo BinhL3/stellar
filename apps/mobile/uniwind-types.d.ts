@@ -3,7 +3,7 @@
 
 declare module 'uniwind' {
     export interface UniwindConfig {
-        themes: readonly ['light', 'dark', 'stellar-dark', 'night-edit-dark', 'darkroom-dark', 'studio-dark', 'drive-in-dark', 'long-bien-light', 'sakura-light', 'shore-light', 'train-street-light']
+        themes: readonly ['light', 'dark', 'stellar-dark', 'night-edit-dark', 'darkroom-dark', 'studio-dark', 'drive-in-dark', 'long-bien-light', 'sakura-light', 'shore-light', 'train-street-light', 'nebula-dark']
     }
 }
 

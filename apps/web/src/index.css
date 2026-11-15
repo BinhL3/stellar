@@ -731,12 +731,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   border: 1px solid var(--popup-border);
 }
 
-/* Labels, tabs, section headers and small metadata: mono capitals, spaced. */
+/* Section headers and small metadata: small capitals in the UI face, spaced. Mono stays for
+   code and timecode, so a label never reads as a terminal. */
 @utility label-caps {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 0.6875rem;
   font-weight: 500;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
