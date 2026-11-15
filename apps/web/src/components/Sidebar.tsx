@@ -3324,6 +3324,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         section: SidebarSection,
                         // The tree row of the project folder this row sits in.
                         folderRow?: string,
+                        groupHeading?: boolean,
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -3414,6 +3415,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 `${thread.environmentId}:${thread.projectId}`,
                               ) ?? null
                             }
+                            groupHeading={groupHeading}
                             providerEntryByInstanceId={
                               providerEntriesByEnvironment.get(thread.environmentId) ??
                               EMPTY_PROVIDER_ENTRIES
@@ -3451,13 +3453,26 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           onDraftContextMenu={handleDraftContextMenu}
                         />,
                       ];
+                      // Card rows name their project once per run, as a light heading.
+                      let headedProject: string | null = null;
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
                           // Folders draw active rows in their own place below.
                           if (projectFolders !== null && item.section === "active") continue;
-                          items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
+                          const thread = threadByKey.get(item.key)!;
+                          const projectKey = `${item.section}:${thread.environmentId}:${thread.projectId}`;
+                          const isCardSection =
+                            item.section === "active" ||
+                            item.section === "pinned" ||
+                            item.section === "working";
+                          const groupHeading = isCardSection && projectKey !== headedProject;
+                          headedProject = isCardSection ? projectKey : null;
+                          items.push(
+                            renderThreadRow(thread, item.section, undefined, groupHeading),
+                          );
                           continue;
                         }
+                        headedProject = null;
                         if (projectFolders !== null && item.marker === "active-placeholder") {
                           for (const folder of projectFolders) {
                             items.push(

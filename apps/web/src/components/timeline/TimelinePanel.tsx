@@ -58,6 +58,7 @@ import type { PremierePull } from "./premiereChanges";
 import { PremierePullNotice } from "./PremierePullNotice";
 import { PremiereSyncBadge } from "./PremiereSyncBadge";
 import { PreflightStrip } from "./PreflightStrip";
+import { RightPanelToolbar } from "../RightPanelToolbar";
 import { scriptTicks } from "./scriptBeats";
 import {
   TIMELINE_PANEL_IDS,
@@ -641,10 +642,10 @@ export default function TimelinePanel(props: {
   if (selectedPath === null) {
     return (
       <div className="edit-bay flex min-h-0 flex-1 flex-col">
-        <div className="flex h-11 shrink-0 items-center gap-1 px-2">
+        <RightPanelToolbar>
           {stageSelect}
           {preflightStrip}
-        </div>
+        </RightPanelToolbar>
         <Empty>
           <EmptyHeader>
             <EmptyTitle>{isBuilding ? "Footage is on its way" : "No timeline yet"}</EmptyTitle>
@@ -666,10 +667,15 @@ export default function TimelinePanel(props: {
 
   return (
     <div className="edit-bay flex min-h-0 flex-1 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-1 px-2">
+      <RightPanelToolbar>
         {timelinePaths.length > 1 ? (
           <Select value={selectedPath} onValueChange={(value) => setChosenPath(value)}>
-            <SelectTrigger size="sm" variant="ghost" aria-label="Timeline">
+            <SelectTrigger
+              size="sm"
+              variant="ghost"
+              aria-label="Timeline"
+              className="max-w-48 shrink-0"
+            >
               <SelectValue>{(value: string) => nameOf(value)}</SelectValue>
             </SelectTrigger>
             <SelectPopup align="start" alignItemWithTrigger={false}>
@@ -681,12 +687,12 @@ export default function TimelinePanel(props: {
             </SelectPopup>
           </Select>
         ) : (
-          <h2 className="min-w-0 truncate px-2 text-sm font-medium">{nameOf(selectedPath)}</h2>
+          <h2 className="min-w-0 truncate px-2 text-xs font-medium">{nameOf(selectedPath)}</h2>
         )}
         {stageSelect}
         {preflightStrip}
         {intakeNote}
-        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+        <span className="flex shrink-0 items-center gap-0.5 @max-[52rem]/tabbar:ml-auto">
           {canWriteFiles ? (
             <>
               <RecordVoiceOverButton
@@ -734,7 +740,7 @@ export default function TimelinePanel(props: {
             </MenuPopup>
           </Menu>
         </span>
-      </div>
+      </RightPanelToolbar>
       {premiereDialog}
       {pull !== null && !pull.dismissed ? (
         <PremierePullNotice pull={pull} onDismiss={() => setPull({ ...pull, dismissed: true })} />

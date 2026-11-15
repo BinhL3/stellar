@@ -305,7 +305,7 @@ export function PreflightStrip(props: {
   const attention =
     headline !== null && (headline.state === "warn" || headline.state === "fail") ? headline : null;
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-xs">
+    <div className="flex min-w-14 items-center gap-1.5 text-xs">
       <Popover
         open={open}
         onOpenChange={(next) => {

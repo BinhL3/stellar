@@ -106,6 +106,7 @@ import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
+import { RightPanelToolbarSlot } from "./RightPanelToolbar";
 
 export interface RightPanelTabsProps {
   mode: PreviewPanelMode;
@@ -1071,6 +1072,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const tabListRef = useRef<HTMLDivElement>(null);
   const addSurfaceTriggerRef = useRef<HTMLButtonElement>(null);
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLDivElement | null>(null);
   const [addSurfaceMenuOpen, setAddSurfaceMenuOpen] = useState(false);
   const [tabScrollState, setTabScrollState] = useState({
     hasOverflow: false,
@@ -1394,7 +1396,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     >
       <div
         className={cn(
-          "dither-rule-b flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 pl-2",
+          "dither-rule-b @container/tabbar relative flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 pl-2",
           props.mode === "inline" && !props.layoutControls ? "pr-28" : "pr-3",
           ownsDesktopTitleBar && "drag-region",
           ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
@@ -1408,7 +1410,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           ref={attachTabList}
           hideScrollbars
           scrollFade
-          className="min-w-0 flex-1"
+          className="min-w-30 flex-1"
           data-right-panel-tab-list
         >
           <div className="flex h-full w-max min-w-full items-center gap-1">
@@ -1577,6 +1579,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             </Tooltip>
           </div>
         ) : null}
+        <div
+          ref={setToolbarSlot}
+          className="flex min-w-0 shrink items-center gap-0.5 empty:hidden [-webkit-app-region:no-drag] @max-[52rem]/tabbar:absolute @max-[52rem]/tabbar:inset-x-0 @max-[52rem]/tabbar:top-full @max-[52rem]/tabbar:z-10 @max-[52rem]/tabbar:h-11 @max-[52rem]/tabbar:px-2"
+          data-right-panel-toolbar
+        />
         {props.layoutControls}
         {ownsDesktopTitleBar && !props.layoutControls ? (
           <span aria-hidden className="hidden w-24 shrink-0 wco:block" />
@@ -1588,7 +1595,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           />
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
+      <div
+        className="@container/panel flex min-h-0 flex-1 flex-col"
+        data-right-panel-surface-content
+      >
         {props.activeSurfaceId === null ? (
           <RightPanelEmptyState
             onAddTimeline={props.onAddTimeline}
@@ -1614,7 +1624,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             sideChatDisabledReason={props.sideChatDisabledReason ?? null}
           />
         ) : (
-          props.children
+          <RightPanelToolbarSlot value={toolbarSlot}>{props.children}</RightPanelToolbarSlot>
         )}
       </div>
     </PreviewPanelShell>

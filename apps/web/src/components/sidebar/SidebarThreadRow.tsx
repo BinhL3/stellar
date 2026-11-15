@@ -563,6 +563,8 @@ type SidebarThreadRowProps = {
   scratchMachineLabel: string | null;
   project: EnvironmentProject | null;
   projectDisplayName: string | null;
+  // Card rows only: a light project heading above the first row of a run from one project.
+  groupHeading?: boolean | undefined;
   providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntry>;
   timestampFormat: TimestampFormat;
   onThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
@@ -1021,7 +1023,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       aria-hidden
       className={cn(
         "min-w-0 flex-1 text-start text-sm transition-opacity motion-reduce:transition-none",
-        shouldRecede ? "font-normal" : "font-medium",
+        shouldRecede || topStatus === null ? "font-normal" : "font-medium",
         variant !== "slim"
           ? cn(
               "truncate",
@@ -1399,11 +1401,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
-        metaLineEmpty && "[contain-intrinsic-size:auto_58px]",
+        "list-none [content-visibility:auto] [contain-intrinsic-size:auto_--spacing(8)]",
+        !metaLineEmpty && "[contain-intrinsic-size:auto_--spacing(12)]",
+        props.groupHeading && "[contain-intrinsic-size:auto_--spacing(17)]",
         sortable?.isDragging && "relative z-20",
       )}
     >
+      {props.groupHeading ? (
+        // The row's label already names the project, so the heading is decoration.
+        <div
+          aria-hidden
+          className="flex h-9 min-w-0 items-end gap-1.5 px-(--sidebar-row-content-inset) pb-1.5 text-xs text-sidebar-muted-foreground"
+        >
+          {props.project ? (
+            <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
+          ) : null}
+          <span className="min-w-0 truncate">{props.projectDisplayName}</span>
+        </div>
+      ) : null}
       <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
         <TooltipTrigger
           render={
@@ -1426,29 +1441,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           }
         >
           {accessibleTitle}
-          <div
-            className={cn(
-              "relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
-              metaLineEmpty && "h-auto",
-            )}
-          >
-            <div className="flex h-5 min-w-0 items-center gap-1.5">
+          <div className="relative z-10 px-(--sidebar-row-content-inset)">
+            <div className="flex h-8 min-w-0 items-center gap-2">
               {draftIndicator}
-              {props.project ? (
-                <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+              {title}
+              {isRegeneratingTitle ? (
+                <span role="status" className="sr-only">
+                  Regenerating title
+                </span>
               ) : null}
+              {titleLineIcons}
               {/* Left of the status slot, the pin would slide when hover swaps the
                 label for the wider row controls. */}
               {pinIndicator}
-              {props.projectDisplayName ? (
-                <span
-                  className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}
-                >
-                  {props.projectDisplayName}
-                </span>
-              ) : (
-                <span className="flex-1" />
-              )}
               {sortable?.isDragging ? (
                 dragDestination
               ) : (
@@ -1482,25 +1487,31 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                                   topStatus.className,
                                 )}
                               >
-                                <AlarmClockIcon aria-hidden className="size-4 shrink-0" />
+                                <AlarmClockIcon aria-hidden className="size-3 shrink-0" />
                                 <span role="status">{topStatus.label}</span>
                               </button>
                             }
                           />
                           <TooltipPopup side="top">Dismiss Woke notification</TooltipPopup>
                         </Tooltip>
-                      ) : (
+                      ) : topStatus.icon === "done" ? (
+                        // An unseen finish is a dot; the row's label names it for screen readers.
                         <span
-                          className={cn(
-                            "inline-flex items-center gap-1 font-medium",
-                            topStatus.className,
+                          aria-hidden
+                          className="me-1 size-1.5 rounded-full bg-success-foreground"
+                        />
+                      ) : (
+                        // Not a live region: a collapsed sidebar is inert, so
+                        // BackgroundThreadAnnouncer and the open thread's
+                        // timeline speak status changes instead.
+                        <span className="inline-flex items-center gap-1">
+                          <TopStatusIcon
+                            icon={topStatus.icon}
+                            className={cn("size-3", topStatus.className)}
+                          />
+                          {status === "working" && topStatus.label === "Working" ? null : (
+                            <span className={topStatus.className}>{topStatus.label}</span>
                           )}
-                        >
-                          <TopStatusIcon icon={topStatus.icon} className="size-4" />
-                          {/* Not a live region: a collapsed sidebar is inert, so
-                            BackgroundThreadAnnouncer and the open thread's
-                            timeline speak status changes instead. */}
-                          {topStatus.label}
                           {status === "preparing" || status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
@@ -1577,16 +1588,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {props.sweepAction !== null ? dragDestination : null}
             </div>
-            <div className="mt-1 flex min-w-0 items-center gap-1.5">
-              {title}
-              {isRegeneratingTitle ? (
-                <span role="status" className="sr-only">
-                  Regenerating title
-                </span>
-              ) : null}
-              {titleLineIcons}
-            </div>
-            {metaLine}
+            {metaLine === null ? null : <div className="-mt-1 pb-1.5">{metaLine}</div>}
           </div>
         </TooltipTrigger>
         {detailsTooltip}
