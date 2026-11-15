@@ -134,8 +134,8 @@ Merging a stack lands it through GitCafe, and updating a branch restacks the lay
 
 ## Start, clone, or publish a project
 
-To start from nothing, choose **New project** in the command palette (`Cmd/Ctrl+K`), or
-**New project** under **Add Project** on any client, and type a name. Stellar makes a Git
+To start an empty repository, choose **New repository** in the command palette (`Cmd/Ctrl+K`),
+or **New Git repository** under **Open an existing folder** on mobile, and type a name. Stellar makes a Git
 repository in `~/.stellar/projects` (the `projects` folder of your Stellar data directory) with a README,
 an icon, and a first commit, then opens a new thread in it. Until the project has a thread, new
 threads work in its folder, even when your default is a new worktree. The folder is named after the project,
@@ -143,7 +143,7 @@ like `pinball-stats` for "Pinball Stats". Turn on **Create private repository on
 publish it. If Git has no name or email on that machine, the project is created without the
 first commit.
 
-Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
+Use **Open an existing folder** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
 provider or paste a Git URL, then choose where to save it. The project opens right away while the
 clone runs in the background: you can write your first prompt, and sending waits until the files
 are in place. A toast tracks progress and lets you cancel; if the clone fails, retry it from the
@@ -153,7 +153,7 @@ HTTPS URL.
 
 To lay clones out like [ghq](https://github.com/x-motemen/ghq), turn on **Clone into host folders**
 under **Settings → Threads** (or **Source control** on mobile). Clones then default to
-`<host>/<owner>/<repo>` under **Add project starts in**, so set that to `~/ghq` to share ghq's
+`<host>/<owner>/<repo>` under **Existing folders open from**, so set that to `~/ghq` to share ghq's
 folders. You can still change the destination before cloning.
 
 For a local Git repository without a remote, **Publish Repository** creates a hosted repository,

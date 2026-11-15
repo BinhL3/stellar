@@ -300,9 +300,16 @@ export function CommandPalette(props: {
       {
         key: "addProject",
         kind: "action",
-        title: "Add project",
-        searchTerms: ["folder", "clone", "repository", "git"],
+        title: "New project",
+        searchTerms: ["add project", "video", "carousel", "create"],
         run: () => navigation.navigate("AddProject"),
+      },
+      {
+        key: "openFolder",
+        kind: "action",
+        title: "Open an existing folder",
+        searchTerms: ["add project", "folder", "clone", "repository", "git"],
+        run: () => navigation.navigate("AddProjectExisting"),
       },
       {
         key: "settings",

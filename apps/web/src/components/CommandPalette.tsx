@@ -1,4 +1,5 @@
 import { SHOW_GIT_SURFACES } from "~/branding";
+import { openNewVideoProject } from "~/videoProjectDialogBus";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -14,6 +15,7 @@ import {
   getCloneDirectoryLeafName,
   getCloneDirectoryPath,
   getDefaultCloneUrl,
+  getAddProjectInitialQuery,
   getNewProjectPathPreview,
   getNewProjectPublishTarget,
   getNewProjectPublishTargets,
@@ -64,6 +66,7 @@ import {
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
+  FolderOpenIcon,
   FolderPlusIcon,
   LayoutPanelTopIcon,
   MessageSquareDashedIcon,
@@ -299,6 +302,7 @@ function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPalette
         addonIcon: <PaletteIcon className={ADDON_ICON_CLASS} />,
         groups: [{ value: "themes", label: "Change theme", items: [] }],
       };
+    case "open-folder":
     case "search":
     case undefined:
       return null;
@@ -428,8 +432,30 @@ function OpenCommandPaletteDialog(props: {
   const linkedEnvironmentId = linkedThreadSearch?.linkedThreads?.environmentId ?? null;
   const hidingAnywhere = useAnyEnvironmentHiding();
   const linkedThreadRefs = useEnvironmentThreadRefs(linkedEnvironmentId);
+  const { environments } = useEnvironments();
   const [searchState, dispatchSearch] = useReducer(reduceCommandPaletteSearchState, null, () => {
-    const view = props.initialContext ? null : openIntentView(props.openIntent);
+    const intent = props.initialContext ? null : props.openIntent;
+    if (intent?.kind === "open-folder") {
+      // Opens on browsing, like choosing a folder source, so it starts where that would.
+      const initialQuery = getAddProjectInitialQuery(
+        environments.find((environment) => environment.environmentId === intent.environmentId)
+          ?.serverConfig?.settings.addProjectBaseDirectory,
+      );
+      return {
+        query: initialQuery,
+        views: [
+          {
+            view: {
+              addonIcon: <FolderOpenIcon className={ADDON_ICON_CLASS} />,
+              groups: [],
+              initialQuery,
+            },
+            parentQuery: "",
+          },
+        ],
+      };
+    }
+    const view = openIntentView(intent);
     return view
       ? { query: "", views: [{ view, parentQuery: "" }] }
       : createCommandPaletteSearchState(initialSearch.query);
@@ -473,7 +499,6 @@ function OpenCommandPaletteDialog(props: {
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
-  const { environments } = useEnvironments();
   const timelineWorkspace = useTimelineLayoutStore((state) => state.active);
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -523,7 +548,10 @@ function OpenCommandPaletteDialog(props: {
   const [browseGeneration, setBrowseGeneration] = useState(0);
   const [browseNavigation] = useState(createBrowseNavigationCoordinator);
   const [addProjectEnvironmentId, setAddProjectEnvironmentId] = useState<EnvironmentId | null>(
-    null,
+    () =>
+      !props.initialContext && props.openIntent?.kind === "open-folder"
+        ? props.openIntent.environmentId
+        : null,
   );
   const [isPickingProjectFolder, setIsPickingProjectFolder] = useState(false);
   const [addProjectCloneFlow, setAddProjectCloneFlow] = useState<AddProjectCloneFlow | null>(null);
@@ -1031,10 +1059,10 @@ function OpenCommandPaletteDialog(props: {
       {
         kind: "action",
         value: `action:add-project:${environmentId}:local`,
-        searchTerms: ["local", "folder", "directory", "browse"],
-        title: "Local folder",
-        description: "Browse a folder on disk",
-        icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+        searchTerms: ["local", "folder", "directory", "browse", "existing", "open"],
+        title: "Existing folder",
+        description: "Open a folder you already have",
+        icon: <FolderOpenIcon className={ITEM_ICON_CLASS} />,
         keepOpen: true,
         run: async () => {
           await startAddProjectBrowse(environmentId);
@@ -1138,6 +1166,11 @@ function OpenCommandPaletteDialog(props: {
           description: `${environment?.label ?? "The selected environment"} is not connected.`,
         }),
       );
+      return;
+    }
+    // Without git surfaces a folder is the only source, so skip choosing one.
+    if (!SHOW_GIT_SURFACES) {
+      void startAddProjectBrowse(environmentId);
       return;
     }
     setAddProjectEnvironmentId(environmentId);
@@ -1561,12 +1594,33 @@ function OpenCommandPaletteDialog(props: {
     },
   });
 
-  if (newProjectEnvironmentOptions.length > 0) {
+  const newProjectAction: CommandPaletteActionItem = {
+    kind: "action",
+    value: "action:new-project",
+    searchTerms: [
+      "new project",
+      "add project",
+      "create project",
+      "video",
+      "carousel",
+      "premiere",
+      "idea",
+    ],
+    title: "New project",
+    icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openNewVideoProject(currentProjectEnvironmentId);
+    },
+  };
+  actionItems.push(newProjectAction);
+
+  // Git's own new-project flow, for when git surfaces are on.
+  if (SHOW_GIT_SURFACES && newProjectEnvironmentOptions.length > 0) {
     actionItems.push({
       kind: "action",
-      value: "action:new-project",
-      searchTerms: ["new project", "create project", "empty", "repository", "repo", "git init"],
-      title: "New project",
+      value: "action:new-repository",
+      searchTerms: ["new repository", "create", "empty", "repository", "repo", "git init"],
+      title: "New repository",
       icon: <FolderGit2Icon className={ITEM_ICON_CLASS} />,
       keepOpen: true,
       run: async () => {
@@ -1575,36 +1629,41 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  const addProjectAction: CommandPaletteActionItem = {
+  actionItems.push({
     kind: "action",
     value: "action:add-project",
     searchTerms: [
+      "open folder",
+      "existing folder",
       "add project",
       "folder",
       "directory",
       "browse",
-      "clone",
-      "remote",
-      "repository",
-      "repo",
-      "git",
-      ...sourceControlClients.definitions.flatMap((definition) =>
-        definition.pickerLabel
-          .toLowerCase()
-          .split(/[^a-z0-9]+/u)
-          .filter(Boolean),
-      ),
-      "url",
+      ...(SHOW_GIT_SURFACES
+        ? [
+            "clone",
+            "remote",
+            "repository",
+            "repo",
+            "git",
+            ...sourceControlClients.definitions.flatMap((definition) =>
+              definition.pickerLabel
+                .toLowerCase()
+                .split(/[^a-z0-9]+/u)
+                .filter(Boolean),
+            ),
+            "url",
+          ]
+        : []),
       "environment",
     ],
-    title: "Add project",
-    icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+    title: "Open an existing folder",
+    icon: <FolderOpenIcon className={ITEM_ICON_CLASS} />,
     keepOpen: true,
     run: async () => {
       openAddProjectFlow();
     },
-  };
-  actionItems.push(addProjectAction);
+  });
 
   if (wslAddProjectEnvironmentOption) {
     actionItems.push({
@@ -1788,7 +1847,7 @@ function OpenCommandPaletteDialog(props: {
                 value: NEW_THREAD_IN_GROUP,
                 label: "Projects",
                 // Every project archived and no "No project" home leaves only adding one.
-                items: projectThreadItems.length > 0 ? projectThreadItems : [addProjectAction],
+                items: projectThreadItems.length > 0 ? projectThreadItems : [newProjectAction],
               },
             ]
           : currentView?.groups[0]?.value === "themes"

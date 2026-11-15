@@ -72,6 +72,7 @@ import { McpAppFullscreenScreen } from "./features/threads/McpAppFullscreenScree
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
+import { AddProjectExistingRoute } from "./features/projects/AddProjectExistingRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectNewRoute } from "./features/projects/AddProjectNewRoute";
 import { AddProjectRepositoryRoute } from "./features/projects/AddProjectRepositoryRoute";
@@ -563,8 +564,12 @@ const RootStackConfig = createWorkspaceStackNavigator({
     AddProject: createNativeStackScreen({
       linking: "new/add-project",
       screen: AddProjectSourceRoute,
-
-      options: pageRoute({ title: "Add project" }),
+      options: pageRoute({ title: "New project" }),
+    }),
+    AddProjectExisting: createNativeStackScreen({
+      linking: "new/add-project/existing",
+      screen: AddProjectExistingRoute,
+      options: pageRoute({ title: "Open an existing folder" }),
     }),
     AddProjectRepository: createNativeStackScreen({
       linking: "new/add-project/repository",

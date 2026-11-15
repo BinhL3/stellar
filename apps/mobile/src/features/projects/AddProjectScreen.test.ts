@@ -359,12 +359,12 @@ describe("add project source environment", () => {
       for (const phase of ["available", "offline", "error"] as const) {
         state.connectionStates = { environment: phase };
         await act(() => root.render(createElement(SourceObserver)));
-        expect(findAction(screen, "Local folder")).toBeNull();
+        expect(findAction(screen, "Existing folder")).toBeNull();
         expect(state.dispatch).not.toHaveBeenCalled();
       }
       state.connectionStates = {};
       await act(() => root.render(createElement(SourceObserver)));
-      const reconnectedLocal = findAction(screen, "Local folder");
+      const reconnectedLocal = findAction(screen, "Existing folder");
       if (!reconnectedLocal) throw new Error("Reconnected local folder action missing");
       reconnectedLocal();
       expect(state.dispatch).toHaveBeenLastCalledWith({
@@ -373,11 +373,11 @@ describe("add project source environment", () => {
       });
       state.connectionStates = { environment: "offline" };
       await act(() => root.render(createElement(SourceObserver)));
-      expect(findAction(screen, "Local folder")).toBeNull();
+      expect(findAction(screen, "Existing folder")).toBeNull();
       const select = findAction(screen, "Another environment");
       if (!select) throw new Error("Connected environment selection missing");
       await act(() => select());
-      const local = findAction(screen, "Local folder");
+      const local = findAction(screen, "Existing folder");
       if (!local) throw new Error("Manually selected local folder action missing");
       local();
       expect(state.dispatch).toHaveBeenLastCalledWith({
@@ -409,14 +409,14 @@ describe("add project source environment", () => {
     }
     try {
       await act(() => root.render(createElement(SourceObserver)));
-      expect(findAction(screen, "Local folder")).toBeNull();
+      expect(findAction(screen, "Existing folder")).toBeNull();
       expect(navigation.getState().routes.at(-1)?.name).toBe("AddProject");
       const select = findAction(screen, "Another environment");
       if (!select) throw new Error("Connected environment selection missing");
       await act(() => select());
       state.connectionStates = {};
       await act(() => root.render(createElement(SourceObserver)));
-      const local = findAction(screen, "Local folder");
+      const local = findAction(screen, "Existing folder");
       if (!local) throw new Error("Local folder action missing");
       local();
       expect(navigation.getState().routes.at(-1)).toMatchObject({
@@ -444,7 +444,7 @@ describe("add project source environment", () => {
     function SourceRouteObserver(props: { environmentId?: string | string[] }) {
       const route = AddProjectSourceRoute({ route: { params: props } });
       const screen = AddProjectSourceScreen(route.props);
-      const local = findAction(screen, "Local folder");
+      const local = findAction(screen, "Existing folder");
       const selectEnvironment = findAction(screen, "Environment");
       if (!local || !selectEnvironment) throw new Error("Source actions missing");
       actions = { local, selectEnvironment };

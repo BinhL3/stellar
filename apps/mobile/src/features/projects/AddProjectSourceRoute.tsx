@@ -1,5 +1,5 @@
 import type { StaticScreenProps } from "@react-navigation/native";
-import { AddProjectSourceScreen } from "./AddProjectScreen";
+import { AddProjectStartScreen } from "./AddProjectScreen";
 
 type AddProjectSourceRouteParams = {
   readonly environmentId?: string | string[];
@@ -8,5 +8,5 @@ type AddProjectSourceRouteParams = {
 export function AddProjectSourceRoute({
   route,
 }: StaticScreenProps<AddProjectSourceRouteParams | undefined>) {
-  return <AddProjectSourceScreen {...(route.params ?? {})} />;
+  return <AddProjectStartScreen {...(route.params ?? {})} />;
 }

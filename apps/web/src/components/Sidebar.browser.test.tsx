@@ -7,6 +7,7 @@ import { openCommandPalette } from "../commandPaletteBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
 import { useProjects } from "../state/entities";
+import { openNewVideoProject } from "../videoProjectDialogBus";
 import type { Project } from "../types";
 import Sidebar from "./Sidebar";
 import { SidebarProvider } from "./ui/sidebar";
@@ -17,6 +18,7 @@ vi.mock("../commandPaletteBus", () => ({
   openCommandPalette: vi.fn(),
   isCommandPaletteOpen: () => false,
 }));
+vi.mock("../videoProjectDialogBus", () => ({ openNewVideoProject: vi.fn() }));
 vi.mock("./sidebar/SidebarChrome", () => ({
   SidebarChromeHeader: () => null,
   SidebarChromeFooter: () => null,
@@ -86,4 +88,29 @@ describe("sidebar header new thread", () => {
       expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
     }
   });
+});
+
+it("opens the new project dialog from the header's New project button", async () => {
+  const projects = [project("active")];
+  vi.mocked(useProjects).mockReturnValue(projects);
+  vi.mocked(useHandleNewThread).mockReturnValue({
+    activeDraftThread: null,
+    activeThread: null,
+    defaultProjectRef: { environmentId: projects[0]!.environmentId, projectId: projects[0]!.id },
+    handleNewThread: vi.fn().mockResolvedValue(null),
+    routeDraftId: null,
+    routeThreadRef: null,
+  });
+  vi.mocked(openCommandPalette).mockClear();
+  vi.mocked(openNewVideoProject).mockClear();
+  await using screen = await render(
+    <SidebarProvider>
+      <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+    </SidebarProvider>,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "New project", exact: true }));
+
+  expect(openNewVideoProject).toHaveBeenCalledOnce();
+  expect(openCommandPalette).not.toHaveBeenCalled();
 });

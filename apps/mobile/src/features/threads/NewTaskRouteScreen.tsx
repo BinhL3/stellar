@@ -133,7 +133,7 @@ function NewTaskHeader(props: {
           props.canAddProject
             ? [
                 {
-                  accessibilityLabel: "Add project",
+                  accessibilityLabel: "New project",
                   icon: "plus",
                   onPress: () => navigation.dispatch(StackActions.push("AddProject")),
                 },
@@ -404,9 +404,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                 <>
                   <View>
                     <Button
-                      label={
-                        catalogState.hasReadyEnvironment ? "Add new project" : "Add environment"
-                      }
+                      label={catalogState.hasReadyEnvironment ? "New project" : "Add environment"}
                       tone="primary"
                       onPress={() =>
                         catalogState.hasReadyEnvironment
@@ -437,7 +435,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                 <>
                   <View className="mt-1">
                     <Button
-                      label="Add new project"
+                      label="New project"
                       tone="primary"
                       onPress={() => navigation.dispatch(StackActions.push("AddProject"))}
                     />

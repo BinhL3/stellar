@@ -106,6 +106,13 @@ describe("reduceCommandPaletteUiState", () => {
       openIntent: { kind: "add-project" },
       session: 2,
     });
+    const environmentId = EnvironmentId.make("local");
+    state = reduceCommandPaletteUiState(state, { _tag: "OpenFolder", environmentId });
+    expect(state).toMatchObject({
+      open: true,
+      openIntent: { kind: "open-folder", environmentId },
+      session: 3,
+    });
   });
 });
 

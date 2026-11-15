@@ -32,9 +32,26 @@ import { waitForProject } from "~/state/entities";
 import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { openFolderInCommandPalette } from "~/commandPaletteBus";
+import { closeNewVideoProject, useNewVideoProjectRequest } from "~/videoProjectDialogBus";
 import { HostFolderBrowser, parentOf, useHostFolderListing } from "./HostFolderBrowser";
 
 const PREMIERE_EXTENSIONS = [".prproj"];
+
+/** The dialog every "New project" entry point opens, through `openNewVideoProject`. */
+export function NewVideoProjectDialogHost() {
+  const { environmentId, open, session } = useNewVideoProjectRequest();
+  return environmentId === null ? null : (
+    <NewVideoProjectDialog
+      key={session}
+      environmentId={environmentId}
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) closeNewVideoProject();
+      }}
+    />
+  );
+}
 
 const errorMessage = (error: unknown) =>
   error instanceof Error && error.message.trim().length > 0
@@ -211,6 +228,10 @@ export function NewVideoProjectDialog(props: {
     props.onOpenChange(false);
     void navigate({ to: "/settings/general", hash: "video-projects-folder" });
   };
+  const openExistingFolder = () => {
+    props.onOpenChange(false);
+    openFolderInCommandPalette(props.environmentId);
+  };
   const ideaName = title.trim();
   return (
     <Dialog
@@ -337,6 +358,13 @@ export function NewVideoProjectDialog(props: {
           </div>
         </DialogPanel>
         <DialogFooter>
+          {chosen === null && props.premiereFolder === undefined ? (
+            <div className="flex items-center sm:me-auto">
+              <InlineButton tone="muted" onClick={openExistingFolder}>
+                Open an existing folder…
+              </InlineButton>
+            </div>
+          ) : null}
           {chosen !== null ? (
             <Button variant="ghost" disabled={busy !== null} onClick={() => setChosen(null)}>
               Back
