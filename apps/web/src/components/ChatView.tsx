@@ -185,7 +185,7 @@ import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.lo
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { GuestPendingMessages } from "./chat/GuestShareControls";
 import { useDeviceState } from "~/state/device";
-import { Backdrop } from "./backdrop/Backdrop";
+import { Backdrop, useBackdropHold } from "./backdrop/Backdrop";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { ComposerContextPermissions } from "./ComposerContextPermissions";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
@@ -1458,6 +1458,8 @@ export default function ChatView(props: ChatViewProps) {
     (compactionRunning || (compactRequestIsActive && !compactionSettled));
   const isWorking =
     phase === "running" || isSendBusy || isCompacting || runlessWorkStartedAt !== null;
+  // Text streaming in over a moving scene is harder to read.
+  useBackdropHold(phase === "running");
   const activeContextWindow = deriveLatestContextWindowSnapshot(
     serverVisibleTurnItems ?? [],
     activeThreadLiveTokenUsage,

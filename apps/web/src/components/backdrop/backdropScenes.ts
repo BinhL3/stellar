@@ -16,8 +16,30 @@ export interface SceneLayer {
   readonly solid?: boolean;
   /** Scene rows the layer can touch, so the rest is skipped. */
   readonly band?: readonly [number, number];
-  /** `i` and `j` are the dot's column and row, for details one dot wide. */
-  readonly tone: (x: number, y: number, i: number, j: number) => number;
+  /**
+   * `i` and `j` are the dot's column and row, for details one dot wide. A layer with sprites also
+   * gets the scene clock in seconds, or null for the still picture.
+   */
+  readonly tone: (x: number, y: number, i: number, j: number, time: number | null) => number;
+  /**
+   * Re-inks a lit dot as the clock runs: given its still tone, its tone at `time`. Only dots with a
+   * positive still tone are asked, and null asks for the still picture's tone.
+   */
+  readonly shimmer?: (tone: number, i: number, j: number, time: number | null) => number;
+  /**
+   * Makes this a moving layer: blank but for these boxes, where `tone` is asked afresh each
+   * tick. Null asks for the still picture's boxes.
+   */
+  readonly sprites?: (time: number | null) => ReadonlyArray<Sprite>;
+}
+
+/** Where a moving layer may ink at one time, in scene units, and a key that changes with its look. */
+export interface Sprite {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+  readonly key?: number;
 }
 
 export interface SceneFrame {
@@ -34,6 +56,10 @@ export interface Scene {
 }
 
 const OUTSIDE = -1;
+// A dark window a shimmer may light: positive so it is asked, and exact in a Float32Array.
+const UNLIT = 2 ** -9;
+// How far left of the pane a sidebar continuing its picture can reach, so what moves crosses it too.
+const SIDEBAR_REACH = 0.5;
 
 function hash(i: number, j: number, seed = 0): number {
   let h = Math.imul(i, 374761393) ^ Math.imul(j, 668265263) ^ Math.imul(seed + 1, 1274126177);
@@ -84,6 +110,65 @@ function fbm2(x: number, y: number, seed: number): number {
   );
 }
 
+/**
+ * Share of a star's light at `time`: each one dims for a moment on some turns of its own slow
+ * cycle, through a half step either side so it never blinks. `i` and `j` name the star.
+ */
+function twinkle(i: number, j: number, time: number | null): number {
+  if (time === null) return 1;
+  const period = 6 + 8 * hash(i, j, 16);
+  const phase = time / period + hash(i, j, 17);
+  const turn = Math.floor(phase);
+  if (hash(i + turn * 7919, j, 18) > 0.4) return 1;
+  const at = phase - turn;
+  return at < 0.4 || at > 0.6 ? 1 : at < 0.44 || at > 0.56 ? 0.5 : 0.12;
+}
+
+/** A mote: a lit dot, a pair side by side (1), or a pair one over the other (2). */
+type Mote = readonly [x: number, y: number, tone: number, shape?: 0 | 1 | 2];
+
+/** A moving layer of motes, wherever `at` puts them at a time; nothing in the still picture. */
+function motes(
+  ink: Ink,
+  depth: number,
+  dot: number,
+  at: (time: number) => ReadonlyArray<Mote>,
+): SceneLayer {
+  // Every dot a tick asks about wants the same list.
+  let cachedTime = Number.NaN;
+  let cached: ReadonlyArray<Mote> = [];
+  const current = (time: number | null) => {
+    if (time === null) return [];
+    if (time !== cachedTime) {
+      cachedTime = time;
+      cached = at(time);
+    }
+    return cached;
+  };
+  return {
+    ink,
+    depth,
+    sprites: (time) =>
+      current(time).map(([x, y, tone, shape = 0]) => ({
+        x0: x,
+        y0: y,
+        x1: x + (shape === 1 ? dot : 0),
+        y1: y + (shape === 2 ? dot : 0),
+        key: Math.round((x / dot) * 2) * 8191 + Math.round((y / dot) * 2) + tone + shape * 0.25,
+      })),
+    tone: (x, y, _i, _j, time) => {
+      for (const [mx, my, tone, shape = 0] of current(time)) {
+        const dx = (x - mx) / dot;
+        const dy = (y - my) / dot;
+        if (dx >= -0.5 && dx < (shape === 1 ? 1.5 : 0.5) && dy >= -0.5) {
+          if (dy < (shape === 2 ? 1.5 : 0.5)) return tone;
+        }
+      }
+      return 0;
+    },
+  };
+}
+
 /** Single-dot stars, thinning towards `floor`, with the odd four-point one in the accent ink. */
 function stars(floor: number, density = 1): ReadonlyArray<SceneLayer> {
   // Sparse around the middle of the pane, where the new-thread heading sits.
@@ -97,6 +182,7 @@ function stars(floor: number, density = 1): ReadonlyArray<SceneLayer> {
       depth: 0,
       band: [-1, floor],
       tone: (x, y, i, j) => (hash(i, j, 11) < 0.003 * thin(x, y) ? 1 : 0),
+      shimmer: (tone, i, j, time) => tone * twinkle(i, j, time),
     },
     {
       ink: 0,
@@ -113,6 +199,9 @@ function stars(floor: number, density = 1): ReadonlyArray<SceneLayer> {
         const dj = j - (blockJ * 24 + 2 + Math.floor(hash(blockI, blockJ, 15) * 20));
         return (di === 0 && Math.abs(dj) <= 1) || (dj === 0 && Math.abs(di) <= 1) ? 1 : 0;
       },
+      // A four-point star dims as one.
+      shimmer: (tone, i, j, time) =>
+        tone * twinkle(Math.floor(i / 24), Math.floor(j / 24) + 4096, time),
     },
   ];
 }
@@ -248,7 +337,22 @@ const city: Scene = {
           // Whole floors go dark together; some towers are mostly asleep.
           const floorLit = hash(k, Math.floor(j / 4), 39) < 0.75;
           const lit = hash(Math.floor(i / 3), Math.floor(j / 4), 36) < 0.25 + 0.45 * hash(k, 0, 37);
-          return floorLit && lit ? 1 : 0;
+          return floorLit && lit ? 1 : UNLIT;
+        },
+        // Now and then a room's light goes off, or a dark one comes on, for a while.
+        shimmer: (tone, i, j, time) => {
+          if (tone !== 1 && tone !== UNLIT) return tone;
+          const lit = tone === 1;
+          if (time === null) return lit ? 1 : 0;
+          const room = Math.floor(i / 3);
+          const level = Math.floor(j / 4);
+          const period = 20 + 30 * hash(room, level, 41);
+          const phase = time / period + hash(room, level, 42);
+          const turn = Math.floor(phase);
+          const at = phase - turn;
+          const switched =
+            at > 0.25 && at < 0.75 && hash(room + turn * 7919, level, 43) < (lit ? 0.05 : 0.025);
+          return lit !== switched ? 1 : 0;
         },
       },
       {
@@ -277,6 +381,13 @@ const dunes: Scene = {
     const sunX = 0.27 * aspect;
     const sunY = 0.63;
     const sunRadius = 0.085;
+    // Long swells only: finer detail would flicker the lit and shaded faces.
+    const ridgeOf =
+      (base: number, amplitude: number, frequency: number, seed: number) => (x: number) =>
+        base -
+        amplitude *
+          (0.72 * noise1(x * frequency + seed, seed) ** 1.4 +
+            0.28 * noise1(x * frequency * 2.3 + seed, seed + 1));
     const dune = (
       ink: Ink,
       depth: number,
@@ -285,12 +396,7 @@ const dunes: Scene = {
       frequency: number,
       seed: number,
     ): SceneLayer => {
-      // Long swells only: finer detail would flicker the lit and shaded faces.
-      const ridge = (x: number) =>
-        base -
-        amplitude *
-          (0.72 * noise1(x * frequency + seed, seed) ** 1.4 +
-            0.28 * noise1(x * frequency * 2.3 + seed, seed + 1));
+      const ridge = ridgeOf(base, amplitude, frequency, seed);
       return {
         ink,
         depth,
@@ -337,6 +443,26 @@ const dunes: Scene = {
       dune(1, 0.3, 0.72, 0.1, 1.9, 41),
       dune(1, 0.6, 0.83, 0.15, 1.3, 42),
       dune(2, 1, 0.97, 0.17, 0.9, 43),
+      // Sand blown off the near crests in short gusts, drifting downwind and settling.
+      motes(1, 1, dot, (time) => {
+        const near = ridgeOf(0.97, 0.17, 0.9, 43);
+        const grains: Array<Mote> = [];
+        for (let k = 0; k < 36; k++) {
+          const life = 2.4 + 1.6 * hash(k, 0, 140);
+          const phase = time / life + hash(k, 1, 140);
+          const turn = Math.floor(phase);
+          const at = phase - turn;
+          // Gusts come and go across the whole field.
+          const gust = noise1(time / 9 + k * 0.03, 143);
+          if (hash(k + turn * 7919, 2, 140) > gust * 1.1 || at > 0.9) continue;
+          const startX = (hash(k + turn * 7919, 3, 140) - 0.5) * aspect;
+          const x = startX + at * 0.08;
+          const y = near(startX) - dot * 1.5 - 0.014 * Math.sin(at * Math.PI) + at * 0.006;
+          if (clearOfHeading(x, y) < 0.6) continue;
+          grains.push([x, y, 0.75 * (1 - at)]);
+        }
+        return grains;
+      }),
     ];
   },
 };
@@ -439,6 +565,19 @@ const soundstage: Scene = {
           return pole || head || legs ? 0 : OUTSIDE;
         },
       },
+      // Dust turning slowly in the key lamp's beam.
+      motes(0, 0.1, dot, (time) => {
+        const lampX = keyX - 0.06;
+        const dust: Array<Mote> = [];
+        for (let k = 0; k < 14; k++) {
+          const down = 0.25 + 0.7 * noise1(time * 0.03 + k * 5.3, 160);
+          const side = (noise1(time * 0.04 + k * 3.1, 161) - 0.5) * 1.6;
+          const y = truss + (keyY - truss) * down;
+          const x = lampX + (keyX - lampX) * down + side * keyRadius * (0.08 + 0.9 * down);
+          dust.push([x, y, 0.55 + 0.4 * hash(k, 0, 162)]);
+        }
+        return dust;
+      }),
     ];
   },
 };
@@ -729,6 +868,41 @@ const longBien: Scene = {
       }
       return OUTSIDE;
     };
+    // Now and then a train crosses, left to right, inside the truss.
+    const carLength = 0.062;
+    const train = carLength * 7;
+    const trainHeight = 0.02;
+    const trainHead = (time: number | null) =>
+      time === null ? null : -aspect / 2 - SIDEBAR_REACH + (((time + 70) % 100) - 3) * 0.045;
+    const carriage = (x: number, y: number, head: number) => {
+      const along = head - x;
+      const h = deck - dot * 0.5 - y;
+      if (along < 0 || along > train || h < 0 || h > trainHeight) return OUTSIDE;
+      const inCar = along % carLength;
+      if (inCar > carLength - dot * 1.2) return OUTSIDE;
+      // The engine's cab slopes back from its nose.
+      if (along < 0.014 && h > trainHeight * 0.45 + (0.014 - along) * 0.9) return OUTSIDE;
+      if (h > trainHeight - dot) return 0.85;
+      const pane = (inCar / (dot * 4)) % 1;
+      return h > trainHeight * 0.45 && h < trainHeight * 0.8 && pane > 0.3 ? 1 : 0.4;
+    };
+    const trainBox = (time: number | null, flip: boolean): ReadonlyArray<Sprite> => {
+      const head = trainHead(time);
+      if (head === null || head < -aspect / 2 - SIDEBAR_REACH || head - train > aspect / 2 + 0.02) {
+        return [];
+      }
+      const lower = deck - dot * 0.5;
+      const upper = lower - trainHeight;
+      return [
+        {
+          x0: head - train,
+          x1: head,
+          y0: flip ? mirror(lower) : upper,
+          y1: flip ? mirror(upper) : lower,
+          key: Math.round(head / dot),
+        },
+      ];
+    };
     return [
       {
         ink: 1,
@@ -784,11 +958,34 @@ const longBien: Scene = {
         },
       },
       {
+        // Behind the truss, so the train shows through the gaps between its members.
+        ink: 1,
+        depth: 0.6,
+        solid: true,
+        band: [deck - 0.05, deck],
+        sprites: (time) => trainBox(time, false),
+        tone: (x, y, _i, _j, time) => {
+          const head = trainHead(time);
+          return head === null ? OUTSIDE : carriage(x, y, head);
+        },
+      },
+      {
         ink: 0,
         depth: 0.6,
         solid: true,
         band: [deck - 0.17, water],
         tone: (x, y) => truss(x, y),
+      },
+      {
+        ink: 1,
+        depth: 0.6,
+        band: [water, 2],
+        sprites: (time) => trainBox(time, true),
+        tone: (x, y, _i, j, time) => {
+          const head = trainHead(time);
+          const tone = head === null ? OUTSIDE : carriage(x, mirror(y), head);
+          return tone > 0 && still(x, j) ? tone * 0.45 : 0;
+        },
       },
       {
         // The bridge upside down in the river, a little paler, broken by the odd ripple.
@@ -997,6 +1194,24 @@ const sakura: Scene = {
         band: [-0.2, 1.2],
         tone: (x, y) => (blossom(x, y)[1] > 0 ? 0.9 : 0),
       },
+      // A few petals let go of the boughs at the sides, swaying and turning over as they fall.
+      motes(1, 0.8, dot, (time) => {
+        const falling: Array<Mote> = [];
+        for (let k = 0; k < 14; k++) {
+          const fall = 26 + 14 * hash(k, 0, 150);
+          const phase = time / fall + hash(k, 1, 150);
+          const turn = Math.floor(phase);
+          const at = phase - turn;
+          const side = k % 2 === 0 ? -1 : 1;
+          const from = side * (0.24 + 0.24 * hash(k + turn * 7919, 2, 150)) * aspect;
+          const x = from + at * 0.1 + 0.02 * Math.sin(time * 0.7 + k * 2.1);
+          const y = -0.08 + at * 1.25;
+          if (clearOfHeading(x, y) < 0.7) continue;
+          const shape = Math.floor(time / 1.7 + k) % 3;
+          falling.push([x, y, 0.95, shape === 0 ? 0 : shape === 1 ? 1 : 2]);
+        }
+        return falling;
+      }),
     ];
   },
 };
@@ -1026,6 +1241,44 @@ const shore: Scene = {
       [-0.315, 0.15, 0.018],
       [0.4, 0.085, 0.022],
     ] as const;
+    const gullX = (at: number, time: number | null) => {
+      const lap = aspect + 0.12;
+      const x = at * aspect + 0.005 * (time ?? 0) + lap / 2;
+      return x - Math.floor(x / lap) * lap - lap / 2;
+    };
+    // A wave runs up the beach every few seconds, its edge a line of foam, and slides back.
+    const washPeriod = 9;
+    let washed = { time: Number.NaN, reach: 0, fade: 0 };
+    const wash = (time: number) => {
+      if (washed.time === time) return washed;
+      const at = (time / washPeriod) % 1;
+      const up = at < 0.4 ? smooth(0, 0.4, at) : 1 - smooth(0.4, 1, at);
+      const fade = at < 0.4 ? 1 : 1 - smooth(0.55, 1, at);
+      washed = { time, reach: 0.004 + 0.036 * up, fade: Math.round(fade * 6) / 6 };
+      return washed;
+    };
+    // The waterline by dot column, worked out once; a column can sit a margin outside the pane.
+    const reachOut = 64;
+    const shoreByColumn = new Float64Array(Math.ceil(aspect / dot) + reachOut * 2).fill(Number.NaN);
+    const shoreAt = (i: number, x: number) => {
+      const at = i + reachOut;
+      if (at < 0 || at >= shoreByColumn.length) return shoreline(x);
+      if (Number.isNaN(shoreByColumn[at]!)) shoreByColumn[at] = shoreline(x);
+      return shoreByColumn[at]!;
+    };
+    // Narrow boxes follow the waterline's curve, so a tick redraws a strip, not the beach.
+    const washBoxes: Array<readonly [number, number, number, number]> = [];
+    const boxWidth = 0.025;
+    for (let x = -aspect / 2 - boxWidth; x < aspect / 2 + boxWidth; x += boxWidth) {
+      let low = Infinity;
+      let high = -Infinity;
+      for (let k = 0; k <= 4; k++) {
+        const y = shoreline(x + (boxWidth * k) / 4);
+        low = Math.min(low, y);
+        high = Math.max(high, y);
+      }
+      washBoxes.push([x, x + boxWidth, low, high]);
+    }
     return [
       {
         // A soft sky, a few long streaks of cloud, deepening upwards.
@@ -1040,12 +1293,18 @@ const shore: Scene = {
         },
       },
       {
+        // The gulls glide slowly downwind, round from one side to the other.
         ink: 0,
         depth: 0.1,
         band: [0, horizon],
-        tone: (x, y) => {
+        sprites: (time) =>
+          gulls.map(([gx, gy, span]) => {
+            const x = gullX(gx, time);
+            return { x0: x - span, x1: x + span, y0: gy - span * 0.4, y1: gy + span * 0.2 };
+          }),
+        tone: (x, y, _i, _j, time) => {
           for (const [gx, gy, span] of gulls) {
-            const dx = (x - gx * aspect) / span;
+            const dx = (x - gullX(gx, time)) / span;
             if (Math.abs(dx) > 1) continue;
             // A gull is two shallow arcs meeting at the body.
             const wing =
@@ -1133,6 +1392,29 @@ const shore: Scene = {
           return 0.16 + 0.22 * wet + 0.12 * ribs * (1 - wet);
         },
       },
+      {
+        ink: 0,
+        depth: 0.6,
+        band: [0.6, 0.9],
+        sprites: (time) => {
+          if (time === null) return [];
+          const { reach, fade } = wash(time);
+          if (fade <= 0) return [];
+          return washBoxes.map(([x0, x1, low, high]) => ({
+            x0,
+            x1,
+            y0: low + reach - dot,
+            y1: high + reach + dot,
+            key: Math.round((reach / dot) * 2) + fade * 4096,
+          }));
+        },
+        tone: (x, y, i, j, time) => {
+          if (time === null) return 0;
+          const { reach, fade } = wash(time);
+          const edge = shoreAt(i, x) + reach;
+          return Math.abs(y - edge) < dot * 0.8 && hash(i, j, 125) < 0.75 ? 0.55 * fade : 0;
+        },
+      },
     ];
   },
 };
@@ -1199,6 +1481,29 @@ const trainStreet: Scene = {
         return { ink: 0 as Ink, tone: j % 2 === 0 ? 0.72 : 0.38 };
       }
       return { ink: 1 as Ink, tone: 0.3 + 0.12 * hash(h.seed, 0, 133) + 0.04 * hash(i, j, 134) };
+    };
+    const car = 0.24;
+    const train = car * 3;
+    const trainBottom = nearRail - dot * 2;
+    const trainHeight = 0.105;
+    const trainHead = (time: number | null) =>
+      time === null ? null : aspect / 2 + 0.02 - (((time + 60) % 140) - 4) * 0.06;
+    const coach = (x: number, y: number, head: number) => {
+      const along = x - head;
+      const h = trainBottom - y;
+      if (along < 0 || along > train || h < 0 || h > trainHeight) return OUTSIDE;
+      const inCar = along % car;
+      // Coupled low between coaches, and the leading cab's windscreen raked back.
+      if (inCar > car - dot * 1.5) return h < trainHeight * 0.45 ? 0.3 : OUTSIDE;
+      if (along < 0.03 && h > trainHeight * 0.6 + (0.03 - along) * 1.2) return OUTSIDE;
+      if (h > trainHeight - dot * 1.5) return 0.9;
+      if (h < dot * 2.5) return 0.2;
+      if (Math.abs(h - trainHeight * 0.32) < dot * 0.8) return 0.95;
+      const pane = (inCar / 0.03) % 1;
+      if (h > trainHeight * 0.5 && h < trainHeight * 0.82 && pane > 0.15 && pane < 0.8) {
+        return 0.15;
+      }
+      return 0.55;
     };
     // Lanterns hang under some balconies, one per house at most.
     const lantern = (x: number, y: number) => {
@@ -1285,6 +1590,36 @@ const trainStreet: Scene = {
         band: [street, 2],
         tone: (_x, y) => 0.22 + 0.1 * smooth(street, 1, y),
       },
+      {
+        // Every couple of minutes a train squeezes down the street, right to left.
+        ink: 1,
+        depth: 0.8,
+        solid: true,
+        band: [trainBottom - trainHeight - 0.01, trainBottom + 0.01],
+        sprites: (time) => {
+          const head = trainHead(time);
+          if (
+            head === null ||
+            head > aspect / 2 + 0.02 ||
+            head + train < -aspect / 2 - SIDEBAR_REACH
+          ) {
+            return [];
+          }
+          return [
+            {
+              x0: head,
+              x1: head + train,
+              y0: trainBottom - trainHeight,
+              y1: trainBottom,
+              key: Math.round(head / dot),
+            },
+          ];
+        },
+        tone: (x, y, _i, _j, time) => {
+          const head = trainHead(time);
+          return head === null ? OUTSIDE : coach(x, y, head);
+        },
+      },
     ];
   },
 };
@@ -1321,7 +1656,7 @@ const nebula: Scene = {
       ...stars(1.15, 1.3).map((layer) => ({
         ...layer,
         tone: (x: number, y: number, i: number, j: number) =>
-          Math.hypot(x / 0.33, (y - 0.37) / 0.05) < 1 ? 0 : layer.tone(x, y, i, j),
+          Math.hypot(x / 0.33, (y - 0.37) / 0.05) < 1 ? 0 : layer.tone(x, y, i, j, null),
       })),
       {
         ink: 2,
@@ -1343,11 +1678,27 @@ const nebula: Scene = {
         ink: 0,
         depth: 0.08,
         band: [-1, 1],
-        tone: (x, y, i, j) => {
+        tone: (x, y) => {
           const knots = smooth(0.6, 0.82, fbm2(x * 9 + 2, y * 9, 86));
           const core = glow(x, y, 0.07) * knots * rift(x, y);
-          return core > 0.05 ? 0.8 * core : hash(i, j, 87) < 0.02 * glow(x, y, 0.12) ? 1 : 0;
+          return core > 0.05 ? 0.8 * core : 0;
         },
+      },
+      {
+        // Loose sparks along the band, which glint like the stars.
+        ink: 0,
+        depth: 0.08,
+        band: [-1, 1],
+        tone: (x, y, i, j) => {
+          if (
+            glow(x, y, 0.07) * smooth(0.6, 0.82, fbm2(x * 9 + 2, y * 9, 86)) * rift(x, y) >
+            0.05
+          ) {
+            return 0;
+          }
+          return hash(i, j, 87) < 0.02 * glow(x, y, 0.12) ? 1 : 0;
+        },
+        shimmer: (tone, i, j, time) => tone * twinkle(i, j + 8192, time),
       },
     ];
   },

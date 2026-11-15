@@ -1,14 +1,15 @@
 /**
- * Draws a theme's scene on a canvas, once. Layers are rasterised to tone buffers when the size or
- * scene changes; a draw composes them into three ink plates and prints those with the chosen
- * treatment. Nothing runs between draws: a draw follows a resize, a theme or setting change, or
- * the pointer crossing into the next parallax step.
+ * Draws a theme's scene on a canvas: layers rasterise to tone buffers per size, a draw composes
+ * them into three ink plates and prints those. A full draw follows a resize, a setting change or
+ * a parallax step; between them a clock tick re-inks only the dots that shimmers and sprites moved.
  */
 import type { BackdropTreatment } from "@t3tools/contracts/settings";
 
 import { observeResize } from "~/lib/observeResize";
 
-import { type Scene, sceneForTheme } from "./backdropScenes";
+import type { BackdropClock } from "./backdropClock";
+import { backdropTreatmentMoves } from "./backdropTreatments";
+import { type Scene, type SceneLayer, type Sprite, sceneForTheme } from "./backdropScenes";
 
 export type BackdropVariant = "hero" | "ambient" | "strip" | "preview";
 
@@ -19,6 +20,8 @@ export interface BackdropOptions {
   /** The pane whose picture this canvas continues: it draws the part of that pane's scene that
    * would fall where the canvas sits, on the same dot grid. */
   readonly stage?: HTMLElement;
+  /** Animates the scene on this clock; without one the still picture is drawn. */
+  readonly clock?: BackdropClock;
 }
 
 /** Where a canvas's dots sit in the picture of the pane it continues; its own picture by default. */
@@ -185,23 +188,41 @@ function subscribeThemeInks(listener: () => void): () => void {
 
 const currentThemeInks = () => (themeInks ??= readThemeInks());
 
+interface RasterLayer {
+  readonly ink: number;
+  readonly depth: number;
+  readonly solid: boolean;
+  readonly firstRow: number;
+  readonly lastRow: number;
+  /** Still tones; a moving layer has none, its tones are stamped by each mount. */
+  readonly tones: Float32Array | null;
+  readonly tone: SceneLayer["tone"];
+  readonly shimmer: NonNullable<SceneLayer["shimmer"]> | null;
+  /** Indices of the dots the shimmer re-inks: those with a lit still tone. */
+  readonly lit: Int32Array | null;
+  readonly sprites: NonNullable<SceneLayer["sprites"]> | null;
+}
+
 interface Raster {
   readonly key: string;
-  readonly columns: number;
-  readonly rows: number;
+  readonly frame: Frame;
   readonly margin: number;
-  readonly layers: ReadonlyArray<{
-    readonly ink: number;
-    readonly depth: number;
-    readonly solid: boolean;
-    readonly firstRow: number;
-    readonly lastRow: number;
-    readonly tones: Float32Array;
-  }>;
+  readonly stride: number;
+  readonly dot: number;
+  readonly top: number;
+  readonly layers: ReadonlyArray<RasterLayer>;
 }
 
 // Hero and ambient swap as a thread starts, and threads remount the pane; keep the last few.
 const rasterCache: Array<Raster> = [];
+
+/** Scene coordinates of a raster dot, which tone functions take. */
+const sceneX = (raster: Raster, column: number) =>
+  (column + 0.5 - raster.frame.stageColumns / 2) * raster.dot;
+const sceneY = (raster: Raster, row: number) => raster.top + (row + 0.5) * raster.dot;
+/** Stage column of a raster index across a row, which includes the parallax margin. */
+const stageColumn = (raster: Raster, index: number) =>
+  raster.frame.firstColumn + index - raster.margin;
 
 function rasterise(
   scene: Scene,
@@ -216,68 +237,104 @@ function rasterise(
   const span = view[1] - view[0];
   const dot = span / stageRows;
   const stride = columns + margin * 2;
-  const layers = scene.layers({ aspect: stageColumns * dot, dot }).map((layer) => {
-    const tones = new Float32Array(stride * rows).fill(layer.solid ? -1 : 0);
+  const layers = scene.layers({ aspect: stageColumns * dot, dot }).map((layer): RasterLayer => {
     const bandRow = (edge: number) => (edge - view[0]) / dot - rowOffset;
     const firstRow = Math.max(0, Math.floor(bandRow(layer.band?.[0] ?? -9)));
     const lastRow = Math.min(rows - 1, Math.ceil(bandRow(layer.band?.[1] ?? 9)));
-    for (let j = firstRow; j <= lastRow; j++) {
-      const row = rowOffset + j;
-      const y = view[0] + (row + 0.5) * dot;
-      for (let i = 0; i < stride; i++) {
-        const column = firstColumn + i - margin;
-        tones[j * stride + i] = layer.tone((column + 0.5 - stageColumns / 2) * dot, y, column, row);
-      }
-    }
-    return {
+    const base = {
       ink: layer.ink,
       depth: layer.depth,
       solid: layer.solid === true,
       firstRow,
       lastRow,
-      tones,
+      tone: layer.tone,
+      shimmer: layer.shimmer ?? null,
+      sprites: layer.sprites ?? null,
     };
+    if (layer.sprites) return { ...base, tones: null, lit: null };
+    const tones = new Float32Array(stride * rows).fill(layer.solid ? -1 : 0);
+    const lit: Array<number> = [];
+    for (let j = firstRow; j <= lastRow; j++) {
+      const row = rowOffset + j;
+      const y = view[0] + (row + 0.5) * dot;
+      for (let i = 0; i < stride; i++) {
+        const column = firstColumn + i - margin;
+        const tone = layer.tone((column + 0.5 - stageColumns / 2) * dot, y, column, row, null);
+        tones[j * stride + i] = tone;
+        if (layer.shimmer && tone > 0) lit.push(j * stride + i);
+      }
+    }
+    return { ...base, tones, lit: layer.shimmer ? Int32Array.from(lit) : null };
   });
-  const raster = { key, columns, rows, margin, layers };
+  const raster = { key, frame, margin, stride, dot, top: view[0], layers };
   rasterCache.unshift(raster);
   rasterCache.length = Math.min(rasterCache.length, 4);
   return raster;
 }
 
-/** Front to back, each layer inks what the ones in front left uncovered. */
-function compose(raster: Raster, pointer: number, contrast: number): Float32Array {
-  const { columns, rows, margin, layers } = raster;
-  const stride = columns + margin * 2;
-  const plates = new Float32Array(columns * rows * 3);
-  const shifts = layers.map((layer) => margin - Math.round(layer.depth * pointer * margin));
-  for (let j = 0; j < rows; j++) {
-    for (let i = 0; i < columns; i++) {
+/** A canvas-dot rectangle, end-exclusive. */
+interface Region {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+/**
+ * Front to back, each layer inks what the ones in front left uncovered. Writes `region` of
+ * `plates`, or only its dots flagged in `only`, clearing their flags; `time` is the scene clock,
+ * or null for the still picture.
+ */
+function compose(
+  raster: Raster,
+  buffers: ReadonlyArray<Float32Array>,
+  shifts: ReadonlyArray<number>,
+  contrast: number,
+  time: number | null,
+  plates: Float32Array,
+  region: Region,
+  only?: Uint8Array,
+) {
+  const { layers, stride } = raster;
+  const { columns, firstRow: rowOffset } = raster.frame;
+  for (let j = region.y0; j < region.y1; j++) {
+    for (let i = region.x0; i < region.x1; i++) {
+      if (only !== undefined) {
+        if (only[j * columns + i] === 0) continue;
+        only[j * columns + i] = 0;
+      }
       let open = 1;
       const at = (j * columns + i) * 3;
+      plates[at] = 0;
+      plates[at + 1] = 0;
+      plates[at + 2] = 0;
       for (let index = layers.length - 1; index >= 0 && open > 0.004; index--) {
         const layer = layers[index]!;
         if (j < layer.firstRow || j > layer.lastRow) continue;
-        const raw = layer.tones[j * stride + i + shifts[index]!]!;
+        const column = i + shifts[index]!;
+        let raw = buffers[index]![j * stride + column]!;
         if (raw < 0) continue;
+        if (layer.shimmer !== null && raw > 0) {
+          raw = layer.shimmer(raw, stageColumn(raster, column), rowOffset + j, time);
+        }
         const tone = raw <= 0 ? 0 : clamp01((raw - 0.35) * contrast + 0.35);
         plates[at + layer.ink]! += open * tone;
         open = layer.solid ? 0 : open * (1 - tone);
       }
     }
   }
-  return plates;
 }
 
 /** Vertical glass ribs: each bends what is behind it sideways and shades towards one edge. */
 function flute(
   plates: Float32Array,
+  out: Float32Array,
   columns: number,
-  rows: number,
   rib: number,
   distortion: number,
-): Float32Array {
-  const out = new Float32Array(plates.length);
-  for (let i = 0; i < columns; i++) {
+  region: Region,
+) {
+  for (let i = region.x0; i < region.x1; i++) {
     const across = (i % rib) / rib;
     const from = Math.min(
       columns - 1,
@@ -285,7 +342,7 @@ function flute(
     );
     const shade = 1 - 0.5 * distortion * across * across;
     const edge = i % rib === 0 ? 0.06 + 0.14 * distortion : 0;
-    for (let j = 0; j < rows; j++) {
+    for (let j = region.y0; j < region.y1; j++) {
       const to = (j * columns + i) * 3;
       const source = (j * columns + from) * 3;
       out[to] = plates[source]! * shade;
@@ -293,14 +350,25 @@ function flute(
       out[to + 2] = Math.min(1, plates[source + 2]! * shade + edge);
     }
   }
-  return out;
 }
 
-function printDither(plates: Float32Array, columns: number, rows: number, inks: ThemeInks["inks"]) {
-  const image = new ImageData(columns, rows);
+/** Blanks a region of the image before it is printed again. */
+function clearRegion(image: ImageData, region: Region) {
+  for (let y = region.y0; y < region.y1; y++) {
+    image.data.fill(0, (y * image.width + region.x0) * 4, (y * image.width + region.x1) * 4);
+  }
+}
+
+function printDither(
+  plates: Float32Array,
+  inks: ThemeInks["inks"],
+  image: ImageData,
+  region: Region,
+) {
   const pixels = image.data;
-  for (let j = 0; j < rows; j++) {
-    for (let i = 0; i < columns; i++) {
+  const columns = image.width;
+  for (let j = region.y0; j < region.y1; j++) {
+    for (let i = region.x0; i < region.x1; i++) {
       const at = (j * columns + i) * 3;
       const threshold = bayer8[(j & 7) * 8 + (i & 7)]!;
       const accent = plates[at]!;
@@ -316,7 +384,6 @@ function printDither(plates: Float32Array, columns: number, rows: number, inks: 
       pixels[to + 3] = 255;
     }
   }
-  return image;
 }
 
 interface Print {
@@ -400,12 +467,17 @@ function screenDot(
   return ink + Math.min(cover, 0.999);
 }
 
-function printHalftone(print: Print, cell: number, degrees: number) {
-  const image = new ImageData(print.width, print.height);
+function printHalftone(
+  print: Print,
+  cell: number,
+  degrees: number,
+  image: ImageData,
+  region: Region,
+) {
   const cos = Math.cos((degrees * Math.PI) / 180);
   const sin = Math.sin((degrees * Math.PI) / 180);
-  for (let y = 0; y < print.height; y++) {
-    for (let x = 0; x < print.width; x++) {
+  for (let y = region.y0; y < region.y1; y++) {
+    for (let x = region.x0; x < region.x1; x++) {
       const dot = screenDot(print, x, y, cell, cos, sin, -1);
       if (dot <= 0) continue;
       const ink = Math.floor(dot);
@@ -420,7 +492,6 @@ function printHalftone(print: Print, cell: number, degrees: number) {
       );
     }
   }
-  return image;
 }
 
 // Each ink has its own screen angle, as process plates do, so overlaps make rosettes.
@@ -429,11 +500,16 @@ const PLATE_ANGLES = [75, 15, 45].map((degrees) => {
   return [Math.cos(radians), Math.sin(radians)] as const;
 });
 
-function printProcess(print: Print, cell: number, offset: number) {
-  const image = new ImageData(print.width, print.height);
+function printProcess(
+  print: Print,
+  cell: number,
+  offset: number,
+  image: ImageData,
+  region: Region,
+) {
   const cover = [0, 0, 0];
-  for (let y = 0; y < print.height; y++) {
-    for (let x = 0; x < print.width; x++) {
+  for (let y = region.y0; y < region.y1; y++) {
+    for (let x = region.x0; x < region.x1; x++) {
       for (let plate = 0; plate < 3; plate++) {
         const [cos, sin] = PLATE_ANGLES[plate]!;
         const slip = (plate - 1) * offset;
@@ -449,7 +525,6 @@ function printProcess(print: Print, cell: number, offset: number) {
       );
     }
   }
-  return image;
 }
 
 function grainAt(x: number, y: number, seed: number): number {
@@ -459,14 +534,13 @@ function grainAt(x: number, y: number, seed: number): number {
 }
 
 /** Continuous tone on a toothy sheet: grain breaks the ink up, fibres run across it. */
-function printPaper(print: Print, grain: number, fibre: number) {
-  const image = new ImageData(print.width, print.height);
+function printPaper(print: Print, grain: number, fibre: number, image: ImageData, region: Region) {
   const { plates, columns, rows } = print;
-  for (let y = 0; y < print.height; y++) {
+  for (let y = region.y0; y < region.y1; y++) {
     const sourceY = Math.min(rows - 1.001, Math.max(0, (y + 0.5) * print.scale - 0.5));
     const j = Math.floor(sourceY);
     const fy = sourceY - j;
-    for (let x = 0; x < print.width; x++) {
+    for (let x = region.x0; x < region.x1; x++) {
       const sourceX = Math.min(columns - 1.001, Math.max(0, (x + 0.5) * print.scale - 0.5));
       const i = Math.floor(sourceX);
       const fx = sourceX - i;
@@ -493,10 +567,38 @@ function printPaper(print: Print, grain: number, fibre: number) {
       );
     }
   }
-  return image;
 }
 
-/** Draws `options` on the canvas and keeps it current; returns the way to stop. */
+/** A moving layer's sprite boxes as raster rectangles, with the key that says how each looks. */
+function spriteRects(raster: Raster, layer: RasterLayer, sprites: ReadonlyArray<Sprite>) {
+  const { frame, dot, margin, stride, top } = raster;
+  const rects: Array<number> = [];
+  for (const sprite of sprites) {
+    const index = (x: number) =>
+      x / dot + frame.stageColumns / 2 - 0.5 - frame.firstColumn + margin;
+    const row = (y: number) => (y - top) / dot - 0.5 - frame.firstRow;
+    const x0 = Math.max(0, Math.floor(index(sprite.x0)) - 1);
+    const x1 = Math.min(stride, Math.ceil(index(sprite.x1)) + 2);
+    const y0 = Math.max(layer.firstRow, Math.floor(row(sprite.y0)) - 1);
+    const y1 = Math.min(layer.lastRow + 1, Math.ceil(row(sprite.y1)) + 2);
+    if (x0 >= x1 || y0 >= y1) continue;
+    rects.push(x0, y0, x1, y1, sprite.key ?? 0);
+  }
+  return rects;
+}
+
+const sameRects = (a: ReadonlyArray<number>, b: ReadonlyArray<number>) =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
+
+// Redraws gather into tiles of this many dots a side, then print row runs of them.
+const TILE = 8;
+// A tick checks every third lit dot for a shimmer's change; a twinkle lags a fraction of a second.
+const SHIMMER_SHARE = 3;
+
+/**
+ * Draws `options` on the canvas and keeps it current; returns the way to stop. With a clock,
+ * each tick re-inks only the dots its shimmers and sprites changed.
+ */
 export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOptions): () => void {
   const context = canvas.getContext("2d");
   if (context === null) return () => undefined;
@@ -505,6 +607,81 @@ export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOption
   let height = 0;
   let pointer = 0;
   let settle = 0;
+  let time: number | null = options.clock ? options.clock.time() : null;
+
+  // What the last full draw left, so a tick can repaint a part of it.
+  interface Painted {
+    readonly raster: Raster;
+    readonly buffers: ReadonlyArray<Float32Array>;
+    readonly shifts: ReadonlyArray<number>;
+    readonly plates: Float32Array;
+    readonly print: (region: Region) => void;
+    /** The output pixels a change to these canvas dots can reach. */
+    readonly reach: (region: Region) => Region;
+    readonly image: ImageData;
+    /** Per layer: the shimmer's last tone for each lit dot. */
+    readonly shimmered: ReadonlyArray<Float32Array | null>;
+    /** Per layer: the sprite rectangles last stamped. */
+    readonly stamped: Array<ReadonlyArray<number>>;
+    /** Dots a tick changed, and the tiles holding them, which print and upload together. */
+    readonly changed: Uint8Array;
+    readonly tiles: Uint8Array;
+    readonly tileColumns: number;
+    /** Ticks since this draw; shimmers are checked a share of their dots at a time. */
+    ticks: number;
+  }
+  let painted: Painted | null = null;
+  // A mount's own tones for its moving layers, kept while the raster stays the same.
+  let liveFor: Raster | null = null;
+  let live: Array<Float32Array | null> = [];
+
+  /**
+   * Inks a moving layer's new boxes and blanks what only its old ones covered, telling `changed`
+   * about each dot whose tone actually moved, so a train's even flank is not printed again.
+   */
+  const restamp = (
+    raster: Raster,
+    index: number,
+    before: ReadonlyArray<number>,
+    rects: ReadonlyArray<number>,
+    at: number | null,
+    changed: (i: number, j: number) => void,
+  ) => {
+    const layer = raster.layers[index]!;
+    const buffer = live[index]!;
+    const { stride } = raster;
+    for (let n = 0; n < rects.length; n += 5) {
+      for (let j = rects[n + 1]!; j < rects[n + 3]!; j++) {
+        const row = raster.frame.firstRow + j;
+        const y = sceneY(raster, row);
+        for (let i = rects[n]!; i < rects[n + 2]!; i++) {
+          const column = stageColumn(raster, i);
+          const tone = Math.fround(layer.tone(sceneX(raster, column), y, column, row, at));
+          if (buffer[j * stride + i] === tone) continue;
+          buffer[j * stride + i] = tone;
+          changed(i, j);
+        }
+      }
+    }
+    const empty = layer.solid ? -1 : 0;
+    const inNew = (i: number, j: number) => {
+      for (let n = 0; n < rects.length; n += 5) {
+        if (i >= rects[n]! && i < rects[n + 2]! && j >= rects[n + 1]! && j < rects[n + 3]!) {
+          return true;
+        }
+      }
+      return false;
+    };
+    for (let n = 0; n < before.length; n += 5) {
+      for (let j = before[n + 1]!; j < before[n + 3]!; j++) {
+        for (let i = before[n]!; i < before[n + 2]!; i++) {
+          if (buffer[j * stride + i] === empty || inNew(i, j)) continue;
+          buffer[j * stride + i] = empty;
+          changed(i, j);
+        }
+      }
+    }
+  };
 
   const draw = () => {
     if (width < 8 || height < 8 || options.treatment === "none") return;
@@ -542,18 +719,69 @@ export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOption
       margin,
       VIEWS[variant],
     );
-    let plates = compose(raster, pointer, values.contrast ?? 1);
-    if (treatment === "fluted") {
-      const rib = Math.max(3, Math.round(((values.ribSize ?? 36) * miniature) / dot));
-      plates = flute(plates, columns, rows, rib, values.distortion ?? 0.5);
+    if (liveFor !== raster) {
+      liveFor = raster;
+      live = raster.layers.map((layer) =>
+        layer.sprites ? new Float32Array(raster.stride * rows).fill(layer.solid ? -1 : 0) : null,
+      );
     }
+    const stamped = raster.layers.map((layer, index) => {
+      if (layer.sprites === null) return [];
+      live[index]!.fill(layer.solid ? -1 : 0);
+      const rects = spriteRects(raster, layer, layer.sprites(time));
+      restamp(raster, index, [], rects, time, () => undefined);
+      return rects;
+    });
+    const shimmered = raster.layers.map((layer) => {
+      const { lit, shimmer, tones } = layer;
+      if (lit === null || shimmer === null || tones === null || time === null) return null;
+      const now = time;
+      return Float32Array.from(lit, (k) =>
+        shimmer(
+          tones[k]!,
+          stageColumn(raster, k % raster.stride),
+          frame.firstRow + Math.floor(k / raster.stride),
+          now,
+        ),
+      );
+    });
+    const buffers = raster.layers.map((layer, index) => layer.tones ?? live[index]!);
+    const shifts = raster.layers.map(
+      (layer) => margin - Math.round(layer.depth * pointer * margin),
+    );
+    const contrast = values.contrast ?? 1;
+    const whole: Region = { x0: 0, y0: 0, x1: columns, y1: rows };
+    const plates = new Float32Array(columns * rows * 3);
+    compose(raster, buffers, shifts, contrast, time, plates, whole);
+
     let image: ImageData;
+    let print: (region: Region) => void;
+    let reach: (region: Region) => Region;
     if (dithered) {
-      image = printDither(plates, columns, rows, theme.inks);
+      image = new ImageData(columns, rows);
+      if (treatment === "fluted") {
+        const rib = Math.max(3, Math.round(((values.ribSize ?? 36) * miniature) / dot));
+        const distortion = values.distortion ?? 0.5;
+        const fluted = new Float32Array(plates.length);
+        // A rib bends its source this many columns at most.
+        const bend = Math.ceil(rib * distortion * 1.5) + 1;
+        reach = (region) => ({
+          ...region,
+          x0: Math.max(0, region.x0 - bend),
+          x1: Math.min(columns, region.x1 + bend),
+        });
+        print = (region) => {
+          flute(plates, fluted, columns, rib, distortion, region);
+          printDither(fluted, theme.inks, image, region);
+        };
+      } else {
+        reach = (region) => region;
+        print = (region) => printDither(plates, theme.inks, image, region);
+      }
     } else {
       // Three screens per pixel make the process print the dearest, so it always prints at half.
       const step = treatment !== "halftone" || width * height > MAX_PRINT_PIXELS ? 2 : 1;
-      const print: Print = {
+      const printing: Print = {
         plates,
         columns,
         rows,
@@ -562,21 +790,113 @@ export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOption
         scale: step / dot,
         inks: theme.inks,
       };
-      image =
+      image = new ImageData(printing.width, printing.height);
+      const cell = ((values.dotSize ?? (treatment === "halftone" ? 8 : 7)) * miniature) / step;
+      const offset = ((values.offset ?? 2) * miniature) / step;
+      // A screen cell reads the dot at its centre, so a change reaches about a cell around it.
+      const pad = treatment === "paper" ? 2 : Math.ceil(cell * 1.5 + offset) + 2;
+      const toPixels = dot / step;
+      reach = (region) => ({
+        x0: Math.max(0, Math.floor(region.x0 * toPixels) - pad),
+        y0: Math.max(0, Math.floor(region.y0 * toPixels) - pad),
+        x1: Math.min(printing.width, Math.ceil(region.x1 * toPixels) + pad),
+        y1: Math.min(printing.height, Math.ceil(region.y1 * toPixels) + pad),
+      });
+      print =
         treatment === "halftone"
-          ? printHalftone(print, ((values.dotSize ?? 8) * miniature) / step, values.angle ?? 30)
+          ? (region) => printHalftone(printing, cell, values.angle ?? 30, image, region)
           : treatment === "cmyk"
-            ? printProcess(
-                print,
-                ((values.dotSize ?? 7) * miniature) / step,
-                ((values.offset ?? 2) * miniature) / step,
-              )
-            : printPaper(print, values.grain ?? 0.5, values.fibre ?? 0.4);
+            ? (region) => printProcess(printing, cell, offset, image, region)
+            : (region) =>
+                printPaper(printing, values.grain ?? 0.5, values.fibre ?? 0.4, image, region);
     }
+    print(reach(whole));
     if (canvas.width !== image.width) canvas.width = image.width;
     if (canvas.height !== image.height) canvas.height = image.height;
     canvas.style.imageRendering = treatment === "paper" ? "auto" : "pixelated";
     context.putImageData(image, 0, 0);
+    const tileColumns = Math.ceil(columns / TILE);
+    painted = {
+      raster,
+      buffers,
+      shifts,
+      plates,
+      print,
+      reach,
+      image,
+      shimmered,
+      stamped,
+      changed: new Uint8Array(columns * rows),
+      tiles: new Uint8Array(tileColumns * Math.ceil(rows / TILE)),
+      tileColumns,
+      ticks: 0,
+    };
+  };
+
+  /** Moves the picture to the clock's `next` time, repainting only the tiles that changed. */
+  const tick = (next: number) => {
+    time = next;
+    const state = painted;
+    if (state === null) return;
+    const { raster, shifts, tiles, tileColumns, changed } = state;
+    const { columns, rows, firstRow } = raster.frame;
+    const phase = state.ticks++ % SHIMMER_SHARE;
+    let dirty = false;
+    const mark = (i: number, j: number) => {
+      if (i < 0 || i >= columns) return;
+      changed[j * columns + i] = 1;
+      tiles[Math.floor(j / TILE) * tileColumns + Math.floor(i / TILE)] = 1;
+      dirty = true;
+    };
+    raster.layers.forEach((layer, index) => {
+      const last = state.shimmered[index];
+      if (layer.shimmer !== null && layer.lit !== null && layer.tones !== null && last) {
+        const { lit, tones, shimmer } = layer;
+        for (let n = phase; n < lit.length; n += SHIMMER_SHARE) {
+          const k = lit[n]!;
+          const across = k % raster.stride;
+          const j = (k - across) / raster.stride;
+          const tone = Math.fround(
+            shimmer(tones[k]!, stageColumn(raster, across), firstRow + j, next),
+          );
+          if (tone === last[n]) continue;
+          last[n] = tone;
+          mark(across - shifts[index]!, j);
+        }
+      }
+      if (layer.sprites !== null) {
+        const before = state.stamped[index]!;
+        const rects = spriteRects(raster, layer, layer.sprites(next));
+        if (sameRects(before, rects)) return;
+        const shift = shifts[index]!;
+        restamp(raster, index, before, rects, next, (i, j) => mark(i - shift, j));
+        state.stamped[index] = rects;
+      }
+    });
+    if (!dirty) return;
+    const contrast = options.values.contrast ?? 1;
+    for (let ty = 0; ty * TILE < rows; ty++) {
+      for (let tx = 0; tx < tileColumns; tx++) {
+        if (tiles[ty * tileColumns + tx] === 0) continue;
+        let end = tx;
+        while (end < tileColumns && tiles[ty * tileColumns + end] === 1) {
+          tiles[ty * tileColumns + end] = 0;
+          end++;
+        }
+        const span: Region = {
+          x0: tx * TILE,
+          y0: ty * TILE,
+          x1: Math.min(columns, end * TILE),
+          y1: Math.min(rows, (ty + 1) * TILE),
+        };
+        const out = state.reach(span);
+        compose(raster, state.buffers, shifts, contrast, next, state.plates, span, changed);
+        clearRegion(state.image, out);
+        state.print(out);
+        context.putImageData(state.image, 0, 0, out.x0, out.y0, out.x1 - out.x0, out.y1 - out.y0);
+        tx = end;
+      }
+    }
   };
 
   // The canvas stretches with its box meanwhile; the picture is redrawn once the drag rests.
@@ -603,13 +923,13 @@ export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOption
       })
     : () => undefined;
   const unsubscribeTheme = subscribeThemeInks(draw);
+  const unsubscribeClock = options.clock?.subscribe(tick) ?? (() => undefined);
 
   // Layers slide a few dots as the pointer crosses the window; a draw happens only when the
   // pointer enters the next dot-wide step, so a still or absent pointer costs nothing.
   const stillness = window.matchMedia("(prefers-reduced-motion: reduce)");
   const onPointerMove = (event: PointerEvent) => {
-    const treatment = options.treatment;
-    if (stillness.matches || (treatment !== "dither" && treatment !== "fluted")) return;
+    if (stillness.matches || !backdropTreatmentMoves(options.treatment)) return;
     const steps = Math.ceil(PARALLAX_PX / SOURCE_DOT);
     const next = Math.round(((event.clientX / window.innerWidth) * 2 - 1) * steps) / steps;
     if (next === pointer) return;
@@ -625,6 +945,7 @@ export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOption
     stopObservingSize();
     stopObservingStage();
     unsubscribeTheme();
+    unsubscribeClock();
     window.removeEventListener("pointermove", onPointerMove);
   };
 }

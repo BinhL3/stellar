@@ -452,6 +452,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       : []),
     ...(settings.backdropTreatment !== DEFAULT_UNIFIED_SETTINGS.backdropTreatment ||
     settings.backdropStrength !== DEFAULT_UNIFIED_SETTINGS.backdropStrength ||
+    settings.backdropAnimated !== DEFAULT_UNIFIED_SETTINGS.backdropAnimated ||
     Object.keys(settings.backdropParams).length > 0
       ? ["Backdrop"]
       : []),
@@ -633,6 +634,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       backdropTreatment: DEFAULT_UNIFIED_SETTINGS.backdropTreatment,
       backdropStrength: DEFAULT_UNIFIED_SETTINGS.backdropStrength,
       backdropParams: DEFAULT_UNIFIED_SETTINGS.backdropParams,
+      backdropAnimated: DEFAULT_UNIFIED_SETTINGS.backdropAnimated,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,

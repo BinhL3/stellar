@@ -347,6 +347,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "backdrop-animation",
+    title: "Animate background",
+    to: "/settings/appearance",
+    searchTerms: ["backdrop motion moving twinkle stars train petals still"],
+  },
+  {
     // Prefixed because the slider control already owns the `appearance-contrast` id.
     id: "setting-appearance-contrast",
     title: "Contrast",

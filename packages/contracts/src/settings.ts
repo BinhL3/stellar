@@ -428,6 +428,7 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   backdropStrength: BackdropStrength.pipe(Schema.withDecodingDefault(Effect.succeed(100))),
   backdropParams: BackdropParams.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  backdropAnimated: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // Zero avoids per-frame layout work from width/height transitions.
   panelAnimationDurationMs: PanelAnimationDurationMs.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PANEL_ANIMATION_DURATION_MS)),
@@ -1910,6 +1911,7 @@ export const ClientSettingsPatch = Schema.Struct({
   backdropTreatment: Schema.optionalKey(BackdropTreatment),
   backdropStrength: Schema.optionalKey(BackdropStrength),
   backdropParams: Schema.optionalKey(BackdropParams),
+  backdropAnimated: Schema.optionalKey(Schema.Boolean),
   panelAnimationDurationMs: Schema.optionalKey(PanelAnimationDurationMs),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),

@@ -65,6 +65,7 @@ import { MarkersPanel } from "~/components/timeline/MarkersPanel";
 import { RulerMarkers, type ScriptTick } from "~/components/timeline/RulerMarkers";
 import type { PreviewEngine } from "~/components/timeline/previewEngine";
 import { useTimelineLayoutStore } from "~/components/timeline/timelineLayoutStore";
+import { useBackdropHold } from "~/components/backdrop/Backdrop";
 import { TimelinePlayerContext } from "~/components/timeline/timelinePlayer";
 import { MonitorAudio } from "~/components/timeline/MonitorAudio";
 import { type PreviewMedia, TimelinePreview } from "~/components/timeline/TimelinePreview";
@@ -387,6 +388,12 @@ function createValueStore() {
 type ValueStore = ReturnType<typeof createValueStore>;
 
 /** The speed badge (2×, ◀ 4×) and the play/pause button, which follow the speed store. */
+/** Keeps the backdrop still while the monitor plays, so the two never share the frame budget. */
+function BackdropHoldWhilePlaying(props: { readonly store: ValueStore }) {
+  useBackdropHold(useSyncExternalStore(props.store.subscribe, () => props.store.get() !== 0));
+  return null;
+}
+
 function SpeedBadge(props: { readonly store: ValueStore }) {
   const speed = useSyncExternalStore(props.store.subscribe, props.store.get);
   if (speed === 0 || speed === 1) return null;
@@ -1480,6 +1487,7 @@ export default function TimelineViewer(props: {
             <div className="flex min-w-0 items-center gap-1.5 [grid-area:time] @max-[20rem]/viewer:justify-center">
               <PlayheadTimecode store={playheadStore} rate={rate} duration={duration} />
               <SpeedBadge store={speedStore} />
+              <BackdropHoldWhilePlaying store={speedStore} />
               {marks.in !== null || marks.out !== null ? (
                 <InOutReadout
                   marks={marks}

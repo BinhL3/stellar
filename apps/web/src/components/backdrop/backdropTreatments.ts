@@ -69,6 +69,13 @@ export const BACKDROP_TREATMENT_OPTIONS = BACKDROP_TREATMENTS.map(
   (treatment) => [treatment, BACKDROP_TREATMENT_SPECS[treatment].label] as const,
 );
 
+/**
+ * Prints cheap enough to redraw while the scene moves: one ink per dot. The others work out a
+ * screen per output pixel, so they keep a still picture and skip pointer parallax.
+ */
+export const backdropTreatmentMoves = (treatment: BackdropTreatment) =>
+  treatment === "dither" || treatment === "fluted";
+
 export const backdropParamKey = (treatment: BackdropTreatment, sliderKey: string) =>
   `${treatment}.${sliderKey}`;
 

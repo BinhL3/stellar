@@ -11,9 +11,11 @@ import {
   BACKDROP_TREATMENT_SPECS,
   backdropParamKey,
   backdropSliderPercent,
+  backdropTreatmentMoves,
   formatBackdropSliderValue,
 } from "../backdrop/backdropTreatments";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -63,6 +65,7 @@ export function BackdropSettingsSection() {
   const treatment = useScopedSettings((settings) => settings.backdropTreatment);
   const strength = useScopedSettings((settings) => settings.backdropStrength);
   const params = useScopedSettings((settings) => settings.backdropParams);
+  const animated = useScopedSettings((settings) => settings.backdropAnimated);
   const updateSettings = useUpdateScopedSettings();
   const spec = BACKDROP_TREATMENT_SPECS[treatment];
 
@@ -168,6 +171,35 @@ export function BackdropSettingsSection() {
                   percent={strength}
                   display={`${strength}%`}
                   onChange={(next) => updateSettings({ backdropStrength: next })}
+                />
+              }
+            />
+          )}
+          {treatment === "none" ? null : (
+            <SettingsRow
+              {...searchableSetting("backdrop-animation")}
+              description={
+                backdropTreatmentMoves(treatment)
+                  ? "Stars twinkle, trains pass and petals fall. The scene rests while video plays, an agent replies, or the window is in the background."
+                  : "Only dithered and fluted backdrops move; this print stays still."
+              }
+              resetAction={
+                animated !== DEFAULT_UNIFIED_SETTINGS.backdropAnimated ? (
+                  <SettingResetButton
+                    label="background animation"
+                    onClick={() =>
+                      updateSettings({
+                        backdropAnimated: DEFAULT_UNIFIED_SETTINGS.backdropAnimated,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={animated}
+                  onCheckedChange={(checked) => updateSettings({ backdropAnimated: checked })}
+                  aria-label="Animate background"
                 />
               }
             />

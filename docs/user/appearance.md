@@ -23,6 +23,11 @@ dots, halftone CMYK, fluted glass, paper texture, or none. Each treatment has it
 **Strength** fades the scene everywhere. The scene shifts slightly with the pointer on a new
 thread, except when your system asks for reduced motion.
 
+With dithered dots or fluted glass, the scene also moves gently: stars twinkle, city windows go
+on and off, a train crosses now and then, petals fall and surf runs up the beach. It rests while
+the timeline monitor plays, while an agent is replying, when the window is in the background, and
+when your system asks for reduced motion. Turn **Animate background** off to keep it still.
+
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.
 Customize the shortcut under **Settings → Keybindings**.

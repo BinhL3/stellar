@@ -3,8 +3,9 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 
+import { backdropClock } from "./backdropClock";
 import type { BackdropVariant } from "./backdropEngine";
-import { resolveBackdropValues } from "./backdropTreatments";
+import { backdropTreatmentMoves, resolveBackdropValues } from "./backdropTreatments";
 
 // Full strength where there is nothing to read. Behind text a solid patch of the brightest
 // accent must still leave muted text at 4.5:1, which a fifth does in every built-in palette.
@@ -39,6 +40,12 @@ function registerStage(stage: Stage): () => void {
   };
 }
 
+/** Holds every animated backdrop still while `active`: video playing, a turn streaming in. */
+export function useBackdropHold(active: boolean) {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Holds the page-wide backdrop clock, which lives outside React.
+  useEffect(() => (active ? backdropClock().hold() : undefined), [active]);
+}
+
 // The scenes and printing code stay out of the first-paint bundle.
 const loadEngine = () => import("./backdropEngine");
 
@@ -68,6 +75,9 @@ export function Backdrop(props: {
   const treatment = useClientSettings((settings) => settings.backdropTreatment);
   const strength = useClientSettings((settings) => settings.backdropStrength);
   const params = useClientSettings((settings) => settings.backdropParams);
+  const animated = useClientSettings(
+    (settings) => settings.backdropAnimated && backdropTreatmentMoves(settings.backdropTreatment),
+  );
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawnRef = useRef(false);
   const visible = treatment !== "none" && strength > 0;
@@ -95,6 +105,7 @@ export function Backdrop(props: {
             treatment,
             values: resolveBackdropValues(treatment, params),
             ...(stageElement ? { stage: stageElement } : {}),
+            ...(animated ? { clock: backdropClock() } : {}),
           });
         },
         () => undefined,
@@ -109,7 +120,7 @@ export function Backdrop(props: {
       window.clearTimeout(timer);
       stop();
     };
-  }, [variant, treatment, params, visible, stageElement]);
+  }, [variant, treatment, params, visible, stageElement, animated]);
 
   return (
     <div
