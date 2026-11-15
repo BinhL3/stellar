@@ -901,8 +901,10 @@ describe("synchronized model preferences", () => {
     expect(initial.providerModelPreferences?.[provider]).toEqual(
       legacy.providerModelPreferences[provider],
     );
+    // Showing a model records it, so the curated default cannot collapse it again.
     expect(web.providerModelPreferences?.[provider]).toEqual({
       hiddenModels: ["luna", "sol"],
+      shownModels: ["astra"],
       modelOrder: ["sol", "luna", "astra"],
     });
     expect(web.providerModelPreferences?.[otherProvider]).toEqual(
@@ -912,7 +914,7 @@ describe("synchronized model preferences", () => {
       applyServerSettingsPatch(web, {
         setProviderModelOrder: { provider, modelOrder: [] },
       }).providerModelPreferences?.[provider],
-    ).toEqual({ hiddenModels: ["luna", "sol"], modelOrder: [] });
+    ).toEqual({ hiddenModels: ["luna", "sol"], shownModels: ["astra"], modelOrder: [] });
   });
 
   it("migrates saved lists independently without claiming empty legacy lists", () => {

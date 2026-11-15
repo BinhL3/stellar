@@ -20,6 +20,7 @@ import {
 import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
   getProviderOptionDescriptors,
+  resolveInstanceModelPreferences,
 } from "@t3tools/shared/model";
 import { resolveModelShortName } from "@t3tools/client-runtime/provider-clients";
 
@@ -353,9 +354,13 @@ export function buildModelOptions(
     const updateRequired = provider.updateRequiredModels?.length
       ? { driver: provider.driver, updateRequiredModels: provider.updateRequiredModels }
       : undefined;
-    const preferences = config?.settings?.providerModelPreferences?.[provider.instanceId];
-    const hiddenModels = new Set(preferences?.hiddenModels ?? []);
-    const order = new Map((preferences?.modelOrder ?? []).map((slug, index) => [slug, index]));
+    const preferences = resolveInstanceModelPreferences(
+      config?.settings?.providerModelPreferences?.[provider.instanceId],
+      provider.driver,
+      provider.models,
+    );
+    const hiddenModels = new Set([...preferences.hiddenModels, ...preferences.curatedHiddenModels]);
+    const order = new Map(preferences.modelOrder.map((slug, index) => [slug, index]));
     const models = provider.models.filter(
       (model) => includeHidden || model.isCustom || !hiddenModels.has(model.slug),
     );
@@ -394,6 +399,7 @@ export function buildModelOptions(
     }
   }
 
+  // Only an explicit hide drops the saved selection; the curated default never does.
   if (
     fallbackModelSelection &&
     (providerInstanceId === undefined ||

@@ -481,9 +481,15 @@ export function applyServerSettingsPatch(
         hiddenModels: [],
         modelOrder: [],
       };
+      const { shownModels: previouslyShown = [], ...rest } = preferences;
       const hiddenModels = preferences.hiddenModels.filter((model) => model !== change.model);
-      if (change.hidden) hiddenModels.push(change.model);
-      updated[change.provider] = { ...preferences, hiddenModels };
+      const shownModels = previouslyShown.filter((model) => model !== change.model);
+      (change.hidden ? hiddenModels : shownModels).push(change.model);
+      updated[change.provider] = {
+        ...rest,
+        hiddenModels,
+        ...(shownModels.length > 0 ? { shownModels } : {}),
+      };
     }
     nextModelPreferences = updated;
   }

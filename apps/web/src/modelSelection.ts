@@ -15,6 +15,7 @@ import {
   createModelSelection,
   normalizeCustomModelSlug,
   readCustomModelEntries,
+  resolveInstanceModelPreferences,
   resolveSelectableModel,
 } from "@t3tools/shared/model";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
@@ -71,6 +72,8 @@ export interface AppModelOption {
   isDefault?: boolean;
   isLegacy?: boolean;
   isUnavailable?: boolean;
+  /** Outside the curated default: still selectable, listed under "Show more". */
+  isHidden?: boolean;
 }
 
 function appendUnavailableDynamicModelSelection(
@@ -114,25 +117,30 @@ function toAppModelOption(
 function readInstanceModelPreferences(
   settings: UnifiedSettings,
   instanceId: ProviderInstanceId,
-): { readonly hiddenModels: ReadonlyArray<string>; readonly modelOrder: ReadonlyArray<string> } {
-  return (
-    settings.providerModelPreferences?.[instanceId] ?? {
-      hiddenModels: [],
-      modelOrder: [],
-    }
+  driverKind: ProviderDriverKind,
+  models: ReadonlyArray<ServerProvider["models"][number]>,
+) {
+  return resolveInstanceModelPreferences(
+    settings.providerModelPreferences?.[instanceId],
+    driverKind,
+    models,
   );
 }
 
 function applyInstanceModelPreferences(
   options: ReadonlyArray<AppModelOption>,
-  preferences: {
-    readonly hiddenModels: ReadonlyArray<string>;
-    readonly modelOrder: ReadonlyArray<string>;
-  },
+  preferences: ReturnType<typeof resolveInstanceModelPreferences>,
 ): AppModelOption[] {
   const hiddenModels = new Set(preferences.hiddenModels);
+  const curatedHiddenModels = new Set(preferences.curatedHiddenModels);
   return sortModelsForProviderInstance(
-    options.filter((option) => option.isCustom || !hiddenModels.has(option.slug)),
+    Arr.filterMap(options, (option) => {
+      if (option.isCustom) return Result.succeed(option);
+      if (hiddenModels.has(option.slug)) return Result.failVoid;
+      return Result.succeed(
+        curatedHiddenModels.has(option.slug) ? { ...option, isHidden: true } : option,
+      );
+    }),
     { modelOrder: preferences.modelOrder },
   );
 }
@@ -195,7 +203,12 @@ function getAppModelOptions(
     });
   }
 
-  const preferences = readInstanceModelPreferences(settings, defaultInstanceId);
+  const preferences = readInstanceModelPreferences(
+    settings,
+    defaultInstanceId,
+    provider,
+    rawModels,
+  );
   return appendUnavailableDynamicModelSelection(
     applyInstanceModelPreferences(options, preferences),
     rawModels,
@@ -236,7 +249,12 @@ export function getAppModelOptionsForInstance(
     });
   }
 
-  const preferences = readInstanceModelPreferences(settings, entry.instanceId);
+  const preferences = readInstanceModelPreferences(
+    settings,
+    entry.instanceId,
+    entry.driverKind,
+    entry.models,
+  );
   return appendUnavailableDynamicModelSelection(
     applyInstanceModelPreferences(options, preferences),
     entry.models,
@@ -285,7 +303,12 @@ export function resolveAppModelSelectionForInstance(
     (entry.driverKind === "opencode" || entry.driverKind === "antigravity")
   ) {
     const unavailableSelection = normalizeCustomModelSlug(selectedModel);
-    const hiddenModels = readInstanceModelPreferences(settings, entry.instanceId).hiddenModels;
+    const hiddenModels = readInstanceModelPreferences(
+      settings,
+      entry.instanceId,
+      entry.driverKind,
+      entry.models,
+    ).hiddenModels;
     if (
       unavailableSelection &&
       !hiddenModels.includes(unavailableSelection) &&
@@ -295,7 +318,14 @@ export function resolveAppModelSelectionForInstance(
       return unavailableSelection;
     }
   }
-  return options.find((option) => option.isDefault)?.slug ?? options[0]?.slug ?? null;
+  const listed = options.filter((option) => !option.isHidden);
+  return (
+    listed.find((option) => option.isDefault)?.slug ??
+    listed[0]?.slug ??
+    options.find((option) => option.isDefault)?.slug ??
+    options[0]?.slug ??
+    null
+  );
 }
 
 // New drafts carry the stored selection; capabilities resolve its raw options later.

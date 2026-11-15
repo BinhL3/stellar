@@ -1,4 +1,5 @@
 import {
+  CURATED_MODELS_BY_PROVIDER,
   type CustomModelSetting,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
   ModelCapabilities,
@@ -493,6 +494,55 @@ export function resolveSelectableModel(
 
   const resolved = options.find((option) => option.slug === normalized);
   return resolved ? resolved.slug : null;
+}
+
+export interface InstanceModelPreferences {
+  readonly hiddenModels: ReadonlyArray<string>;
+  readonly shownModels?: ReadonlyArray<string> | undefined;
+  readonly modelOrder: ReadonlyArray<string>;
+}
+
+/**
+ * Explicit choices win per model: `hiddenModels` removes a model, `shownModels` lists it. Models
+ * the user never touched follow the curated default: outside it they stay selectable behind
+ * "Show more". A driver with no curated model present lists only its default model.
+ */
+export function resolveInstanceModelPreferences(
+  stored: InstanceModelPreferences | undefined,
+  driverKind: ProviderDriverKind,
+  models: ReadonlyArray<{
+    readonly slug: string;
+    readonly isCustom: boolean;
+    readonly isDefault?: boolean | undefined;
+  }>,
+): {
+  readonly hiddenModels: ReadonlyArray<string>;
+  readonly curatedHiddenModels: ReadonlyArray<string>;
+  readonly modelOrder: ReadonlyArray<string>;
+} {
+  const builtIn = models.filter((model) => !model.isCustom);
+  const curated = (CURATED_MODELS_BY_PROVIDER[driverKind] ?? []).filter((slug) =>
+    builtIn.some((model) => model.slug === slug),
+  );
+  const hidden = new Set(stored?.hiddenModels);
+  const order = stored?.modelOrder ?? [];
+  const rank = (slug: string) => (order.includes(slug) ? order.indexOf(slug) : order.length);
+  const candidates = builtIn
+    .filter((model) => !hidden.has(model.slug))
+    .sort((a, b) => rank(a.slug) - rank(b.slug));
+  const fallback = candidates.find((model) => model.isDefault) ?? candidates[0];
+  const listed = new Set([
+    ...(curated.length > 0 ? curated : fallback ? [fallback.slug] : []),
+    ...(stored?.shownModels ?? []),
+    ...(stored?.hiddenModels ?? []),
+  ]);
+  return {
+    hiddenModels: stored?.hiddenModels ?? [],
+    curatedHiddenModels: builtIn
+      .filter((model) => !listed.has(model.slug))
+      .map((model) => model.slug),
+    modelOrder: stored && stored.modelOrder.length > 0 ? stored.modelOrder : curated,
+  };
 }
 
 function trimOrNull<T extends string>(value: T | null | undefined): T | null {

@@ -372,6 +372,8 @@ export const ProviderModelPreferences = Schema.Record(
   ProviderInstanceId,
   Schema.Struct({
     hiddenModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    /** Models the user listed again; they override the curated default list. */
+    shownModels: Schema.optionalKey(Schema.Array(Schema.String)),
     modelOrder: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   }),
 );

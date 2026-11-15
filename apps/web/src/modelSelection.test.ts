@@ -216,6 +216,95 @@ describe("scoped default model selections", () => {
   });
 });
 
+describe("curated default model list", () => {
+  const claudeId = ProviderInstanceId.make("claudeAgent");
+  const claude = provider({
+    provider: ProviderDriverKind.make("claudeAgent"),
+    instanceId: "claudeAgent",
+    models: ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-fable-5-2"],
+  });
+  const withPreferences = (
+    preferences: NonNullable<UnifiedSettings["providerModelPreferences"]>[ProviderInstanceId],
+  ): UnifiedSettings => ({
+    ...settingsWithProviderInstances(),
+    providerModelPreferences: { [claudeId]: preferences },
+  });
+  const listing = (settings: UnifiedSettings, providers = [claude]) =>
+    getAppModelOptionsForInstance(settings, deriveProviderInstanceEntries(providers)[0]!).map(
+      (option) => `${option.slug}${option.isHidden ? " (more)" : ""}`,
+    );
+
+  it.each([
+    [
+      "no saved entry lists the curated models first",
+      settingsWithProviderInstances(),
+      [
+        "claude-opus-5-5",
+        "claude-fable-5-2",
+        "claude-sonnet-5-5 (more)",
+        "claude-haiku-5-5 (more)",
+      ],
+    ],
+    [
+      "an explicit hide removes a curated model",
+      withPreferences({ hiddenModels: ["claude-fable-5-2"], modelOrder: [] }),
+      ["claude-opus-5-5", "claude-sonnet-5-5 (more)", "claude-haiku-5-5 (more)"],
+    ],
+    [
+      "a shown model leaves the curated default; untouched models stay behind it",
+      withPreferences({ hiddenModels: [], shownModels: ["claude-haiku-5-5"], modelOrder: [] }),
+      ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5 (more)", "claude-haiku-5-5"],
+    ],
+    [
+      "a saved order wins over the curated order",
+      withPreferences({ hiddenModels: [], modelOrder: ["claude-fable-5-2", "claude-opus-5-5"] }),
+      [
+        "claude-fable-5-2",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5 (more)",
+        "claude-haiku-5-5 (more)",
+      ],
+    ],
+  ] as const)("%s", (_name, settings, expected) => {
+    expect(listing(settings)).toEqual(expected);
+  });
+
+  it("lists only the default model of a driver without curated models", () => {
+    const cursor = provider({
+      provider: ProviderDriverKind.make("cursor"),
+      instanceId: "cursor",
+      models: ["composer-2", "auto", "gpt-6.1-sol"],
+    });
+    const providers = [
+      { ...cursor, models: cursor.models.map((m) => ({ ...m, isDefault: m.slug === "auto" })) },
+    ];
+    expect(listing(settingsWithProviderInstances(), providers)).toEqual([
+      "composer-2 (more)",
+      "auto",
+      "gpt-6.1-sol (more)",
+    ]);
+  });
+
+  it("keeps saved and text generation selections on models behind the curated default", () => {
+    const settings = settingsWithProviderInstances();
+    expect(
+      resolveAppModelSelectionForInstance(claudeId, settings, [claude], "claude-sonnet-5-5"),
+    ).toBe("claude-sonnet-5-5");
+    expect(resolveAppModelSelectionForInstance(claudeId, settings, [claude], null)).toBe(
+      "claude-opus-5-5",
+    );
+    expect(resolveAppModelSelectionState(settings, [claude]).model).toBe("claude-haiku-5-5");
+    expect(
+      resolveAppModelSelectionForInstance(
+        claudeId,
+        withPreferences({ hiddenModels: ["claude-sonnet-5-5"], modelOrder: [] }),
+        [claude],
+        "claude-sonnet-5-5",
+      ),
+    ).toBe("claude-opus-5-5");
+  });
+});
+
 describe("instance-scoped model selection", () => {
   it("keeps custom models on the provider instance that declared them", () => {
     const providers = [

@@ -52,6 +52,7 @@ import { ensureLocalApi } from "../../localApi";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
+import { resolveInstanceModelPreferences } from "@t3tools/shared/model";
 import {
   useEnvironments,
   usePrimaryEnvironmentId,
@@ -1204,7 +1205,7 @@ interface ProviderInstanceRowActions {
   readonly selectInstance: (instanceId: ProviderInstanceId) => void;
 }
 
-const NO_MODELS: ReadonlyArray<string> = [];
+const NO_MODELS_LIST: ServerProvider["models"] = [];
 
 /** Stable props let this boundary return cached cards even when settings rebuild parent row elements. */
 function ProviderInstanceRow({
@@ -1264,8 +1265,19 @@ function ProviderInstanceRow({
       : undefined;
   const isInstanceUpdateRunning =
     isUpdateDispatching || (liveProvider !== undefined && isProviderUpdateActive(liveProvider));
-  const hiddenModels = modelPreferences?.hiddenModels ?? NO_MODELS;
-  const modelOrder = modelPreferences?.modelOrder ?? NO_MODELS;
+  const effectiveModelPreferences = resolveInstanceModelPreferences(
+    modelPreferences,
+    driver,
+    liveProvider?.models ?? NO_MODELS_LIST,
+  );
+  const hiddenModels =
+    effectiveModelPreferences.curatedHiddenModels.length > 0
+      ? [
+          ...effectiveModelPreferences.hiddenModels,
+          ...effectiveModelPreferences.curatedHiddenModels,
+        ]
+      : effectiveModelPreferences.hiddenModels;
+  const modelOrder = effectiveModelPreferences.modelOrder;
   const favoriteModels = Arr.filterMap(favorites, (favorite) =>
     favorite.provider === instanceId ? Result.succeed(favorite.model) : Result.failVoid,
   );

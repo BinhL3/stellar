@@ -158,6 +158,17 @@ export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, strin
   [ProviderDriverKind.make("antigravity")]: ANTIGRAVITY_DEFAULT_MODEL,
 };
 
+/**
+ * Built-in models the picker lists until the user shows or hides a model; the rest stay
+ * selectable behind "Show more". Drivers without an entry list only their default model.
+ */
+export const CURATED_MODELS_BY_PROVIDER: Partial<
+  Record<ProviderDriverKind, ReadonlyArray<string>>
+> = {
+  [CODEX_DRIVER_KIND]: ["gpt-6.1-sol", DEFAULT_MODEL, "gpt-6-luna"],
+  [CLAUDE_DRIVER_KIND]: ["claude-opus-5-5", "claude-fable-5-2"],
+};
+
 export const DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER: Partial<
   Record<ProviderDriverKind, string>
 > = {

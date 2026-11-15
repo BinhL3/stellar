@@ -202,6 +202,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         });
         assert.deepEqual(shown.providerModelPreferences?.[provider], {
           hiddenModels: ["sol"],
+          shownModels: ["astra"],
           modelOrder: ["sol"],
         });
         assert.deepEqual(

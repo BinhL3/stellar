@@ -29,6 +29,17 @@ describe("mobile model options", () => {
       { id: "opencode", label: "OpenCode Zen" },
     ];
     const config = {
+      settings: {
+        ...DEFAULT_SERVER_SETTINGS,
+        providerInstances: { opencode_work: { driver: "opencode", enabled: true } },
+        providerModelPreferences: {
+          opencode_work: {
+            hiddenModels: [],
+            shownModels: sources.map((source) => `${source.id}/claude-fable-5`),
+            modelOrder: [],
+          },
+        },
+      },
       providers: [
         {
           instanceId: "opencode_work",
@@ -729,6 +740,7 @@ describe("synchronized mobile model visibility", () => {
       providerModelPreferences: {
         [provider]: {
           hiddenModels: ["hidden", "custom", "missing"],
+          shownModels: ["first", "second"],
           modelOrder: ["second", "first"],
         },
       },
@@ -751,11 +763,12 @@ describe("synchronized mobile model visibility", () => {
         .filter((option) => option.providerKey === provider)
         .map((option) => option.selection.model),
     ).toEqual(["second", "first", "custom"]);
+    // No saved entry and no curated model present: only the driver's first model is listed.
     expect(
       options
         .filter((option) => option.providerKey === other)
         .map((option) => option.selection.model),
-    ).toEqual(["hidden", "first", "second", "custom"]);
+    ).toEqual(["hidden", "custom"]);
   });
 
   it("exposes hidden built-ins for management without offering custom visibility controls", () => {
@@ -800,7 +813,7 @@ describe("synchronized mobile model visibility", () => {
     const cleared = { ...config, settings: { ...config.settings, providerModelPreferences: {} } };
     expect(
       buildModelOptions(cleared, null, provider, null).map((option) => option.selection.model),
-    ).toEqual(["hidden", "first", "second", "custom"]);
+    ).toEqual(["hidden", "custom"]);
   });
 
   describe("managed provider policy", () => {

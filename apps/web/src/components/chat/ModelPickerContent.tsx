@@ -80,7 +80,13 @@ type ModelPickerItem = {
   continuationGroupKey?: string | undefined;
   isLegacy?: boolean | undefined;
   isUnavailable?: boolean | undefined;
+  isHidden?: boolean | undefined;
 };
+
+/** Legacy and hidden models wait behind the instance tab's "Show more" row. */
+function isCollapsedModel(model: Pick<ModelEsque, "isLegacy" | "isHidden">): boolean {
+  return model.isLegacy === true || model.isHidden === true;
+}
 
 export function resolveModelPickerSelectedModel(input: {
   driverKind: ProviderDriverKind | undefined;
@@ -446,7 +452,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const [expandedLegacyInstances, setExpandedLegacyInstances] = useState(
     () =>
       new Set<ProviderInstanceId>(
-        activeModel?.isLegacy &&
+        activeModel &&
+          isCollapsedModel(activeModel) &&
           !favoritesSet.has(providerModelKey(props.activeInstanceId, activeModelSlug))
           ? [props.activeInstanceId]
           : [],
@@ -568,6 +575,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           ...(model.badge ? { badge: model.badge } : {}),
           ...(model.isLegacy ? { isLegacy: true } : {}),
           ...(model.isUnavailable ? { isUnavailable: true } : {}),
+          ...(model.isHidden ? { isHidden: true } : {}),
           instanceId,
           driverKind: entry.driverKind,
           instanceDisplayName: entry.displayName,
@@ -600,7 +608,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       if (!matchesLockedProvider(model)) continue;
       const isFavorite = favoritesSet.has(providerModelKey(model.instanceId, model.slug));
       if (isFavorite) addRow("favorites");
-      if (model.isLegacy && !isFavorite) {
+      if (isCollapsedModel(model) && !isFavorite) {
         tabsWithLegacyRow.add(model.instanceId);
       } else {
         addRow(model.instanceId);
@@ -684,7 +692,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     const legacyModels: ModelPickerItem[] = [];
     for (const model of filteredModels) {
       const isLegacy =
-        model.isLegacy && !favoritesSet.has(providerModelKey(model.instanceId, model.slug));
+        isCollapsedModel(model) &&
+        !favoritesSet.has(providerModelKey(model.instanceId, model.slug));
       (isLegacy ? legacyModels : currentModels).push(model);
     }
     if (legacyModels.length === 0) {
@@ -741,7 +750,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     ...flatModels.map((model) => modelPickerModelKey(model.instanceId, model.slug)),
     ...new Set(
       flatModels
-        .filter((model) => model.isLegacy)
+        .filter(isCollapsedModel)
         .map((model) => modelPickerLegacySectionKey(model.instanceId)),
     ),
   ])();

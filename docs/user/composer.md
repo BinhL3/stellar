@@ -95,6 +95,17 @@ messages while disconnected. Uploads resume when you reconnect. Drafts and queue
 messages survive app restarts. Signing out of T3 Connect keeps that work on your
 device until you sign back into the same account.
 
+## Shorter model list
+
+The model picker starts with a short list: Claude Opus 5.5 and Fable 5.2, the newest GPT models,
+and each other provider's default model. On web and desktop, choose **Show more** under a
+provider, or search, to pick any other model. Threads and projects already set to another model
+keep it.
+
+To always list a model, turn on its switch in Settings → Providers → **Models**. A model you turn
+off there leaves the picker entirely, including **Show more**. On mobile, turn on **Manage hidden models**
+in the model sheet to show or hide a model.
+
 ## Custom models
 
 On web and desktop, use Settings → Providers → **Models** to add an unlisted model with a custom
