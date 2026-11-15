@@ -1,7 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
 import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 
-import { resolveProviderCatalog, type ModelManifestData } from "./ModelManifest.ts";
+import {
+  BUNDLED_MODEL_MANIFEST,
+  resolveProviderCatalog,
+  type ModelManifestData,
+} from "./ModelManifest.ts";
 import {
   formatClaudeVersionUpgradeMessage,
   getClaudeCatalogModelCapabilities,
@@ -115,6 +119,29 @@ describe("Claude model catalog", () => {
     );
     assert.isUndefined(
       resolveClaudeCatalogContextWindowTokens(catalog, { ...selection, model: "custom" }),
+    );
+  });
+
+  it("ships Fable 5.2 as the fable alias with Fable 5.1's capabilities", () => {
+    const catalog = catalogFromManifest(BUNDLED_MODEL_MANIFEST);
+    const selection = { instanceId: ProviderInstanceId.make("claudeAgent"), model: "fable" };
+    assert.strictEqual(resolveClaudeModelSlug(catalog, "fable"), "claude-fable-5-2");
+    assert.deepStrictEqual(
+      getClaudeCatalogModelCapabilities(catalog, "claude-fable-5-2"),
+      getClaudeCatalogModelCapabilities(catalog, "claude-fable-5-1"),
+    );
+    const effort = getClaudeCatalogModelCapabilities(catalog, "fable").optionDescriptors?.find(
+      (descriptor) => descriptor.id === "effort",
+    );
+    assert.deepStrictEqual(
+      effort?.type === "select" ? effort.options.map((option) => option.id) : [],
+      ["low", "medium", "high", "xhigh", "max", "ultrathink"],
+    );
+    assert.strictEqual(normalizeClaudeCatalogEffort(catalog, "ultracode", "fable"), "xhigh");
+    assert.strictEqual(resolveClaudeCatalogContextWindowTokens(catalog, selection), 1_000_000);
+    assert.deepStrictEqual(
+      resolveClaudeUpdateRequiredModels(catalog, "2.1.324").map((model) => model.slug),
+      ["claude-fable-5-2"],
     );
   });
 
