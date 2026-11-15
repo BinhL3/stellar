@@ -1294,17 +1294,22 @@ const nebula: Scene = {
   hues: [-38, 26],
   layers: ({ aspect }) => {
     // Distance across the band and position along it; the band runs from the upper right down to
-    // the left edge, so the heading in the middle sits below its core.
+    // the left edge, over the heading, and on into the sidebar.
     const angle = -0.36;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
     const across = (x: number, y: number) => {
       const dx = x - 0.12 * aspect;
-      const dy = y - 0.12;
+      const dy = y - 0.02;
       return -dx * sin + dy * cos + 0.06 * (fbm1(dx * 2.2, 81) - 0.5);
     };
-    const along = (x: number, y: number) => (x - 0.12 * aspect) * cos + (y - 0.12) * sin;
-    const glow = (x: number, y: number, width: number) => Math.exp(-((across(x, y) / width) ** 2));
+    const along = (x: number, y: number) => (x - 0.12 * aspect) * cos + (y - 0.02) * sin;
+    // The band thins out over the heading and the composer, wider than either, so neither reads
+    // over clumps.
+    const clear = (x: number, y: number) =>
+      smooth(0.75, 1.2, Math.hypot(x / 0.48, (y - 0.44) / 0.16)) ** 2;
+    const glow = (x: number, y: number, width: number) =>
+      Math.exp(-((across(x, y) / width) ** 2)) * clear(x, y);
     // A dark rift splits the core, as the Great Rift does.
     const rift = (x: number, y: number) =>
       1 -
@@ -1312,7 +1317,12 @@ const nebula: Scene = {
         smooth(0.5, 0.68, fbm2(along(x, y) * 5 + 3, across(x, y) * 18, 83)) *
         Math.exp(-((across(x, y) / 0.05) ** 2));
     return [
-      ...stars(1.15, 1.3),
+      // No stars at all over the heading's letters.
+      ...stars(1.15, 1.3).map((layer) => ({
+        ...layer,
+        tone: (x: number, y: number, i: number, j: number) =>
+          Math.hypot(x / 0.33, (y - 0.37) / 0.05) < 1 ? 0 : layer.tone(x, y, i, j),
+      })),
       {
         ink: 2,
         depth: 0,
@@ -1326,7 +1336,7 @@ const nebula: Scene = {
         band: [-1, 1.1],
         tone: (x, y) => {
           const clumps = smooth(0.38, 0.72, fbm2(x * 5.5 + 7, y * 5.5, 85));
-          return 0.62 * glow(x, y, 0.16) * clumps * rift(x, y) * clearOfHeading(x, y) ** 2;
+          return 0.62 * glow(x, y, 0.16) * clumps * rift(x, y);
         },
       },
       {
@@ -1335,7 +1345,7 @@ const nebula: Scene = {
         band: [-1, 1],
         tone: (x, y, i, j) => {
           const knots = smooth(0.6, 0.82, fbm2(x * 9 + 2, y * 9, 86));
-          const core = glow(x, y, 0.07) * knots * rift(x, y) * clearOfHeading(x, y) ** 2;
+          const core = glow(x, y, 0.07) * knots * rift(x, y);
           return core > 0.05 ? 0.8 * core : hash(i, j, 87) < 0.02 * glow(x, y, 0.12) ? 1 : 0;
         },
       },

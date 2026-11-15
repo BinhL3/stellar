@@ -3411,7 +3411,7 @@ export default function ChatView(props: ChatViewProps) {
             {...conversationArea}
             className="relative isolate flex min-h-0 flex-1 flex-col bg-background"
           >
-            {isDraftHeroState ? null : <Backdrop variant="ambient" />}
+            {isDraftHeroState ? null : <Backdrop variant="ambient" stage="fill" />}
             <WorkspaceMutationIdContext value={workspaceMutationId}>
               <ThreadTimeline
                 pendingApprovals={pendingApprovals}
@@ -3536,7 +3536,7 @@ export default function ChatView(props: ChatViewProps) {
                 : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
             }
           >
-            {isDraftHeroState ? <Backdrop variant="hero" /> : null}
+            {isDraftHeroState ? <Backdrop variant="hero" stage="fill" /> : null}
             <div ref={draftHeroTransitionGroupRef} className="chat-composer-lane w-full">
               <div
                 data-chat-composer-stack="true"

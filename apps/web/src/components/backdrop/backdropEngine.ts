@@ -16,6 +16,19 @@ export interface BackdropOptions {
   readonly variant: BackdropVariant;
   readonly treatment: BackdropTreatment;
   readonly values: Readonly<Record<string, number>>;
+  /** The pane whose picture this canvas continues: it draws the part of that pane's scene that
+   * would fall where the canvas sits, on the same dot grid. */
+  readonly stage?: HTMLElement;
+}
+
+/** Where a canvas's dots sit in the picture of the pane it continues; its own picture by default. */
+interface Frame {
+  readonly columns: number;
+  readonly rows: number;
+  readonly stageColumns: number;
+  readonly stageRows: number;
+  readonly firstColumn: number;
+  readonly firstRow: number;
 }
 
 type Rgb = readonly [number, number, number];
@@ -193,25 +206,27 @@ const rasterCache: Array<Raster> = [];
 function rasterise(
   scene: Scene,
   key: string,
-  columns: number,
-  rows: number,
+  frame: Frame,
   margin: number,
   view: readonly [number, number],
 ): Raster {
   const cached = rasterCache.find((raster) => raster.key === key);
   if (cached) return cached;
+  const { columns, rows, stageColumns, stageRows, firstColumn, firstRow: rowOffset } = frame;
   const span = view[1] - view[0];
-  const dot = span / rows;
+  const dot = span / stageRows;
   const stride = columns + margin * 2;
-  const layers = scene.layers({ aspect: columns * dot, dot }).map((layer) => {
+  const layers = scene.layers({ aspect: stageColumns * dot, dot }).map((layer) => {
     const tones = new Float32Array(stride * rows).fill(layer.solid ? -1 : 0);
-    const firstRow = Math.max(0, Math.floor(((layer.band?.[0] ?? -9) - view[0]) / dot));
-    const lastRow = Math.min(rows - 1, Math.ceil(((layer.band?.[1] ?? 9) - view[0]) / dot));
+    const bandRow = (edge: number) => (edge - view[0]) / dot - rowOffset;
+    const firstRow = Math.max(0, Math.floor(bandRow(layer.band?.[0] ?? -9)));
+    const lastRow = Math.min(rows - 1, Math.ceil(bandRow(layer.band?.[1] ?? 9)));
     for (let j = firstRow; j <= lastRow; j++) {
-      const y = view[0] + (j + 0.5) * dot;
+      const row = rowOffset + j;
+      const y = view[0] + (row + 0.5) * dot;
       for (let i = 0; i < stride; i++) {
-        const column = i - margin;
-        tones[j * stride + i] = layer.tone((column + 0.5 - columns / 2) * dot, y, column, j);
+        const column = firstColumn + i - margin;
+        tones[j * stride + i] = layer.tone((column + 0.5 - stageColumns / 2) * dot, y, column, row);
       }
     }
     return {
@@ -498,21 +513,32 @@ export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOption
     // The Settings preview is the scene in miniature, so its print scales down with it.
     const miniature = variant === "preview" ? Math.min(1, height / 640) : 1;
     const dithered = treatment === "dither" || treatment === "fluted";
+    const own = options.stage ? canvas.getBoundingClientRect() : null;
+    const stage = options.stage?.getBoundingClientRect() ?? null;
+    const stageHeight = stage?.height ?? height;
+    if (stage !== null && (stage.width < 8 || stage.height < 8)) return;
     const dot = Math.max(
       1,
       Math.min(
         dithered ? (values.dotSize ?? SOURCE_DOT) * miniature : SOURCE_DOT,
-        height / MIN_ROWS,
+        stageHeight / MIN_ROWS,
       ),
     );
     const columns = Math.max(1, Math.round(width / dot));
     const rows = Math.max(1, Math.round(height / dot));
+    const frame: Frame = {
+      columns,
+      rows,
+      stageColumns: stage ? Math.max(1, Math.round(stage.width / dot)) : columns,
+      stageRows: stage ? Math.max(1, Math.round(stage.height / dot)) : rows,
+      firstColumn: stage && own ? Math.round((own.left - stage.left) / dot) : 0,
+      firstRow: stage && own ? Math.round((own.top - stage.top) / dot) : 0,
+    };
     const margin = variant === "hero" ? Math.ceil(PARALLAX_PX / dot) : 0;
     const raster = rasterise(
       sceneForTheme(theme.themeId),
-      `${theme.themeId}|${variant}|${columns}x${rows}|${margin}`,
-      columns,
-      rows,
+      `${theme.themeId}|${variant}|${Object.values(frame).join(",")}|${margin}`,
+      frame,
       margin,
       VIEWS[variant],
     );
@@ -553,16 +579,29 @@ export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOption
     context.putImageData(image, 0, 0);
   };
 
+  // The canvas stretches with its box meanwhile; the picture is redrawn once the drag rests.
+  const redrawSettled = () => {
+    window.clearTimeout(settle);
+    settle = window.setTimeout(draw, RESIZE_SETTLE_MS);
+  };
   const stopObservingSize = observeResize(canvas, (entries) => {
     const box = entries[0]?.contentRect;
     if (!box) return;
     const first = width === 0;
     width = Math.round(box.width);
     height = Math.round(box.height);
+    if (!first) return redrawSettled();
     window.clearTimeout(settle);
-    // The canvas stretches with its box meanwhile; the picture is redrawn once the drag rests.
-    settle = window.setTimeout(draw, first ? 0 : RESIZE_SETTLE_MS);
+    settle = window.setTimeout(draw, 0);
   });
+  // The pane this canvas continues resizes with the window and with the sidebar's drag.
+  let stageObserved = false;
+  const stopObservingStage = options.stage
+    ? observeResize(options.stage, () => {
+        if (stageObserved) redrawSettled();
+        stageObserved = true;
+      })
+    : () => undefined;
   const unsubscribeTheme = subscribeThemeInks(draw);
 
   // Layers slide a few dots as the pointer crosses the window; a draw happens only when the
@@ -584,6 +623,7 @@ export function mountBackdrop(canvas: HTMLCanvasElement, options: BackdropOption
   return () => {
     window.clearTimeout(settle);
     stopObservingSize();
+    stopObservingStage();
     unsubscribeTheme();
     window.removeEventListener("pointermove", onPointerMove);
   };

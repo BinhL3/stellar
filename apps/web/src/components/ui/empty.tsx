@@ -32,7 +32,14 @@ function Empty({
       data-slot="empty"
       {...props}
     >
-      {backdrop ? <Backdrop variant={backdrop} className="bg-transparent" /> : null}
+      {backdrop ? (
+        <Backdrop
+          variant={backdrop}
+          className="bg-transparent"
+          // A hero state fills its pane; a faded one sits in a settings card.
+          {...(backdrop === "hero" ? { stage: "fill" as const } : {})}
+        />
+      ) : null}
       {children}
     </div>
   );
