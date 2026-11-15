@@ -155,3 +155,12 @@ it("keeps the caret in place when an edit briefly makes the folder path not a pa
   await userEvent.keyboard("w");
   await expect.element(input()).toHaveValue("/wworkspace/project");
 });
+
+it("opens on the video actions and keeps coding tools a search away", async () => {
+  await using _screen = await render(<CommandPalette>{null}</CommandPalette>);
+  await act(() => openCommandPalette());
+  await expect.element(page.getByText("New video project", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("Go to file", { exact: true })).not.toBeInTheDocument();
+  await page.getByRole("combobox").fill("go to file");
+  await expect.element(page.getByText("Go to file", { exact: true })).toBeVisible();
+});

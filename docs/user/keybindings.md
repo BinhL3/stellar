@@ -75,6 +75,9 @@ displayed threads. The shortcuts follow the current list filters and order.
 Use the arrow keys and Return to choose a result, or `Cmd+1` through `Cmd+9` to
 choose directly. Escape or `Cmd+K` closes the palette. Start a search with `>`
 to show only actions.
+With a timeline open, the palette starts with editing actions, each showing its key
+from your timeline shortcut layout, including an imported Premiere layout. Less common
+commands don't show until you search for them.
 
 In a new thread, `Cmd+Shift+H` moves the draft to the next machine.
 

@@ -126,6 +126,8 @@ export interface TimelineWorkspaceControls {
   readonly show: (id: TimelinePanelId) => void;
   readonly close: (id: TimelinePanelId) => void;
   readonly reset: () => void;
+  /** Maximizes the active panel's group, or restores the layout when one is maximized. */
+  readonly toggleMaximize: () => void;
 }
 
 interface ActiveTimelineWorkspace {

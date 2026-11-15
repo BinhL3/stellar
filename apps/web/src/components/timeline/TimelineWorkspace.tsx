@@ -223,6 +223,10 @@ export function TimelineWorkspace(props: {
         buildDefaultLayout(api, portrait, chat);
         pristineSize.current = { width: api.width, height: api.height };
       },
+      toggleMaximize: () => {
+        if (api.hasMaximizedGroup()) api.exitMaximizedGroup();
+        else api.activeGroup?.api.maximize();
+      },
     };
     let published: { open: ReadonlyArray<string>; visible: ReadonlyArray<string> } | null = null;
     const publish = () => {

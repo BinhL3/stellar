@@ -7,7 +7,7 @@ before it applies a fix or posts anything.
 
 ## In the app
 
-Open the command palette and choose **Triage an issue**. A new thread with no
+Open the command palette and choose **Report a problem**, under **Help**. A new thread with no
 project opens, with the triage playbook linked in the message. Choose any
 provider, describe what went wrong after the link, and send. Stellar gets the
 source for the server's version while you write.

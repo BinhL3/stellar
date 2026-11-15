@@ -57,8 +57,15 @@ import {
 } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
+  ArrowDownToLineIcon,
   ArrowLeftIcon,
   BugIcon,
+  ClapperboardIcon,
+  DownloadIcon,
+  Maximize2Icon,
+  MicIcon,
+  MousePointer2Icon,
+  ScanEyeIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -167,7 +174,20 @@ import {
   useCommandPaletteStore,
 } from "../commandPaletteStore";
 import { PULL_REQUESTS_PANEL_REF, useRightPanelStore } from "../rightPanelStore";
+import type { TimelineAction } from "@t3tools/timeline/premiere/shortcuts";
 import { listenToCut } from "./timeline/timelineEditsStore";
+import {
+  type TimelineCommand,
+  timelineCommand,
+  useTimelineCommands,
+} from "./timeline/timelineCommands";
+import {
+  ACTION_LABELS,
+  comboLabel,
+  combosFor,
+  maximizeKeyLabel,
+  useTimelineKeymap,
+} from "./timeline/timelineKeymap";
 import {
   TIMELINE_PANEL_IDS,
   TIMELINE_PANEL_TITLES,
@@ -192,6 +212,9 @@ import {
 import {
   resolveCommandPaletteProject,
   ADDON_ICON_CLASS,
+  LEADING_TIMELINE_ACTIONS,
+  LEADING_TIMELINE_PANELS,
+  TIMELINE_TOOL_ACTIONS,
   browseInputEndPaddingClass,
   buildBrowseGroups,
   buildRootGroups,
@@ -500,6 +523,8 @@ function OpenCommandPaletteDialog(props: {
     reportFailure: false,
   });
   const timelineWorkspace = useTimelineLayoutStore((state) => state.active);
+  const timelineCommands = useTimelineCommands();
+  const timelineKeymap = useTimelineKeymap().keymap;
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
@@ -1296,7 +1321,13 @@ function OpenCommandPaletteDialog(props: {
     if (firstOption) startNewProject(firstOption.environmentId, null);
   };
 
-  const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+  type RootItem = CommandPaletteActionItem | CommandPaletteSubmenuItem;
+  // The opening list, by group; `moreItems` only show for a search. See buildRootGroups.
+  const editingItems: RootItem[] = [];
+  const actionItems: RootItem[] = [];
+  const navigationItems: RootItem[] = [];
+  const helpItems: RootItem[] = [];
+  const moreItems: RootItem[] = [];
 
   if (projects.length > 0) {
     const activeProjectTitle =
@@ -1330,6 +1361,16 @@ function OpenCommandPaletteDialog(props: {
 
     actionItems.push({
       kind: "submenu",
+      value: "action:switch-project",
+      searchTerms: ["switch project", "open project", "go to project", "projects"],
+      title: "Switch project…",
+      icon: <FolderOpenIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <FolderOpenIcon className={ADDON_ICON_CLASS} />,
+      groups: [{ value: "switch-project", label: "Projects", items: projectSearchItems }],
+    });
+
+    moreItems.push({
+      kind: "submenu",
       value: "action:new-thread-in",
       searchTerms: ["new thread", "project", "pick", "choose", "select"],
       title: "New thread in...",
@@ -1340,7 +1381,7 @@ function OpenCommandPaletteDialog(props: {
   }
 
   if (scratchTargetEnvironmentId !== null) {
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: "action:new-thread-without-project",
       searchTerms: ["new thread", "no project", "without project", "none", "chat"],
@@ -1352,12 +1393,11 @@ function OpenCommandPaletteDialog(props: {
   }
 
   if (triageEnvironmentId !== null && canTriage) {
-    actionItems.push({
+    helpItems.push({
       kind: "action",
       value: "action:triage",
       searchTerms: ["triage", "bug", "issue", "report", "broken", "debug", "help", "support"],
-      title: "Triage an issue",
-      description: "An agent investigates a Stellar problem and helps file an issue",
+      title: "Report a problem",
       icon: <BugIcon className={ITEM_ICON_CLASS} />,
       run: () => startTriage(triageEnvironmentId),
     });
@@ -1367,7 +1407,7 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "action",
       value: "find-current-thread",
-      title: "Find in current thread",
+      title: "Find in thread",
       searchTerms: ["find", "search", "messages", "plans"],
       icon: <TextSearchIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "chat.find",
@@ -1403,7 +1443,7 @@ function OpenCommandPaletteDialog(props: {
     ? composerPromptLink({ ...promptLinkInput, withContext: false })
     : null;
   if (promptLinkInput !== null && plainPromptLink !== null) {
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: "action:copy-prompt-link",
       searchTerms: ["copy", "share", "prompt", "link"],
@@ -1411,10 +1451,10 @@ function OpenCommandPaletteDialog(props: {
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       run: () => copyPromptLink(plainPromptLink),
     });
-    if (promptLinkRepositoryOf(promptLinkInput.project) !== null) {
+    if (SHOW_GIT_SURFACES && promptLinkRepositoryOf(promptLinkInput.project) !== null) {
       const contextLink = composerPromptLink({ ...promptLinkInput, withContext: true });
       if (contextLink !== null) {
-        actionItems.push({
+        moreItems.push({
           kind: "action",
           value: "action:copy-prompt-link-with-context",
           searchTerms: ["copy", "share", "prompt", "link", "repository", "model"],
@@ -1435,8 +1475,9 @@ function OpenCommandPaletteDialog(props: {
           ? ["copy", "pull request", "link", "reference"]
           : ["copy", "thread", "thread id", "reference"],
       title:
-        activeThreadReferenceCopyTarget.kind === "pull-request" ? "Copy PR link" : "Copy thread",
-      description: activeThreadReferenceCopyTarget.description,
+        activeThreadReferenceCopyTarget.kind === "pull-request"
+          ? "Copy PR link"
+          : "Copy thread link",
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "thread.copyReference",
       run: copyActiveThreadReference,
@@ -1444,11 +1485,12 @@ function OpenCommandPaletteDialog(props: {
   }
 
   if (
+    SHOW_GIT_SURFACES &&
     activeThread !== null &&
     threadPullRequestLinkMode(activeThreadServerConfig?.environment.capabilities) !== "unsupported"
   ) {
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: "action:link-pull-request",
       searchTerms: ["link", "pull request", "pr", "attach", "stack"],
@@ -1458,7 +1500,7 @@ function OpenCommandPaletteDialog(props: {
         openLinkPullRequestDialog(threadRef);
       },
     });
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: "action:open-thread-pull-requests",
       searchTerms: ["pull requests", "linked", "stack", "prs"],
@@ -1473,7 +1515,7 @@ function OpenCommandPaletteDialog(props: {
 
   if (activeThread !== null && canShareActiveThreadWithGuest) {
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: "action:share-thread-with-guest",
       searchTerms: ["share", "guest", "invite", "link", "teammate"],
@@ -1487,7 +1529,7 @@ function OpenCommandPaletteDialog(props: {
 
   if (activeThread !== null) {
     const thread = activeThread;
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: "action:restart-agent-session",
       searchTerms: ["restart", "reset", "reload", "agent", "session", "skills", "plugins", "mcp"],
@@ -1522,27 +1564,136 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  const timelineAction = (
+    action: TimelineAction,
+    title: string,
+    icon: ReactNode,
+    terms: ReadonlyArray<string> = [],
+  ): CommandPaletteActionItem => {
+    const [combo] = combosFor(timelineKeymap, action);
+    return {
+      kind: "action",
+      value: `action:timeline:${action}`,
+      searchTerms: ["timeline", title.toLowerCase(), ...terms],
+      title,
+      icon,
+      ...(combo === undefined ? {} : { shortcutLabel: comboLabel(combo) }),
+      run: async () => {
+        timelineCommand("runAction")?.(action);
+      },
+    };
+  };
+  const timelineButton = (
+    command: Exclude<TimelineCommand, "runAction">,
+    title: string,
+    icon: ReactNode,
+    terms: ReadonlyArray<string>,
+  ): CommandPaletteActionItem | null =>
+    timelineCommands.has(command)
+      ? {
+          kind: "action",
+          value: `action:timeline:${command}`,
+          searchTerms: [title.toLowerCase(), ...terms],
+          title,
+          icon,
+          run: async () => {
+            timelineCommand(command)?.();
+          },
+        }
+      : null;
+
+  if (timelineCommands.has("runAction")) {
+    const actionIcon = <ClapperboardIcon className={ITEM_ICON_CLASS} />;
+    for (const [action, title] of LEADING_TIMELINE_ACTIONS) {
+      editingItems.push(timelineAction(action, title, actionIcon));
+    }
+    const tools = TIMELINE_TOOL_ACTIONS.map(([action, title]) =>
+      timelineAction(action, title, <MousePointer2Icon className={ITEM_ICON_CLASS} />, ["tool"]),
+    );
+    editingItems.push({
+      kind: "submenu",
+      value: "action:timeline-tools",
+      searchTerms: ["tool", "tools", "razor", "selection", "ripple", "rolling", "slip", "slide"],
+      title: "Tools…",
+      icon: <MousePointer2Icon className={ITEM_ICON_CLASS} />,
+      addonIcon: <MousePointer2Icon className={ADDON_ICON_CLASS} />,
+      groups: [{ value: "timeline-tools", label: "Tools", items: tools }],
+    });
+    const shown = new Set<TimelineAction>([
+      ...LEADING_TIMELINE_ACTIONS.map(([action]) => action),
+      ...TIMELINE_TOOL_ACTIONS.map(([action]) => action),
+      // The workspace's own entry below explains what to select when no edit is.
+      "listenToCut",
+      // Acts on the panel under the pointer; the palette's "Maximize panel" is its counterpart.
+      "maximize",
+    ]);
+    for (const [action, title] of Object.entries(ACTION_LABELS) as Array<
+      [TimelineAction, string]
+    >) {
+      if (!shown.has(action)) moreItems.push(timelineAction(action, title, actionIcon));
+    }
+  }
+  for (const item of [
+    timelineButton(
+      "recordVoiceOver",
+      "Record voice-over",
+      <MicIcon className={ITEM_ICON_CLASS} />,
+      ["vo", "narration", "record", "stop"],
+    ),
+    timelineButton(
+      "importFootage",
+      "Import footage",
+      <DownloadIcon className={ITEM_ICON_CLASS} />,
+      ["downloads", "media", "clips", "airdrop"],
+    ),
+    timelineButton(
+      "pullFromPremiere",
+      "Pull from Premiere",
+      <ArrowDownToLineIcon className={ITEM_ICON_CLASS} />,
+      ["premiere", "sequence", "sync"],
+    ),
+    timelineButton("checkRender", "Check render", <ScanEyeIcon className={ITEM_ICON_CLASS} />, [
+      "export",
+      "render",
+      "qc",
+    ]),
+  ]) {
+    if (item !== null) editingItems.push(item);
+  }
+
   if (timelineWorkspace !== null) {
     const { controls, open } = timelineWorkspace;
     for (const id of TIMELINE_PANEL_IDS) {
       const isOpen = open.includes(id);
       const title = TIMELINE_PANEL_TITLES[id];
-      actionItems.push({
+      const item: CommandPaletteActionItem = {
         kind: "action",
         value: `action:timeline-panel:${id}`,
-        searchTerms: [
-          "timeline",
-          "panel",
-          "workspace",
-          title.toLowerCase(),
-          isOpen ? "hide" : "show",
-        ],
-        title: `${isOpen ? "Hide" : "Show"} ${title} panel`,
+        searchTerms: ["panel", "workspace", title.toLowerCase(), isOpen ? "hide" : "show"],
+        title: `${isOpen ? "Hide" : "Show"} ${title}`,
         icon: <LayoutPanelTopIcon className={ITEM_ICON_CLASS} />,
         run: async () => (isOpen ? controls.close(id) : controls.show(id)),
-      });
+      };
+      (LEADING_TIMELINE_PANELS.has(id) ? editingItems : moreItems).push(item);
     }
-    actionItems.push({
+    editingItems.push({
+      kind: "action",
+      value: "action:timeline-panel-maximize",
+      searchTerms: ["maximize", "panel", "full", "zoom", "restore"],
+      title: "Maximize panel",
+      icon: <Maximize2Icon className={ITEM_ICON_CLASS} />,
+      shortcutLabel: maximizeKeyLabel(),
+      run: async () => controls.toggleMaximize(),
+    });
+    editingItems.push({
+      kind: "action",
+      value: "action:timeline-panel-reset",
+      searchTerms: ["panels", "workspace", "layout", "reset"],
+      title: "Reset layout",
+      icon: <RotateCcwIcon className={ITEM_ICON_CLASS} />,
+      run: async () => controls.reset(),
+    });
+    moreItems.push({
       kind: "action",
       value: "action:timeline-listen-to-cut",
       searchTerms: ["timeline", "edit", "edits", "cut", "listen", "hear", "removed", "join"],
@@ -1558,17 +1709,9 @@ function OpenCommandPaletteDialog(props: {
         });
       },
     });
-    actionItems.push({
-      kind: "action",
-      value: "action:timeline-panel-reset",
-      searchTerms: ["timeline", "panels", "workspace", "layout", "reset"],
-      title: "Reset timeline panel layout",
-      icon: <LayoutPanelTopIcon className={ITEM_ICON_CLASS} />,
-      run: async () => controls.reset(),
-    });
   }
 
-  actionItems.push({
+  moreItems.push({
     kind: "action",
     value: "action:open-file-picker",
     searchTerms: ["go to file", "open file", "file picker", "find file", "quick open"],
@@ -1581,7 +1724,7 @@ function OpenCommandPaletteDialog(props: {
     },
   });
 
-  actionItems.push({
+  moreItems.push({
     kind: "action",
     value: "action:search-project-contents",
     searchTerms: ["search project", "find in files", "grep", "content search", "text search"],
@@ -1606,17 +1749,16 @@ function OpenCommandPaletteDialog(props: {
       "premiere",
       "idea",
     ],
-    title: "New project",
+    title: "New video project",
     icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       openNewVideoProject(currentProjectEnvironmentId);
     },
   };
-  actionItems.push(newProjectAction);
 
   // Git's own new-project flow, for when git surfaces are on.
   if (SHOW_GIT_SURFACES && newProjectEnvironmentOptions.length > 0) {
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: "action:new-repository",
       searchTerms: ["new repository", "create", "empty", "repository", "repo", "git init"],
@@ -1629,7 +1771,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push({
+  moreItems.push({
     kind: "action",
     value: "action:add-project",
     searchTerms: [
@@ -1666,7 +1808,7 @@ function OpenCommandPaletteDialog(props: {
   });
 
   if (wslAddProjectEnvironmentOption) {
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: "action:add-project:wsl-folder",
       searchTerms: ["add project", "open", "wsl", "linux", "folder", "directory"],
@@ -1680,12 +1822,12 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push(changeThemeItem);
+  moreItems.push(changeThemeItem);
 
-  actionItems.push(themeEditorItem);
+  moreItems.push(themeEditorItem);
 
-  if (environments.some((environment) => environment.serverConfig !== null)) {
-    actionItems.push({
+  if (SHOW_GIT_SURFACES && environments.some((environment) => environment.serverConfig !== null)) {
+    moreItems.push({
       kind: "action",
       value: "action:pull-requests",
       searchTerms: [
@@ -1712,7 +1854,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push({
+  moreItems.push({
     kind: "action",
     value: "action:usage",
     searchTerms: ["usage", "use", "tokens", "cost", "spend", "limits", "stats", "analytics"],
@@ -1726,7 +1868,7 @@ function OpenCommandPaletteDialog(props: {
 
   for (const direction of [1, -1] as const) {
     const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: `action:workspace-focus:${direction}`,
       title,
@@ -1739,7 +1881,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push({
+  navigationItems.push({
     kind: "action",
     value: "action:settings",
     searchTerms: ["settings", "preferences", "configuration", "keybindings"],
@@ -1762,7 +1904,7 @@ function OpenCommandPaletteDialog(props: {
         )
       : null) ?? null;
   if (currentProjectGroup && canPinProjectGroup(currentProjectGroup)) {
-    actionItems.push({
+    moreItems.push({
       kind: "action",
       value: "action:project-pin",
       searchTerms: ["pin", "unpin", "project", "favorite"],
@@ -1778,7 +1920,7 @@ function OpenCommandPaletteDialog(props: {
   }
   const contextualProjectGroup = currentProjectGroup ?? projectGroups[0] ?? null;
   if (contextualProjectGroup) {
-    actionItems.push({
+    navigationItems.push({
       kind: "action",
       value: "action:project-settings",
       searchTerms: [
@@ -1805,7 +1947,14 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  const rootGroups = buildRootGroups({ actionItems, recentThreadItems });
+  const rootGroups = buildRootGroups({
+    editingItems,
+    actionItems: [newProjectAction, ...actionItems],
+    recentThreadItems,
+    navigationItems,
+    helpItems,
+    moreItems,
+  });
   // Every setting goes to the palette's own matcher, so settings get the same
   // word starts and typo tolerance as threads.
   const settingsSearchItems: CommandPaletteActionItem[] = settingsForThisPlatform(
@@ -1864,7 +2013,13 @@ function OpenCommandPaletteDialog(props: {
       ? {
           allOptions: {
             rootGroups,
-            nestedItems: buildNestedSearchItems(actionItems, deferredQuery),
+            // Switching project lists the projects, which a search already shows.
+            nestedItems: buildNestedSearchItems(
+              [...editingItems, ...actionItems, ...moreItems].filter(
+                (item) => item.value !== "action:switch-project",
+              ),
+              deferredQuery,
+            ),
           },
         }
       : {}),

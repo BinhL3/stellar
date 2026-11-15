@@ -1,3 +1,4 @@
+import { useProvideTimelineCommand } from "~/components/timeline/timelineCommands";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -56,6 +57,15 @@ export function RecordVoiceOverButton(props: {
       });
     }
   };
+
+  useProvideTimelineCommand(
+    "recordVoiceOver",
+    saving
+      ? null
+      : recorder.recording
+        ? recorder.stop
+        : () => void recorder.start((recording) => void finish(recording)),
+  );
 
   if (props.iconOnly) {
     return (

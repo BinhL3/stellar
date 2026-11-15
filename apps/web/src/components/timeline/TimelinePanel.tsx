@@ -48,6 +48,7 @@ import { useProjectFileQuery } from "../files/projectFilesQueryState";
 import { ImportFootageButton } from "../videoProject/ImportFootageButton";
 import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
 import { RecordVoiceOverButton } from "../videoProject/RecordVoiceOverButton";
+import { useProvideTimelineCommand } from "./timelineCommands";
 import { VideoStageSelect } from "../videoProject/VideoStageSelect";
 import { Bay } from "./bay";
 import { cutName } from "./cutName";
@@ -260,6 +261,7 @@ export default function TimelinePanel(props: {
   }));
   const media = plan.build(useAssetUrls(props.environmentId, resources));
   const canWriteFiles = useEnvironmentScope(props.environmentId, AuthFilesystemWriteScope);
+  useProvideTimelineCommand("pullFromPremiere", canWriteFiles ? () => setPulling(true) : null);
   // The project's folder holds this workspace beside its Premiere folder, and names the project.
   const project = props.workspaceRoot.replace(/\/+$/, "").split("/").at(-2) ?? null;
   const nameOf = (path: string) =>

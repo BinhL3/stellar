@@ -291,18 +291,18 @@ export function CommandPalette(props: {
   const items = useMemo(() => {
     const actions: CommandPaletteItem[] = [
       {
+        key: "addProject",
+        kind: "action",
+        title: "New video project",
+        searchTerms: ["add project", "video", "carousel", "create"],
+        run: () => navigation.navigate("AddProject"),
+      },
+      {
         key: "newTask",
         kind: "action",
         title: "New thread in…",
         searchTerms: ["new task", "chat", "create", "project"],
         run: () => runCommand("newTask"),
-      },
-      {
-        key: "addProject",
-        kind: "action",
-        title: "New project",
-        searchTerms: ["add project", "video", "carousel", "create"],
-        run: () => navigation.navigate("AddProject"),
       },
       {
         key: "openFolder",
@@ -358,7 +358,7 @@ export function CommandPalette(props: {
       actions.push({
         key: "triage",
         kind: "action",
-        title: "Triage an issue",
+        title: "Report a problem",
         // Mobile has no triage hero, so name the machine before it starts.
         detail: `On ${savedConnectionsById[triageEnvironmentId]?.environmentLabel ?? "this machine"}`,
         searchTerms: ["triage", "bug", "issue", "report", "broken", "debug", "help", "support"],
@@ -372,7 +372,8 @@ export function CommandPalette(props: {
       ? projectByKey.get(scopedProjectKey(activeThread.environmentId, activeThread.projectId))
       : null;
     if (activeProject) {
-      actions.unshift({
+      // After "New video project", as on web.
+      actions.splice(1, 0, {
         key: "newThread",
         kind: "action",
         title: `New thread in ${activeProject.title}`,

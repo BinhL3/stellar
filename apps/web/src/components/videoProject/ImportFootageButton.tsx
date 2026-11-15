@@ -1,3 +1,4 @@
+import { useProvideTimelineCommand } from "~/components/timeline/timelineCommands";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -90,6 +91,8 @@ export function ImportFootageButton(props: {
     setFolder(first === undefined ? "" : `00 Raw (${dayOf(first)})`);
     setFound(result.value);
   };
+
+  useProvideTimelineCommand("importFootage", busy === null ? () => void open() : null);
 
   const files = found?.files ?? [];
   const chosen = files.filter((file) => !excluded.has(file.path));

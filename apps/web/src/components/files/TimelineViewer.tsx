@@ -102,6 +102,7 @@ import {
   type TimelineTool,
   useTimelineKeymap,
 } from "~/components/timeline/timelineKeymap";
+import { ProvideTimelineCommand } from "~/components/timeline/timelineCommands";
 import { toastManager } from "~/components/ui/toast";
 import { Textarea } from "~/components/ui/textarea";
 import { Toggle } from "~/components/ui/toggle";
@@ -2020,7 +2021,17 @@ export default function TimelineViewer(props: {
       ) : null}
     </>,
   );
-  if (props.workspace === undefined) return tracksPanel;
+  const provideCommands = (
+    <ProvideTimelineCommand command="runAction" handler={playable ? runAction : null} />
+  );
+  if (props.workspace === undefined) {
+    return (
+      <>
+        {provideCommands}
+        {tracksPanel}
+      </>
+    );
+  }
   return (
     <TimelinePlayerContext
       value={{
@@ -2030,6 +2041,7 @@ export default function TimelineViewer(props: {
         play: (from, to) => playFrom(Math.max(0, from), Math.min(layout.durationFrames, to)),
       }}
     >
+      {provideCommands}
       <TimelineWorkspace
         projectKey={props.workspace.projectKey}
         portrait={frame !== null && frame.height > frame.width}
