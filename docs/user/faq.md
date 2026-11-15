@@ -17,11 +17,7 @@ Yes. You still pay your provider like you already do.
 
 ## How much does Stellar cost?
 
-Nothing. It is free and open source (MIT). Remote access through T3 Connect is a separate,
-hosted service. Every T3 Connect account can connect up to 3 machines; phones and browsers that
-connect to them do not count. Linking a paid T3 Chat account raises that limit.
-[More machines](./remote-access.md#more-machines-with-t3-chat) LAN pairing and Tailscale have no
-machine limit.
+Nothing. It is free and open source (MIT). LAN pairing, Tailscale, and SSH have no machine limit.
 
 ## Can I use an API key or OpenRouter instead of a subscription?
 
@@ -31,21 +27,19 @@ full OpenRouter recipe. Your subscription setup stays untouched.
 
 ## How do I use Stellar remotely?
 
-Your agents run wherever Stellar runs: your desktop, a server, a VPS. Run `t3 up` on that
-machine to connect to it from other devices. T3 Connect is the easy path; LAN pairing and
-Tailscale work too. [Remote access](./remote-access.md)
+Your agents run wherever Stellar runs: your desktop, a server, a VPS. Run `stellar up` on that
+machine to connect to it from other devices over your local network or Tailscale.
+[Remote access](./remote-access.md)
 
-## Why does T3 Connect keep disconnecting?
+## Why does a remote machine keep disconnecting?
 
 Open **Settings > Environments**, find the machine, and select **Details**. The first part marked
 as failed is the cause. Tailscale is a good fallback route.
-[T3 Connect troubleshooting](./t3-connect-troubleshooting.md)
 
 ## Does my footage go to Stellar servers?
 
 No. Your files and prompts go from your machine to your provider (Anthropic, OpenAI, and so on).
-With T3 Connect, traffic rides a Cloudflare tunnel (`cloudflared` on your machine); the relay sets
-up the link but does not proxy your HTTP or WebSocket sessions. Stellar sends no product usage
+Other devices connect straight to your machine. Stellar sends no product usage
 events. [Product usage data](./telemetry.md)
 
 ## Is there voice input?

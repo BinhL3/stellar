@@ -57,11 +57,11 @@ take longer.
 With the desktop app already running on the same machine:
 
 ```bash
-t3 app
+stellar app
 ```
 
 This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `t3 app ../my-project`, to open another directory. It requires
+Pass a path, such as `stellar app ../my-project`, to open another directory. It requires
 the desktop app, so a standalone server or an SSH session is not enough. If the
 command cannot reach the app, start or update the desktop app and try again.
 
@@ -70,7 +70,7 @@ command cannot reach the app, start or update the desktop app and try again.
 Stellar's mobile app is not in the App Store or Google Play. It lives in
 `apps/mobile` in the repository and can be built from source. The phone connects
 to a server on another machine. Follow [remote access](./remote-access.md) to
-link it through T3 Connect or a pairing URL.
+link it with a pairing URL.
 
 If the app crashes during launch, open Settings → Diagnostics on the next launch
 that succeeds. It lists startup crashes from the last 7 days with the error and

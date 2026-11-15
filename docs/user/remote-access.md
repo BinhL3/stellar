@@ -3,66 +3,35 @@
 Connect a phone, browser, or another desktop app to Stellar running on a different
 machine. That machine must stay running and reachable while you work.
 
-## T3 Connect
+## Set up a command-line host
 
-T3 Connect makes an environment available to your other devices without setting
-up router forwarding. In the desktop app on the host, open **Settings →
-Sharing & access**, sign in, and enable **T3 Connect** for that environment.
-
-For a command-line host, run:
+On a command-line host, run:
 
 ```bash
-t3 up
+stellar up
 ```
 
-It asks how your other devices reach the machine: T3 Connect, the local network,
-or both. Choose T3 Connect and follow the sign-in instructions. On Linux and
-macOS, it then runs Stellar as a [background service](./background-service.md).
-`t3 connect` is the same as `t3 up --connect`. Run `t3 up` again to change your
-choice, and `t3 status` to see it.
+It asks whether other devices on your local network or tailnet may reach the
+machine. On Linux and macOS, it then runs Stellar as a
+[background service](./background-service.md). Run `stellar up` again to change
+your choice, and `stellar status` to see it.
 
-The background service is not available on Windows, so there `t3 up` prints the
-`t3 serve` command to keep running in a terminal. You can also keep the desktop
-app running with its local environment enabled. Closing the desktop app's last
-window stops its local server. Saving your sign-in alone does not start a server
-or make the machine reachable.
-
-On your other device, sign in to the same T3 Connect account and choose the
-environment. On the app.t3.codes home page with no computer added yet, signing
-in adds compatible computers linked to your account. Over SSH, the CLI prints a
-browser link and a short code. Open the link on any device, confirm the code
-matches, and approve. The CLI continues on its own, so you do not need to forward
-an OAuth callback port.
-
-T3 Connect renews access credentials when needed without disconnecting a healthy
-connection. Pull request diffs and provider settings keep working after the
-previous credential expires. A failed renewal affects that request; it does not
-disconnect an otherwise healthy conversation.
+The background service is not available on Windows, so there `stellar up` prints
+the `stellar serve` command to keep running in a terminal. You can also keep the
+desktop app running with its local environment enabled. Closing the desktop app's
+last window stops its local server.
 
 ### Scripts and agents
 
-`t3 up` asks nothing when you name a choice: `--connect`, `--lan`, or their
-`--no-` forms. Choices you do not name keep their settings, and `--yes` takes
-the defaults. Without a terminal:
+`stellar up` asks nothing when you name a choice: `--lan` or `--no-lan`. Choices
+you do not name keep their settings, and `--yes` takes the defaults. Without a
+terminal:
 
-- T3 Connect sign-in prints a URL and a code. Approve it on any device.
 - A needed restart runs without asking, and stops running agent turns.
-- With nothing set up and no choice named, `t3 up` stops and names the flags.
+- With nothing set up and no choice named, `stellar up` stops and names the flags.
 
-`t3 status --json` prints the settings. `t3 up --help` lists every flag with
-examples.
-
-### More machines with T3 Chat
-
-Each T3 Connect account can link up to 3 machines. Phones and browsers do not
-count. A paid T3 Chat plan raises the limit to 10 machines with Pro, or 100 with
-Premier.
-
-To link T3 Chat, open your account menu on the web or desktop app, go to
-**T3 Chat**, and select **Link T3 Chat**. Sign in to T3 Chat in the window that
-opens and approve. The new limit applies the next time you add a machine. If you
-cancel or downgrade T3 Chat, machines you already linked stay linked, but you
-cannot add more until you are under the limit again.
+`stellar status --json` prints the settings. `stellar up --help` lists every flag
+with examples.
 
 ## Pair over a LAN or private network
 
@@ -72,20 +41,20 @@ On a desktop host, open **Settings → Sharing & access**, enable **Network acce
 then create a pairing link using an address the other device can reach. Changing
 network access restarts the desktop app. You can turn it off in the same place.
 
-For a command-line host, choose the local network in `t3 up`, or run:
+For a command-line host, choose the local network in `stellar up`, or run:
 
 ```bash
-t3 up --lan
+stellar up --lan
 ```
 
-For a server in a terminal, run `t3 serve --lan`. Either way, Stellar then
+For a server in a terminal, run `stellar serve --lan`. Either way, Stellar then
 accepts connections from your local network and tailnet, so a pairing code is
 all that keeps other devices on them out.
 
 If a server is already running, generate a fresh link without restarting it:
 
 ```bash
-t3 pair
+stellar pair
 ```
 
 Scan the QR code on your phone or paste the pairing URL into **Add environment**
@@ -110,22 +79,21 @@ another link to share.
 ### Reach one machine several ways
 
 A machine can have more than one route: LAN, Tailscale, another VPN, a public
-URL, SSH, or T3 Connect. Tailscale shares its `100.64.0.0/10` address range with
+URL, or SSH. Tailscale shares its `100.64.0.0/10` address range with
 other VPNs such as Cloudflare WARP, so an address in that range shows as VPN
 unless the machine confirms it is on Tailscale. To add a route, choose **Add
-route** in the machine's route list, or next to it in the T3 Connect list.
+route** in the machine's route list.
 A pairing link for a saved machine is refused when it comes from an address
 that machine does not have yet; add that address with **Add route** instead.
 Pairing again over an address the machine already has still works. A new route
 is placed by speed, in that order, and you can reorder routes at any time.
 
-While connected through T3 Connect or a paired address, Stellar also learns the
-machine's current LAN and Tailscale addresses and adds them as routes, so
-pairing once through T3 Connect is enough to use the LAN at home. When the
+While connected through a paired address, Stellar also learns the machine's
+current LAN and Tailscale addresses and adds them as routes. When the
 machine's LAN address changes, for example after it joins another Wi-Fi network,
 the learned route follows it. The machine must allow network access for its LAN
 address to be learned: **Network access** in the desktop app, or the
-[local network](./background-service.md#local-network-access) choice in `t3 up`.
+[local network](./background-service.md#local-network-access) choice in `stellar up`.
 You can reorder a learned route, but not remove it; it
 goes away with the route it was learned through, or when the machine stops
 reporting that address.
@@ -139,15 +107,13 @@ return to the app, and every minute, and moves back as soon as one works.
 On web and desktop, select the route count under the machine's name in
 **Settings → Environments** to see its routes. Drag a route to change the order,
 or remove it. On mobile, open the machine under **Settings → Environments** and
-choose **Edit**. Signing out of T3 Connect removes only that route; a machine
-you can still reach another way stays saved.
+choose **Edit**.
 
 Open **Permissions** next to **Routes** in web or desktop, or **Your permissions**
 in the mobile route details, to see what your current connection can do on that
 environment. For a remote environment, this is in its route details. Permissions
 shown there apply only to the route marked **In use**; other routes are not
-checked. Direct pairing and T3 Connect have separate sessions and may grant
-different permissions.
+checked.
 
 ### Balance new threads across machines
 
@@ -175,13 +141,13 @@ HTTPS** in **Settings → Sharing & access**. Turn it off there to remove that r
 To start a command-line server with Tailscale HTTPS:
 
 ```bash
-t3 serve --tailscale-serve
+stellar serve --tailscale-serve
 ```
 
 For an already-running server:
 
 ```bash
-t3 pair --tailscale
+stellar pair --tailscale
 ```
 
 The pairing link uses an address such as `https://machine.tailnet.ts.net/`.
@@ -193,17 +159,7 @@ tailscale serve --https=443 --set-path=/ off
 ```
 
 If that port is already in use, choose another with
-`--tailscale-serve-port`. See `t3 pair --help` for other pairing options.
-
-### Hosted web app
-
-[app.t3.codes](https://app.t3.codes) needs an HTTPS endpoint. It connects directly
-to your server; a hosted pairing link does not make an unreachable backend
-reachable or convert HTTP to HTTPS.
-
-For a plain HTTP LAN endpoint, use the direct pairing URL in a browser that can
-open it, or pair from the desktop app. On mobile, an IP address entered without a
-scheme uses HTTP, so include `https://` when your server uses HTTPS.
+`--tailscale-serve-port`. See `stellar pair --help` for other pairing options.
 
 ## Desktop-managed SSH
 
@@ -229,8 +185,8 @@ running is left alone.
 
 Each desktop app keeps one session on the host for its SSH connection and reuses
 it when it reconnects. Revoke sessions you no longer use in **Settings →
-Sharing & access** on the host, or on a headless host with `t3 auth session list` and
-`t3 auth session revoke <id>`. A desktop that can still sign in over SSH pairs
+Sharing & access** on the host, or on a headless host with `stellar auth session list` and
+`stellar auth session revoke <id>`. A desktop that can still sign in over SSH pairs
 again on its next connect.
 
 For Antigravity's Google callback on a remote host, see
@@ -244,7 +200,7 @@ directly. Every other device, and the desktop app for other environments,
 streams them from the host. Agents keep using them while no device is
 connected, and `localhost` addresses reach servers on the host.
 
-The first tab downloads a headless Chrome, about 120 MB, into the T3 home. It
+The first tab downloads a headless Chrome, about 120 MB, into the Stellar home. It
 is the same browser [HTML renders](html-renders.md) use, so a host downloads it
 only once. Some Linux hosts need [setup](#browser-host-setup) before it can
 start.
@@ -285,27 +241,27 @@ the server says so at startup, and browser tabs and HTML previews show the
 command to run on the host:
 
 ```sh
-sudo t3 browser setup
+sudo stellar browser setup
 ```
 
 The server shows the exact line for how you started it, such as
-`sudo npx t3 browser setup`, and keeps your `PATH` when Node is installed only
-for your user. Where `t3` is not on your `PATH`, such as with only the
-desktop app installed, it names the full path of the app's own `t3` instead. It allows Chrome's sandbox with an AppArmor profile and installs
+`sudo stellar browser setup`, and keeps your `PATH` when Node is installed only
+for your user. Where `stellar` is not on your `PATH`, such as with only the
+desktop app installed, it names the full path of the app's own `stellar` instead. It allows Chrome's sandbox with an AppArmor profile and installs
 any missing libraries and system fonts with apt; pages that load without text
 can mean the host has no fonts. It is safe to run again. Without `sudo`, it only
 reports what it would change.
 
 The browser runs in Chrome's sandbox by default. Chrome cannot start that sandbox
 as root. If your Stellar server runs as root, run it as a nonroot user to keep
-sandboxing enabled. `t3 browser setup` does not fix this root restriction.
+sandboxing enabled. `stellar browser setup` does not fix this root restriction.
 
 If you need to run as root, or cannot enable the sandbox on your host, set
 `T3CODE_SERVER_BROWSER_SANDBOX=0` in the **Stellar server's environment** and restart
 the server. This disables Chrome's sandbox. For a manual launch:
 
 ```sh
-T3CODE_SERVER_BROWSER_SANDBOX=0 t3 serve
+T3CODE_SERVER_BROWSER_SANDBOX=0 stellar serve
 ```
 
 For a systemd service, add `Environment=T3CODE_SERVER_BROWSER_SANDBOX=0` under
@@ -333,11 +289,11 @@ off, its result arrives once it is back on.
 
 On the machine you will work from, open **Settings → Environments → Linked environments**,
 choose **Link**, and pick the other machine or enter its address. The list
-holds the machines this app knows and those on your T3 Connect account. If this
+holds the machines this app knows. If this
 app is connected to that machine with a session that manages access there, it
 makes the pairing code itself; otherwise paste one from that machine's
 **Settings → Sharing & access**. From a terminal, use
-`t3 environment link <address> --pairing-code <code> --access <mode>`.
+`stellar environment link <address> --pairing-code <code> --access <mode>`.
 
 You can also ask an agent to link a machine by name, such as "delegate this to
 my vps". It shows a card in the thread where you pick the machine the same way
@@ -367,11 +323,11 @@ fails with that reason.
 On the host, **Settings → Sharing & access** lets authorized administrators create
 pairing links and revoke client sessions. Revoking an unused link prevents new
 pairings; revoke a device's session to remove its existing access. Command-line
-management is available through `t3 auth --help`.
+management is available through `stellar auth --help`.
 
 When the app connects to more than one environment, choose one at the top of the
 page. A desktop app with **Local environment** off can manage a background
-service on the same machine this way, including its T3 Connect link.
+service on the same machine this way.
 
 A session with an open connection stays listed after its access credential
 expires.
@@ -379,13 +335,13 @@ expires.
 To choose a token's permissions, pass `--scope` once for each scope you want:
 
 ```sh
-npx t3 pair --scope orchestration:read --scope relay:read
+stellar pair --scope orchestration:read --scope relay:read
 ```
 
 The selected scopes replace the default permissions. The same option works with
-`npx t3 auth pairing create` and `npx t3 auth session issue`; each command's
+`stellar auth pairing create` and `stellar auth session issue`; each command's
 `--help` lists the available scopes. Without `--scope`, pairing tokens and issued
-bearer sessions get every permission, including managing access and T3 Connect.
+bearer sessions get every permission, including managing access.
 A terminal or a full-access agent on the host can reach those as well, so a
 client that should not manage access also needs to go without `terminal:operate`
 and `orchestration:operate`.
@@ -408,7 +364,7 @@ worktree still creates that branch and worktree with `orchestration:operate`,
 and the agent it runs can use Git however the environment allows.
 
 Settings changes, provider management, environment maintenance, access
-management, and T3 Connect management can each be granted separately. New
+management, and relay management can each be granted separately. New
 pairings without `--scope` include all of them. Existing clients keep the
 permissions they paired with and can stay connected after an update, but newly
 separated features may require pairing again with the permissions they need.
@@ -419,42 +375,8 @@ link to change a client's permissions.
 local changes. Add `filesystem:write` to allow editing files or saving plans to
 the workspace. These scopes control direct file access from the client.
 
-To remove an environment from T3 Connect, open your account menu's **T3 Connect**
-page, or **Settings → T3 Connect** on mobile, and choose **Deregister**. This
-revokes its cloud access and frees its host space even when the environment is
-offline or has been wiped. When T3 Connect rejects a host's link, the host
-shows that it was removed from T3 Connect. To link it again, turn on
-**T3 Connect** in **Settings → Sharing & access** on a desktop host, or run
-`t3 connect link` on a command-line host and then restart Stellar there. A
-command-line host that released its tunnel when it last stopped may link itself
-again on its next start; run `t3 connect unlink` on that host to keep it off.
-Removing an environment from a device's connection settings only forgets it on
-that device and doesn't change your T3 Connect account. A device keeps a saved
-environment after it's deregistered until you remove it from that device.
-
-When idle tunnel cleanup is enabled, T3 Connect removes a linked environment's
-tunnel after it stays offline for several minutes. The environment stays linked
-and keeps the same address. When the host starts again or wakes, T3 Connect
-creates a replacement tunnel on its own. You do not need to pair again. Cleanup
-usually runs five to ten minutes after the tunnel goes down.
-
-T3 Connect also removes the tunnel of an environment running an older version of
-Stellar once it has been offline for seven days. That environment shows a message
-asking you to update. Start Stellar on that computer and update it to the latest
-version; it reconnects at the same address without pairing again.
-
-On a command-line host, `t3 connect unlink` disables exposure while retaining
-your login; `t3 connect logout` also clears that login. Background-service
-[removal](./background-service.md#manage-the-service) is separate.
-
 Treat pairing URLs and authorization codes as passwords. Do not include them in
 screenshots, logs, or bug reports.
-
-## T3 Connect troubleshooting
-
-When a T3 Connect connection fails, see
-[T3 Connect troubleshooting](./t3-connect-troubleshooting.md). It explains each
-error, where the problem is, and how to fix it.
 
 ## Using the Desktop App as a Remote Only
 
@@ -462,7 +384,7 @@ If a computer should only drive work running elsewhere, turn off its local envir
 desktop app, open **Settings → Environments** and switch off **Local
 environment**. Stellar restarts without a local server: no local agents or terminals run, WSL
 backends stay off, and other devices can no longer connect to this computer. Your projects,
-history, and saved connections are kept, and you keep working through pairing, T3 Connect, or SSH.
+history, and saved connections are kept, and you keep working through pairing or SSH.
 
 Switch **Local environment** back on in the same place to restart with your previous local
 settings.

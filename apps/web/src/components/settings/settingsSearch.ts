@@ -509,6 +509,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/labs",
     scope: "environment",
     searchTerms: ["beta share guest invite link teammate watch t3 connect tunnel"],
+    cloudOnly: true,
   },
   {
     id: "linked-environments-beta",

@@ -114,6 +114,13 @@ export const hostedAppUrlConfig = makePublicValueConfig(
   DEFAULT_HOSTED_APP_URL,
 ).pipe(Config.mapEffect(validateHostedAppUrl));
 
+/** The hosted app thread links go through; none unless this server names its own. */
+export const threadLinkHostedAppUrlConfig = Config.NonEmptyString("T3CODE_HOSTED_APP_URL").pipe(
+  Config.map((value) => value.trim()),
+  Config.mapEffect(validateHostedAppUrl),
+  Config.option,
+);
+
 function validateHostedAppUrl(value: string) {
   try {
     const url = new URL(value);

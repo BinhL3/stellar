@@ -200,10 +200,16 @@ describe("hosted thread links", () => {
   });
 
   it("writes a copied link a reader can follow, labeled when it has a title", () => {
-    expect(formatHostedThreadLink(ref("e", "t1"), "Fix [ci]")).toBe(
+    expect(formatHostedThreadLink(ref("e", "t1"), "Fix [ci]", "https://app.t3.codes")).toBe(
       "[Fix ci](https://app.t3.codes/threads/e/t1)",
     );
-    expect(formatHostedThreadLink(ref("e", "t1"), " ")).toBe("https://app.t3.codes/threads/e/t1");
+    expect(formatHostedThreadLink(ref("e", "t1"), " ", "https://app.t3.codes")).toBe(
+      "https://app.t3.codes/threads/e/t1",
+    );
+    // Without a hosted app the copy is the in-app link.
+    expect(formatHostedThreadLink(ref("e", "t1"), "Fix [ci]")).toBe(
+      "[Fix ci](t3-thread://v2/e/t1)",
+    );
   });
 
   it("titles hosted links in every Markdown form and writes them as v2 links", () => {

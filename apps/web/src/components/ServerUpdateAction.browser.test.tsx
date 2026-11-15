@@ -12,21 +12,10 @@ type SessionResult = AsyncResult.AsyncResult<AuthSessionState, Error>;
 const testState = vi.hoisted(() => ({
   updateServer: vi.fn(),
   toast: vi.fn(),
-  clipboard: vi.fn(),
   sessionAtom: null as unknown,
   serverVersions: new Map<string, string>(),
 }));
 
-vi.mock(import("~/hooks/useCopyToClipboard"), async (original) => ({
-  ...(await original()),
-  useCopyToClipboard: ((options: { onCopy: (context: { command: string }) => void }) => ({
-    copyToClipboard: (command: string, context: { command: string }) => {
-      testState.clipboard(command);
-      options.onCopy(context);
-    },
-    isCopied: false,
-  })) as never,
-}));
 vi.mock(import("~/state/session"), async (original) => {
   const actual = await original();
   return {
@@ -94,7 +83,6 @@ function setSession(session: SessionResult) {
 function setup(): Disposable {
   testState.updateServer.mockReset();
   testState.toast.mockReset();
-  testState.clipboard.mockReset();
   testState.serverVersions.clear();
   sessionAtom = Atom.make<SessionResult>(AsyncResult.success(currentSession));
   testState.sessionAtom = sessionAtom;

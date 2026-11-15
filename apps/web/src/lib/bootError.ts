@@ -1,6 +1,6 @@
 import type { DesktopBridge, DesktopUpdateState } from "@t3tools/contracts";
 
-const FALLBACK_TRIAGE_COMMAND = "npx t3 triage";
+const FALLBACK_TRIAGE_COMMAND = "stellar triage";
 const DOWNLOAD_URL = "https://github.com/BinhL3/stellar/releases";
 const ISSUE_URL = "https://github.com/BinhL3/stellar/issues/new";
 const LAST_FAILURE_KEY = "t3code:boot-failed-at";
@@ -23,13 +23,13 @@ function launcherCommand(launcherPath: string) {
     : `'${launcherPath.replaceAll("'", `'"'"'`)}'`;
 }
 
-/** Desktop can run its bundled launcher without Node; everything else falls back to npx. */
+/** Desktop can run its bundled launcher without Node; everything else assumes `stellar` is on PATH. */
 export async function resolveTriageCommand(bridge: DesktopBridge | undefined) {
   try {
     const state = await bridge?.cliCommand.getState();
     // Windows reports onPath from its PATH entry alone; only an existing launcher proves it runs.
     if (state?.launcherPath) {
-      return state.onPath ? "t3 triage" : `${launcherCommand(state.launcherPath)} triage`;
+      return state.onPath ? "stellar triage" : `${launcherCommand(state.launcherPath)} triage`;
     }
   } catch (error) {
     console.warn("Could not read the desktop CLI state.", error);

@@ -7,6 +7,7 @@ import {
 } from "@t3tools/contracts";
 import {
   buildNewThreadLink,
+  newThreadDeepLink,
   parsePromptLinkRepository,
   PROMPT_LINK_MAX_PROMPT_LENGTH,
   type PromptLinkRepository,
@@ -14,11 +15,14 @@ import {
 
 import { type ComposerThreadTarget, useComposerDraftStore } from "~/composerDraftStore";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
-import { configuredHostedAppUrl } from "~/hostedPairing";
+import { threadLinkHostedAppUrl } from "~/hostedPairing";
 
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
-/** A shareable link to a prompt on the hosted app, or null when the prompt cannot fit in one. */
+/**
+ * A shareable link to a prompt, or null when the prompt cannot fit in one. Without a hosted app
+ * it is a deep link into the installed app.
+ */
 export function promptLinkFor(
   prompt: string,
   context?: {
@@ -29,7 +33,10 @@ export function promptLinkFor(
 ): string | null {
   const trimmed = isAttachmentOnlyBootstrapPrompt(prompt) ? "" : prompt.trim();
   if (trimmed.length === 0 || trimmed.length > PROMPT_LINK_MAX_PROMPT_LENGTH) return null;
-  return buildNewThreadLink({ prompt: trimmed, ...context, origin: configuredHostedAppUrl() });
+  const origin = threadLinkHostedAppUrl();
+  return origin === undefined
+    ? newThreadDeepLink({ prompt: trimmed, ...context })
+    : buildNewThreadLink({ prompt: trimmed, ...context, origin });
 }
 
 export function promptLinkRepositoryOf(

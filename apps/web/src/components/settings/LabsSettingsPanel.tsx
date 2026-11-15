@@ -25,8 +25,8 @@ export function LabsSettingsPanel() {
         <BoringSidebarRow />
         <BoringSidebarMultilineRow />
         <ToolCallVisibilityRow />
-        {/* Clerk is only mounted when this build has T3 Connect. */}
-        {hasCloudPublicConfig() ? <GuestLinksRowWithSignIn /> : <GuestLinksRow />}
+        {/* Guests arrive through T3 Connect, and Clerk is only mounted when this build has it. */}
+        {hasCloudPublicConfig() ? <GuestLinksRowWithSignIn /> : null}
         <LinkedEnvironmentsRow />
         <SimlockHostsRow />
       </SettingsSection>

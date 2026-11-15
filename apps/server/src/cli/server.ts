@@ -73,7 +73,7 @@ export const runDefaultServerCommand = Effect.fn("server.runDefaultServerCommand
 });
 
 export const startCommand = Command.make("start", { ...sharedServerCommandFlags }).pipe(
-  Command.withDescription("Same as `t3`."),
+  Command.withDescription("Same as `stellar`."),
   Command.unlisted,
   Command.withHandler((flags) => runServerCommand(flags, { rejectRunningServer: true })),
 );
@@ -81,7 +81,7 @@ export const startCommand = Command.make("start", { ...sharedServerCommandFlags 
 export const serveCommand = Command.make("serve", { ...sharedServerCommandFlags }).pipe(
   Command.withShortDescription("Run Stellar in this terminal, with no browser."),
   Command.withDescription(
-    "Run Stellar in this terminal without opening a browser, and print pairing details. The background service runs this. To set up access from your other devices, run `t3 up`.",
+    "Run Stellar in this terminal without opening a browser, and print pairing details. The background service runs this. To set up access from your other devices, run `stellar up`.",
   ),
   Command.withHandler((flags) =>
     runServerCommand(flags, {

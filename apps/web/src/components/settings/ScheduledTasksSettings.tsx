@@ -134,9 +134,9 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as cons
 const WEEKDAY_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
 
 const WORKSPACE_MODE_LABELS: Record<WorkspaceMode, string> = {
-  worktree: "Create a new worktree",
-  root: "Use the project checkout",
-  existing_worktree: "Use a specific checkout",
+  root: "Project folder",
+  worktree: "A new copy on its own branch",
+  existing_worktree: "Another folder",
 };
 
 const EMPTY_DRAFT: DraftState = {
@@ -153,7 +153,7 @@ const EMPTY_DRAFT: DraftState = {
   projectId: "",
   threadId: "",
   threadMode: "new_thread",
-  workspaceMode: "worktree",
+  workspaceMode: "root",
   baseRef: "main",
   startFromOrigin: true,
   existingWorktreePath: "",
@@ -1394,7 +1394,7 @@ function ScheduledTaskEditorForm({
       return;
     }
     if (draft.workspaceMode === "existing_worktree" && !draft.existingWorktreePath.trim()) {
-      reportFailure("Checkout path is required", "Enter the path of the checkout to run in.");
+      reportFailure("Folder path is required", "Enter the path of the folder to run in.");
       return;
     }
     const modelSelection =
@@ -1598,9 +1598,11 @@ function ScheduledTaskEditorForm({
                   <SelectValue>{WORKSPACE_MODE_LABELS[draft.workspaceMode]}</SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
-                  <SelectItem value="worktree">Create a new worktree</SelectItem>
-                  <SelectItem value="root">Use the project checkout</SelectItem>
-                  <SelectItem value="existing_worktree">Use a specific checkout</SelectItem>
+                  <SelectItem value="root">{WORKSPACE_MODE_LABELS.root}</SelectItem>
+                  <SelectItem value="worktree">{WORKSPACE_MODE_LABELS.worktree}</SelectItem>
+                  <SelectItem value="existing_worktree">
+                    {WORKSPACE_MODE_LABELS.existing_worktree}
+                  </SelectItem>
                 </SelectPopup>
               </Select>
             </Field>
@@ -1624,11 +1626,11 @@ function ScheduledTaskEditorForm({
             </Field>
           ) : null}
           {draft.workspaceMode === "existing_worktree" ? (
-            <Field label="Checkout path" htmlFor="scheduled-task-checkout">
+            <Field label="Folder path" htmlFor="scheduled-task-checkout">
               <Input
                 id="scheduled-task-checkout"
                 value={draft.existingWorktreePath}
-                placeholder="/path/to/checkout"
+                placeholder="/path/to/folder"
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
