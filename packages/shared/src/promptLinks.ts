@@ -208,6 +208,12 @@ export function promptLinkAppPath(
   return thread ? `/${thread[1]}/${thread[2]}${url.search}` : null;
 }
 
+/** A prompt link for builds without a hosted app: it opens straight in the installed app. */
+export function newThreadDeepLink(input: Omit<Parameters<typeof buildNewThreadLink>[0], "origin">) {
+  const url = new URL(buildNewThreadLink(input));
+  return promptLinkDeepLink(`${url.pathname}${url.search}`);
+}
+
 export function promptLinkDeepLink(appPath: string, scheme = "t3code"): string {
   const url = new URL(appPath, "https://app.invalid");
   const host = url.pathname === "/new" ? "new" : `threads${url.pathname}`;

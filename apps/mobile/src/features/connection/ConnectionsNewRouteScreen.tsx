@@ -331,7 +331,7 @@ function PairingScanCard(props: {
           )}
         </View>
         <Text className="text-center text-sm text-white/80">
-          Scan the code from t3 pair or desktop Connections settings
+          Scan the code from stellar pair or desktop Connections settings
         </Text>
       </View>
     </Pressable>

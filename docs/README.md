@@ -23,8 +23,6 @@ finishing tool. Stellar is a fork of [pingdotgg/t3code](https://github.com/pingd
 - [Secrets](./user/secrets.md)
 - [Product usage data](./user/telemetry.md)
 - [Remote access](./user/remote-access.md)
-- [Guest links](./user/guest-links.md)
-- [T3 Connect troubleshooting](./user/t3-connect-troubleshooting.md)
 - [Outside agents (MCP)](./user/outside-agents.md)
 - [Running in the background](./user/background-service.md)
 - [Updating Stellar](./user/updating.md)

@@ -264,7 +264,7 @@ export function createDraft(
     modelSelectionIsExplicit: false,
     schedule: DEFAULT_SCHEDULE,
     threadMode: "new_thread",
-    workspace: "worktree",
+    workspace: "root",
     baseRef: "main",
     checkoutPath: "",
     enabled: true,

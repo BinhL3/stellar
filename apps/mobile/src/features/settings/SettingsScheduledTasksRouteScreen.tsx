@@ -941,25 +941,25 @@ function TaskForm({
             label="Run in"
             value={
               draft.workspace === "worktree"
-                ? "New worktree"
+                ? "A new copy on its own branch"
                 : draft.workspace === "root"
-                  ? "Project checkout"
-                  : "Specific checkout"
+                  ? "Project folder"
+                  : "Another folder"
             }
             actions={[
               {
-                id: "worktree",
-                title: "New worktree",
-                state: draft.workspace === "worktree" ? "on" : undefined,
-              },
-              {
                 id: "root",
-                title: "Project checkout",
+                title: "Project folder",
                 state: draft.workspace === "root" ? "on" : undefined,
               },
               {
+                id: "worktree",
+                title: "A new copy on its own branch",
+                state: draft.workspace === "worktree" ? "on" : undefined,
+              },
+              {
                 id: "existing_worktree",
-                title: "Specific checkout",
+                title: "Another folder",
                 state: draft.workspace === "existing_worktree" ? "on" : undefined,
               },
             ]}
@@ -983,7 +983,7 @@ function TaskForm({
           ) : null}
           {draft.workspace === "existing_worktree" ? (
             <FormField
-              label="Checkout path"
+              label="Folder path"
               disabled={saving}
               value={draft.checkoutPath}
               borderTop

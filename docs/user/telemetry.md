@@ -12,7 +12,7 @@ conversation IDs, raw provider events, or child-agent output.
 ## Relay connection diagnostics
 
 When a build is configured with relay tracing settings, it sends relay connection traces to Axiom
-to diagnose T3 Connect connectivity. Stellar builds without those settings send none. These are
+to diagnose relay connectivity. Stellar builds without those settings send none. These are
 separate from product events. Depending on the client version, traces can include connection
 timings, environment identifiers and the connected machine's name. Failed spans can include error
 messages and stack traces; error text can quote a value the app was handling.
@@ -28,7 +28,7 @@ separate browser or mobile clients.
 The desktop app reads `T3CODE_TELEMETRY_ENABLED` from your shell profile (for example `~/.zshrc`) on macOS and
 Linux, so export it there and restart the app. On Windows, set it as a user environment variable.
 
-The web app in a browser, including one the `t3` CLI opens, does not read these environment
+The web app in a browser, including one the `stellar` CLI opens, does not read these environment
 variables. When its build has relay tracing configured, it sends its own connection traces even
 if the server has opted out. The browser app has no relay tracing toggle.
 
@@ -37,7 +37,7 @@ if the server has opted out. The browser app has no relay tracing toggle.
 When the iOS or Android app crashes or hits an error, it sends a crash report: the error
 message, the stack trace, the app version, and the device model and OS version. Each launch also
 sends startup timings, and every report carries a random ID for the install. Reports go through
-the T3 Connect relay to Axiom. They do not include your threads, prompts, or connection details,
+the build's relay to Axiom, so builds without relay settings send none. They do not include your threads, prompts, or connection details,
 but an error message can quote a value the app was handling.
 
 To stop sending them, turn off **Send crash reports** in **Settings > About Stellar > Diagnostics**.
@@ -46,17 +46,6 @@ The mobile app also sends relay connection traces when its build has tracing con
 carry an identifier for the current app session. **Send crash reports** does not control these
 traces, and the mobile app has no separate relay tracing toggle. Server environment variables and
 managed policy do not disable mobile tracing.
-
-## Agent activity for mobile notifications
-
-When **Publish agent activity** is enabled on a host, it sends project and thread titles, model
-names, activity status, and environment and thread identifiers to the T3 Connect relay for
-[mobile notifications and live activities](./mobile-notifications.md). This is separate from
-product events and relay diagnostics. The telemetry opt-out does not disable it.
-
-To stop publishing, turn off **Publish agent activity** under **Settings > Sharing & access** on
-the host. Turning off notifications on a phone controls that phone's alerts, not the host's
-publishing setting.
 
 ## Export diagnostics to your own receiver
 

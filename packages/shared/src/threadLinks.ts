@@ -128,12 +128,16 @@ export function formatThreadLink(ref: ThreadLink, label?: string): string {
   return cleaned ? `[${cleaned}](${threadLinkHref(ref)})` : `<${threadLinkHref(ref)}>`;
 }
 
-/** What a person copies out of Stellar: a Markdown link that opens the thread anywhere. */
+/**
+ * What a person copies out of Stellar: a Markdown link to the thread, through `origin`'s hosted app
+ * when the build has one, otherwise the in-app link that Stellar opens.
+ */
 export function formatHostedThreadLink(
   ref: ScopedThreadRef,
   label: string,
-  origin?: string,
+  origin?: string | undefined,
 ): string {
+  if (origin === undefined) return formatThreadLink(ref, label);
   const href = hostedThreadLink(ref, origin);
   const cleaned = linkLabel(label);
   return cleaned ? `[${cleaned}](${href})` : href;
