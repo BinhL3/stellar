@@ -1,3 +1,4 @@
+import { useProvideTimelineCommand } from "./timelineCommands";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -202,15 +203,6 @@ export function PreflightStrip(props: {
     };
   }, [reloads, sync, timeline, proxies, intake, transcripts]);
 
-  if (loaded === null) return null;
-  const { preflight } = loaded;
-  const reading = [reloads, sync, timeline, proxies, intake, transcripts].some(
-    (value, index) => value !== loaded.readFor[index],
-  );
-  const { steps } = preflight;
-  const headline = preflightHeadline(steps);
-  const done = steps.filter((step) => step.state === "done").length;
-
   const runCheck = async () => {
     setChecking(true);
     await props.onBeforeRenderCheck();
@@ -238,6 +230,20 @@ export function PreflightStrip(props: {
       });
     }
   };
+
+  useProvideTimelineCommand(
+    "checkRender",
+    props.canWrite && !checking && !props.uncommittedEdits ? () => void runCheck() : null,
+  );
+
+  if (loaded === null) return null;
+  const { preflight } = loaded;
+  const reading = [reloads, sync, timeline, proxies, intake, transcripts].some(
+    (value, index) => value !== loaded.readFor[index],
+  );
+  const { steps } = preflight;
+  const headline = preflightHeadline(steps);
+  const done = steps.filter((step) => step.state === "done").length;
 
   const recordPosted = async (posted: boolean) => {
     const urls = (links ?? "")

@@ -780,10 +780,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "add-project-starts-in",
-    title: "Add project starts in",
+    title: "Existing folders open from",
     to: "/settings/threads",
     scope: "environment-defaults",
-    searchTerms: ["base directory folder browser path home"],
+    searchTerms: ["add project open existing folder base directory browser path home"],
   },
   {
     id: "ghq-clone-layout",

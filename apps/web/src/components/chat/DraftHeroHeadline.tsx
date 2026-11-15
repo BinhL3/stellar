@@ -7,7 +7,7 @@ import { FolderPlusIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { useRef, useState } from "react";
 
-import { openCommandPalette } from "~/commandPaletteBus";
+import { openNewVideoProject } from "~/videoProjectDialogBus";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
@@ -50,7 +50,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { InlineButton } from "../ui/button";
 import { DraftProjectName } from "./DraftProjectName";
 import { TriageDraftHero } from "./TriageDraftHero";
-import { NewVideoProjectDialog } from "../videoProject/NewVideoProjectDialog";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveProjectDefaultProviderModelSelection } from "../../providerInstances";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
@@ -90,9 +89,7 @@ export function DraftHeroHeadline({
   );
   const applyStickyState = useComposerDraftStore((store) => store.applyStickyState);
   const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
-  const openAddProject = () => openCommandPalette({ open: "add-project" });
   const { scratchEnvironmentId, scratchWorkspaceRootFor } = useScratchProject();
-  const [videoProjectOpen, setVideoProjectOpen] = useState(false);
   const openProjectDraft = useNewThreadHandler();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -155,6 +152,7 @@ export function DraftHeroHeadline({
             project.id === activeProjectRef.projectId,
         ) ?? null);
   const scratchTargetEnvironmentId = scratchEnvironmentId(activeProjectRef?.environmentId ?? null);
+  const videoProjectEnvironmentId = activeProject?.environmentId ?? scratchTargetEnvironmentId;
   const isScratchDraft =
     activeProject !== null &&
     isScratchProject(activeProject, scratchWorkspaceRootFor(activeProject.environmentId));
@@ -163,7 +161,7 @@ export function DraftHeroHeadline({
   const pickerItems: readonly PickerItem[] = useOrderWhileOpen(
     [
       ...menuEntries.map(({ group }) => ({ value: group.projectKey, label: group.displayName })),
-      { value: ADD_PROJECT_VALUE, label: "Add project" },
+      { value: ADD_PROJECT_VALUE, label: "New project" },
     ],
     (item) => item.value,
     pickerOpen,
@@ -251,7 +249,7 @@ export function DraftHeroHeadline({
         if (!item) return;
         setPickerOpen(false);
         if (item.value === ADD_PROJECT_VALUE) {
-          openAddProject();
+          openNewVideoProject(videoProjectEnvironmentId);
           return;
         }
         const entry = projectEntryByKey.get(item.value);
@@ -338,13 +336,12 @@ export function DraftHeroHeadline({
   ) : null;
 
   // Video work starts from a Premiere project, so the hero offers that instead of a scratch thread.
-  const videoProjectEnvironmentId = activeProject?.environmentId ?? scratchTargetEnvironmentId;
   const orNewVideoProject =
     videoProjectEnvironmentId !== null && !isScratchDraft ? (
       <InlineButton
         tone="muted"
         className="pointer-events-auto"
-        onClick={() => setVideoProjectOpen(true)}
+        onClick={() => openNewVideoProject(videoProjectEnvironmentId)}
       >
         {hasResolvedProject || canChooseProject
           ? "or start a new video or carousel"
@@ -378,13 +375,6 @@ export function DraftHeroHeadline({
           {projectSelector ? <span className="min-w-0 max-w-[50%]">{projectSelector}</span> : null}
           {orNewVideoProject}
         </div>
-      ) : null}
-      {videoProjectEnvironmentId !== null ? (
-        <NewVideoProjectDialog
-          environmentId={videoProjectEnvironmentId}
-          open={videoProjectOpen}
-          onOpenChange={setVideoProjectOpen}
-        />
       ) : null}
     </div>
   );

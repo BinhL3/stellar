@@ -5,6 +5,7 @@ import { makeThreadFixture } from "../test-fixtures";
 import {
   newThreadNoProjectIndex,
   buildNestedSearchItems,
+  buildRootGroups,
   resolveCommandPaletteProject,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
@@ -105,6 +106,13 @@ describe("reduceCommandPaletteUiState", () => {
       mode: "command",
       openIntent: { kind: "add-project" },
       session: 2,
+    });
+    const environmentId = EnvironmentId.make("local");
+    state = reduceCommandPaletteUiState(state, { _tag: "OpenFolder", environmentId });
+    expect(state).toMatchObject({
+      open: true,
+      openIntent: { kind: "open-folder", environmentId },
+      session: 3,
     });
   });
 });
@@ -959,5 +967,54 @@ describe("newThreadNoProjectIndex", () => {
   it("keeps a pinned or current scratch project in its own place", () => {
     expect(newThreadNoProjectIndex([entry(false, true, true), entry()])).toBe(0);
     expect(newThreadNoProjectIndex([entry(true), entry(true, false, true), entry()])).toBe(1);
+  });
+});
+
+describe("buildRootGroups", () => {
+  const action = (value: string, title: string) => ({
+    kind: "action" as const,
+    value,
+    searchTerms: [title],
+    title,
+    icon: null,
+    run: async () => undefined,
+  });
+  const recent = [action("thread:recent", "Rough cut notes")];
+  const base = {
+    actionItems: [action("action:new-project", "New video project")],
+    recentThreadItems: recent,
+    navigationItems: [action("action:settings", "Open settings")],
+    helpItems: [action("action:triage", "Report a problem")],
+    moreItems: [action("action:open-file-picker", "Go to file")],
+  };
+  const list = (groups: ReturnType<typeof buildRootGroups>, query = "") =>
+    filterCommandPaletteGroups({
+      activeGroups: groups,
+      query,
+      isInSubmenu: false,
+      projectSearchItems: [],
+      threadSearchItems: [],
+    }).map((group) => [group.label, group.items.map((item) => item.title)]);
+
+  it.each([
+    {
+      editing: [],
+      labels: ["Actions", "Recent threads", "Go to", "Help"],
+    },
+    {
+      editing: [action("action:timeline:togglePlay", "Play / pause")],
+      labels: ["Editing", "Project", "Recent threads", "Go to", "Help"],
+    },
+  ])("leads with the open editor's actions: $labels", ({ editing, labels }) => {
+    expect(
+      list(buildRootGroups({ ...base, editingItems: editing })).map(([label]) => label),
+    ).toEqual(labels);
+  });
+
+  it("keeps search-only actions out of the opening list but finds them by name", () => {
+    const groups = buildRootGroups(base);
+    expect(list(groups).flatMap(([, titles]) => titles)).not.toContain("Go to file");
+    expect(list(groups, ">").flatMap(([, titles]) => titles)).not.toContain("Go to file");
+    expect(list(groups, "go to file")).toEqual([["More", ["Go to file"]]]);
   });
 });

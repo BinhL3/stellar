@@ -18,6 +18,7 @@ const LISTED_OVERLAY_ROUTES: ReadonlySet<string> = new Set([
   "NewTaskAttachment",
   "NewTaskThreadSettings",
   "AddProject",
+  "AddProjectExisting",
   "AddProjectRepository",
   "AddProjectDestination",
   "AddProjectLocal",

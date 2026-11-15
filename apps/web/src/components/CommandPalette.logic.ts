@@ -1,3 +1,4 @@
+import type { TimelineAction } from "@t3tools/timeline/premiere/shortcuts";
 import {
   foldSearchQuery,
   PALETTE_SECONDARY_LIMIT,
@@ -34,7 +35,7 @@ import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 import { isSidebarHiddenThread } from "./Sidebar.logic";
 
-export const RECENT_THREAD_LIMIT = 12;
+export const RECENT_THREAD_LIMIT = 5;
 export const ITEM_ICON_CLASS = "size-4 text-icon-muted";
 export const ADDON_ICON_CLASS = "size-4";
 
@@ -73,6 +74,7 @@ export type SearchOverlayMode = "command" | "files" | "content";
 
 export type CommandPaletteOpenIntent =
   | { readonly kind: "add-project" | "new-thread-in" | "change-theme" }
+  | { readonly kind: "open-folder"; readonly environmentId: EnvironmentId }
   | {
       readonly kind: "search";
       readonly query: string;
@@ -99,6 +101,7 @@ export type CommandPaletteUiAction =
       readonly linkedThreads?: CommandPaletteLinkedThreads;
     }
   | { readonly _tag: "OpenAddProject" }
+  | { readonly _tag: "OpenFolder"; readonly environmentId: EnvironmentId }
   | { readonly _tag: "OpenNewThreadIn" }
   | { readonly _tag: "OpenChangeTheme" }
   | {
@@ -154,6 +157,8 @@ export function reduceCommandPaletteUiState(
       });
     case "OpenAddProject":
       return openWithIntent({ kind: "add-project" });
+    case "OpenFolder":
+      return openWithIntent({ kind: "open-folder", environmentId: action.environmentId });
     case "OpenNewThreadIn":
       return openWithIntent({ kind: "new-thread-in" });
     case "OpenChangeTheme":
@@ -201,6 +206,8 @@ export interface CommandPaletteItem {
   readonly titleLeadingContent?: ReactNode;
   readonly titleTrailingContent?: ReactNode;
   readonly shortcutCommand?: KeybindingCommand;
+  /** A shortcut that isn't an app keybinding, such as one from the timeline's keymap. */
+  readonly shortcutLabel?: string;
   readonly secondary?: boolean;
 }
 
@@ -229,6 +236,8 @@ export interface CommandPaletteGroup {
   readonly value: string;
   readonly label: string;
   readonly items: ReadonlyArray<CommandPaletteActionItem | CommandPaletteSubmenuItem>;
+  /** Left out of the list until the user types, so it stays short. */
+  readonly searchOnly?: boolean;
 }
 
 export interface CommandPaletteView {
@@ -573,15 +582,14 @@ export function filterCommandPaletteGroups(input: {
   const normalizedQuery = foldSearchQuery(searchQuery);
 
   if (normalizedQuery.length === 0) {
-    if (isActionsFilter) {
-      return input.activeGroups.filter((group) => group.value === "actions");
-    }
-    return [...input.activeGroups];
+    return input.activeGroups.filter(
+      (group) => !group.searchOnly && (!isActionsFilter || ACTION_GROUPS.has(group.value)),
+    );
   }
 
   let baseGroups = [...input.activeGroups];
   if (isActionsFilter) {
-    baseGroups = baseGroups.filter((group) => group.value === "actions");
+    baseGroups = baseGroups.filter((group) => ACTION_GROUPS.has(group.value));
   } else if (!input.isInSubmenu) {
     baseGroups = baseGroups.filter((group) => group.value !== "recent-threads");
   }
@@ -760,22 +768,69 @@ export function getCommandPaletteMode(input: {
   return input.isBrowsing ? "root-browse" : "root";
 }
 
+/** The editor actions that lead the palette while a timeline is open, in order. */
+export const LEADING_TIMELINE_ACTIONS = [
+  ["togglePlay", "Play / pause"],
+  ["addEdit", "Add edit"],
+  ["rippleDelete", "Ripple delete"],
+  ["markIn", "Mark in"],
+  ["markOut", "Mark out"],
+  ["addMarker", "Add marker"],
+] as const satisfies ReadonlyArray<readonly [TimelineAction, string]>;
+
+export const TIMELINE_TOOL_ACTIONS = [
+  ["toolSelection", "Selection tool"],
+  ["toolRazor", "Razor tool"],
+  ["toolRippleEdit", "Ripple edit tool"],
+  ["toolRollingEdit", "Rolling edit tool"],
+  ["toolSlip", "Slip tool"],
+  ["toolSlide", "Slide tool"],
+] as const satisfies ReadonlyArray<readonly [TimelineAction, string]>;
+
+/** Panels whose show/hide leads the palette; the side lists are a search away. */
+export const LEADING_TIMELINE_PANELS: ReadonlySet<string> = new Set([
+  "chat",
+  "monitor",
+  "timeline",
+]);
+
+const ACTION_GROUPS: ReadonlySet<string> = new Set([
+  "editing",
+  "actions",
+  "navigation",
+  "help",
+  "more",
+]);
+
+type RootItem = CommandPaletteActionItem | CommandPaletteSubmenuItem;
+
+/**
+ * The palette's opening list, most specific first: the open editor's actions, then the project
+ * and thread, recent threads, places to go, and help. `moreItems` match a search but stay out
+ * of the list, so it opens short.
+ */
 export function buildRootGroups(input: {
-  actionItems: ReadonlyArray<CommandPaletteActionItem | CommandPaletteSubmenuItem>;
-  recentThreadItems: ReadonlyArray<CommandPaletteActionItem>;
+  readonly editingItems?: ReadonlyArray<RootItem>;
+  readonly actionItems: ReadonlyArray<RootItem>;
+  readonly recentThreadItems: ReadonlyArray<CommandPaletteActionItem>;
+  readonly navigationItems?: ReadonlyArray<RootItem>;
+  readonly helpItems?: ReadonlyArray<RootItem>;
+  readonly moreItems?: ReadonlyArray<RootItem>;
 }): CommandPaletteGroup[] {
-  const groups: CommandPaletteGroup[] = [];
-  if (input.actionItems.length > 0) {
-    groups.push({ value: "actions", label: "Actions", items: input.actionItems });
-  }
-  if (input.recentThreadItems.length > 0) {
-    groups.push({
-      value: "recent-threads",
-      label: "Recent Threads",
-      items: input.recentThreadItems,
-    });
-  }
-  return groups;
+  const editing = input.editingItems ?? [];
+  const groups: CommandPaletteGroup[] = [
+    { value: "editing", label: "Editing", items: editing },
+    {
+      value: "actions",
+      label: editing.length > 0 ? "Project" : "Actions",
+      items: input.actionItems,
+    },
+    { value: "recent-threads", label: "Recent threads", items: input.recentThreadItems },
+    { value: "navigation", label: "Go to", items: input.navigationItems ?? [] },
+    { value: "help", label: "Help", items: input.helpItems ?? [] },
+    { value: "more", label: "More", items: input.moreItems ?? [], searchOnly: true },
+  ];
+  return groups.filter((group) => group.items.length > 0);
 }
 
 export function getCommandPaletteInputPlaceholder(mode: CommandPaletteMode): string {
@@ -783,11 +838,11 @@ export function getCommandPaletteInputPlaceholder(mode: CommandPaletteMode): str
     case "root":
       return "Search commands, projects, and threads...";
     case "root-browse":
-      return "Enter project path (e.g. ~/projects/my-app)";
+      return "Enter a folder path (e.g. ~/Movies/my-video)";
     case "submenu":
       return "Search...";
     case "submenu-browse":
-      return "Enter path (e.g. ~/projects/my-app)";
+      return "Enter a folder path (e.g. ~/Movies/my-video)";
   }
 }
 

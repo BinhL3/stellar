@@ -551,7 +551,7 @@ export function AddProjectSourceScreen(props: { readonly environmentId?: string 
   const readiness = buildAddProjectRemoteSourceReadiness(discoveryState.data);
 
   return (
-    <AddProjectShell title="Add project">
+    <AddProjectShell title="Open an existing folder">
       {selectedEnvironment === null ? <EmptyEnvironmentState /> : null}
 
       {environmentOptions.length > 1 || (selectedEnvironment !== null && !isConnected) ? (
@@ -603,8 +603,8 @@ export function AddProjectSourceScreen(props: { readonly environmentId?: string 
           <ListSection>
             {selectedEnvironment.newProjectsRoot !== null ? (
               <ListRow
-                title="New project"
-                subtitle="Start a new Git repository from a name"
+                title="New Git repository"
+                subtitle="Start an empty repository from a name"
                 disabled={!isConnected}
                 icon={
                   <SymbolView
@@ -625,10 +625,10 @@ export function AddProjectSourceScreen(props: { readonly environmentId?: string 
               />
             ) : null}
             <ListRow
-              title="Local folder"
+              title="Existing folder"
               subtitle={
                 canCreateProject
-                  ? "Browse a folder on disk"
+                  ? "Open a folder you already have"
                   : "This connection cannot add projects."
               }
               icon={
@@ -1029,6 +1029,213 @@ function FolderBrowser(props: {
   );
 }
 
+type StartKind = "idea" | "carousel";
+
+const START_KINDS: ReadonlyArray<{
+  readonly kind: StartKind;
+  readonly title: string;
+  readonly symbol: "play" | "photo";
+}> = [
+  { kind: "idea", title: "Video from an idea", symbol: "play" },
+  { kind: "carousel", title: "Photo carousel", symbol: "photo" },
+];
+
+/** Starts a video or carousel from a name, saved in the host's projects folder. */
+export function AddProjectStartScreen(props: { readonly environmentId?: string | string[] }) {
+  const openNewTaskDraft = useOpenNewTaskDraft();
+  const navigation = useNavigation();
+  const environmentOptions = useEnvironmentOptions();
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState(
+    () => stringParam(props.environmentId) as EnvironmentId | null,
+  );
+  const environment = resolveAddProjectEnvironment(environmentOptions, selectedEnvironmentId);
+  const canCreateProject = useEnvironmentScope(
+    environment?.environmentId ?? null,
+    AuthOrchestrationOperateScope,
+  );
+  const createFromIdea = useAtomCommand(projectEnvironment.createVideoProjectFromIdea, {
+    reportFailure: false,
+  });
+  const createCarousel = useAtomCommand(projectEnvironment.createCarousel, {
+    reportFailure: false,
+  });
+  const projectsFolder = useEnvironmentQuery(
+    environment === null
+      ? null
+      : projectEnvironment.projectsFolder({ environmentId: environment.environmentId, input: {} }),
+  );
+  const home = projectsFolder.data;
+  const [kind, setKind] = useState<StartKind>("idea");
+  const [name, setName] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const trimmedName = name.trim();
+  const unavailable =
+    home?.unavailable ??
+    (projectsFolder.error === null
+      ? null
+      : "Couldn't find the projects folder. This Stellar server may need an update.");
+  const canSubmit =
+    environment !== null &&
+    canCreateProject &&
+    home !== null &&
+    home.unavailable === null &&
+    trimmedName.length > 0 &&
+    !isSubmitting;
+
+  const showMachines =
+    environmentOptions.length > 1 || (environment === null && environmentOptions.length > 0);
+
+  // State lags a render behind, so a double tap could start a second create.
+  const submittingRef = useRef(false);
+  const submit = async () => {
+    if (!canSubmit || environment === null || submittingRef.current) return;
+    const originRoute = getActiveRoute(navigation);
+    submittingRef.current = true;
+    setError(null);
+    setIsSubmitting(true);
+    const result = await (kind === "carousel" ? createCarousel : createFromIdea)({
+      environmentId: environment.environmentId,
+      input: { title: trimmedName },
+    });
+    if (AsyncResult.isFailure(result)) {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+      setError(errorMessage(Cause.squash(result.cause)));
+      return;
+    }
+    const { projectId } = result.value;
+    // The draft screen resolves its project from the client store, so it
+    // must not open before the create event has arrived.
+    const project = await waitForProject(
+      { environmentId: environment.environmentId, projectId },
+      15_000,
+    );
+    submittingRef.current = false;
+    setIsSubmitting(false);
+    if (project === null) {
+      setName("");
+      setError(
+        "The project was created but has not reached this device yet. It will appear in the project list once the connection catches up.",
+      );
+      return;
+    }
+    openNewTaskDraft(
+      { environmentId: environment.environmentId, projectId, title: trimmedName },
+      originRoute,
+    );
+  };
+
+  const checkmark = (
+    <SymbolView
+      name="checkmark"
+      size={Platform.OS === "android" ? 20 : 14}
+      tintColorClassName="accent-icon"
+      type="monochrome"
+    />
+  );
+
+  return (
+    <AddProjectShell title="New project">
+      {error ? <ErrorBanner message={error} /> : null}
+      {showMachines ? (
+        <ListSection>
+          {environmentOptions.map((option, index) => {
+            const selected = option.environmentId === environment?.environmentId;
+            return (
+              <ListRow
+                key={option.environmentId}
+                title={option.label}
+                icon={
+                  <EnvironmentMachineSymbol
+                    kind={option.machine}
+                    size={Platform.OS === "android" ? 24 : 17}
+                    tintColorClassName="accent-icon"
+                  />
+                }
+                selected={selected}
+                disabled={isSubmitting || !canCreateProjectInEnvironment(option.connectionState)}
+                isFirst={index === 0}
+                right={selected ? checkmark : null}
+                onPress={() => setSelectedEnvironmentId(option.environmentId)}
+              />
+            );
+          })}
+        </ListSection>
+      ) : null}
+      {environment ? (
+        <>
+          <ListSection>
+            {START_KINDS.map((option, index) => (
+              <ListRow
+                key={option.kind}
+                title={option.title}
+                icon={
+                  <SymbolView
+                    name={option.symbol}
+                    size={Platform.OS === "android" ? 24 : 17}
+                    tintColorClassName="accent-icon"
+                    type="monochrome"
+                  />
+                }
+                selected={option.kind === kind}
+                disabled={isSubmitting}
+                isFirst={index === 0}
+                right={option.kind === kind ? checkmark : null}
+                onPress={() => setKind(option.kind)}
+              />
+            ))}
+          </ListSection>
+          <TextInput
+            className="h-12 min-h-12 rounded-[24px] px-4 py-0 text-base leading-snug"
+            value={name}
+            onChangeText={setName}
+            autoFocus
+            placeholder="Project name"
+            returnKeyType="done"
+            onSubmitEditing={() => void submit()}
+          />
+          {unavailable !== null || home !== null ? (
+            <Text className="px-1 text-sm leading-snug text-foreground-muted" numberOfLines={2}>
+              {unavailable ?? `Saved in ${home?.path ?? ""}`}
+            </Text>
+          ) : null}
+          <PrimaryActionButton
+            label="Create project"
+            disabled={!canSubmit}
+            onPress={() => void submit()}
+            loading={isSubmitting}
+          />
+          <ListSection>
+            <ListRow
+              title="Open an existing folder"
+              subtitle="Footage or a project already on this machine"
+              icon={
+                <SymbolView
+                  name="folder"
+                  size={Platform.OS === "android" ? 24 : 17}
+                  tintColorClassName="accent-icon"
+                  type="monochrome"
+                />
+              }
+              isFirst
+              onPress={() =>
+                navigation.dispatch(
+                  StackActions.push("AddProjectExisting", {
+                    environmentId: environment.environmentId,
+                  }),
+                )
+              }
+            />
+          </ListSection>
+        </>
+      ) : environmentOptions.length > 0 ? null : (
+        <EmptyEnvironmentState />
+      )}
+    </AddProjectShell>
+  );
+}
+
 export function AddProjectNewScreen(props: { readonly environmentId?: string | string[] }) {
   const openNewTaskDraft = useOpenNewTaskDraft();
   const navigation = useNavigation();
@@ -1281,7 +1488,7 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
               onPress={() =>
                 navigation.canGoBack()
                   ? navigation.goBack()
-                  : navigation.dispatch(StackActions.replace("AddProject"))
+                  : navigation.dispatch(StackActions.replace("AddProjectExisting"))
               }
             />
           </ListSection>

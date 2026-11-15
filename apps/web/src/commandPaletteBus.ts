@@ -13,6 +13,12 @@ export interface CommandPaletteOpenDetail {
   readonly linkedThreads?: CommandPaletteLinkedThreads;
 }
 
+/** Opens the palette straight on browsing for an existing folder to open as a project. */
+export function openFolderInCommandPalette(environmentId: EnvironmentId): void {
+  if (!isCommandPaletteMounted()) return;
+  dispatchCommandPalette({ _tag: "OpenFolder", environmentId });
+}
+
 export function openCommandPalette(detail: CommandPaletteOpenDetail = {}): void {
   // With no palette on screen (e.g. /pair) the request is dropped; kept in the
   // store, it would pop a stale palette once the app shell mounts.

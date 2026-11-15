@@ -1,7 +1,7 @@
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { MessageSquareDashedIcon, PlusIcon } from "lucide-react";
 
-import { openCommandPalette } from "../commandPaletteBus";
+import { openNewVideoProject } from "../videoProjectDialogBus";
 import { isElectron } from "../env";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { usePrimaryEnvironmentId } from "../state/environments";
@@ -31,13 +31,13 @@ export function NoProjectsHero() {
               <EmptyTitle>What should we work on?</EmptyTitle>
               <EmptyDescription>
                 {scratchTargetEnvironmentId === null
-                  ? "Add a project to start your first thread."
-                  : "Add a project, or start without one."}
+                  ? "Start a video or carousel to begin your first thread."
+                  : "Start a video or carousel, or start without a project."}
               </EmptyDescription>
               <div className="mt-6 flex justify-center gap-2">
-                <Button size="sm" onClick={() => openCommandPalette({ open: "add-project" })}>
+                <Button size="sm" onClick={() => openNewVideoProject()}>
                   <PlusIcon className="size-4" />
-                  Add project
+                  New project
                 </Button>
                 {scratchTargetEnvironmentId === null ? null : (
                   <Button
