@@ -62,6 +62,7 @@ import {
   BugIcon,
   ClapperboardIcon,
   DownloadIcon,
+  ExternalLinkIcon,
   Maximize2Icon,
   MicIcon,
   MousePointer2Icon,
@@ -1651,6 +1652,12 @@ function OpenCommandPaletteDialog(props: {
       "Pull from Premiere",
       <ArrowDownToLineIcon className={ITEM_ICON_CLASS} />,
       ["premiere", "sequence", "sync"],
+    ),
+    timelineButton(
+      "openInPremiere",
+      "Open in Premiere",
+      <ExternalLinkIcon className={ITEM_ICON_CLASS} />,
+      ["premiere", "prproj", "launch", "project"],
     ),
     timelineButton("checkRender", "Check render", <ScanEyeIcon className={ITEM_ICON_CLASS} />, [
       "export",

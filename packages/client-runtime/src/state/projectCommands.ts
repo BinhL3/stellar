@@ -329,6 +329,15 @@ export function createProjectEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
       },
     }),
+    openVideoInPremiere: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:video-projects:open-in-premiere",
+      tag: WS_METHODS.videoProjectsOpenInPremiere,
+      scheduler: projectScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.workspaceRoot]),
+      },
+    }),
     transcribeVideoMedia: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:video-projects:transcribe",
       tag: WS_METHODS.videoProjectsTranscribe,

@@ -686,6 +686,8 @@ export const VideoTimelineEdit = Schema.Struct({
     "setMarker",
     "removeMarker",
     "restoreVersion",
+    "insert",
+    "overwrite",
   ]),
   clipId: Schema.optional(Schema.String),
   toTrack: Schema.optional(Schema.String),
@@ -718,6 +720,13 @@ export const VideoTimelineEdit = Schema.Struct({
   resolved: Schema.optional(Schema.Boolean),
   /** A version id from the timeline's history, such as `v12`. */
   version: Schema.optional(Schema.String),
+  /** `insert` and `overwrite`: a media file of the project, by its path or its name. */
+  media: Schema.optional(Schema.String),
+  /** Seconds into the media the placed clip starts and ends. */
+  sourceIn: Schema.optional(Schema.Number),
+  sourceOut: Schema.optional(Schema.Number),
+  /** Where a video's sound goes, or `none`. */
+  audioTrack: Schema.optional(Schema.String),
 });
 export type VideoTimelineEdit = typeof VideoTimelineEdit.Type;
 
@@ -881,6 +890,26 @@ export const VideoPremierePushPlan = Schema.Struct({
   instructions: Schema.String,
 });
 export type VideoPremierePushPlan = typeof VideoPremierePushPlan.Type;
+
+export const VideoPremiereOpenInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+});
+export type VideoPremiereOpenInput = typeof VideoPremiereOpenInput.Type;
+
+/** The project opened, or brought forward, in Premiere Pro on the host. */
+export const VideoPremiereOpenResult = Schema.Struct({
+  /** The `.prproj` that was opened. */
+  project: TrimmedNonEmptyString,
+  /** The Premiere Pro app it was opened with; null where the system picks it. */
+  app: Schema.NullOr(Schema.String),
+  /** Whether Premiere was already running; null where that can't be told. */
+  wasRunning: Schema.NullOr(Schema.Boolean),
+  /** Whether Premiere is running now, after the wait for it to start. */
+  premiereRunning: Schema.NullOr(Schema.Boolean),
+  /** What to check before using Premiere, in plain words. */
+  next: Schema.String,
+});
+export type VideoPremiereOpenResult = typeof VideoPremiereOpenResult.Type;
 
 export const VideoTimelineEditInput = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),

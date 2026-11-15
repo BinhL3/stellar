@@ -1,6 +1,7 @@
 import {
   OrchestratorMcpFailure,
   VideoProjectCreateFromIdeaResult,
+  VideoPremiereOpenResult,
   VideoPremierePushPlan,
   VideoProjectScanIntakeResult,
   VideoScriptSaveInput,
@@ -49,7 +50,7 @@ const TimelineReadTool = Tool.make("video_timeline_read", {
 
 const TimelineEditTool = Tool.make("video_timeline_edit", {
   description:
-    "Edit a timeline in Stellar. `edits` run in order, in whole frames, naming clips by `#clipId` from `video_timeline_read`: move (clipId, toTrack, startFrame; `magnetic` closes the gap and pushes clips instead of overwriting), trim (clipId, edge, frame), rippleTrim (clipId, edge, frame: trims, then moves everything after the clip on every track by the change), roll (clipId, edge, frame: moves the cut at that edge; its neighbour trims the other way), slip (clipId, frames: plays media that many frames later, earlier when negative, in place), slide (clipId, frames: moves along its track; its neighbours trim to keep the cuts closed). These four take the linked sound or picture along and stop where the media runs out. delete, rippleDelete, split (frame, tracks), removeRange (start, end, ripple), removeWords (fromWord, toWord, ripple), trimPause (afterWord; `leave` seconds to keep, 0.25 when omitted; closes up unless `ripple` is false), setEnabled, setText, addMarker (frame, name, note; optional duration in frames, color, and clipId to pin it to that clip's picture), setMarker (markerId; any of frame, duration, name, note, color, resolved), removeMarker (markerId). Leave a marker to flag a frame for the user; when you have dealt with a user's marker, set `resolved` true and say what you did in `note` rather than removing it. restoreVersion (version, from `video_timeline_read` with `version: \"list\"`) brings a version back as a new version and must be the only edit in its call; what the user changed in Premiere since stays. A split's later piece is `<clipId>~<frame>`. Cut speech by word, not by frame: removeWords and trimPause take word numbers from `video_timeline_words` as they were before this call, so one call can hold several; put them before other edits. Stellar measures the audio and puts each of their edges on the quietest point between the words, and `cuts` reports every one: the frames removed, the level at each edge in dBFS, and how far it moved. An edit that would start or end a clip inside a word while it sounds is refused, naming the word and the nearest quiet point: redo it by word or at that point. One bad edit refuses the whole call. Edits change Stellar's timeline only; `video_premiere_push` plans how to make them in the Premiere sequence it came from, and `video_premiere_export` sends a first cut as a new sequence. `summary` says in one sentence what this call did and where: the user reviews each call as a numbered edit (E1, E2…) to keep, undo or send back, so make one call per change they would judge on its own. Set `check` only for a doubt the user must settle by watching or listening.",
+    "Edit a timeline in Stellar. `edits` run in order, in whole frames, naming clips by `#clipId` from `video_timeline_read`: move (clipId, toTrack, startFrame; `magnetic` closes the gap and pushes clips instead of overwriting), trim (clipId, edge, frame), rippleTrim (clipId, edge, frame: trims, then moves everything after the clip on every track by the change), roll (clipId, edge, frame: moves the cut at that edge; its neighbour trims the other way), slip (clipId, frames: plays media that many frames later, earlier when negative, in place), slide (clipId, frames: moves along its track; its neighbours trim to keep the cuts closed). These four take the linked sound or picture along and stop where the media runs out. insert and overwrite (media, toTrack, startFrame) put a clip of a project media file (footage, b-roll, a voice-over or a range of one) on a track: `media` is its path in the project folder or its file name, `sourceIn`/`sourceOut` the seconds of it to use (all of it when omitted), or `duration` in frames; a photo plays 5 s unless given a duration. insert moves everything from startFrame later by the clip's length on every track (only on toTrack and `tracks` when given), cutting what crosses it; overwrite covers what is there. A video's sound goes on `audioTrack`, linked (the first audio track when omitted, `none` for picture only); a track that doesn't exist yet, such as A2, is made. Media the project doesn't have is refused: import it first. delete, rippleDelete, split (frame, tracks), removeRange (start, end, ripple), removeWords (fromWord, toWord, ripple), trimPause (afterWord; `leave` seconds to keep, 0.25 when omitted; closes up unless `ripple` is false), setEnabled, setText, addMarker (frame, name, note; optional duration in frames, color, and clipId to pin it to that clip's picture), setMarker (markerId; any of frame, duration, name, note, color, resolved), removeMarker (markerId). Leave a marker to flag a frame for the user; when you have dealt with a user's marker, set `resolved` true and say what you did in `note` rather than removing it. restoreVersion (version, from `video_timeline_read` with `version: \"list\"`) brings a version back as a new version and must be the only edit in its call; what the user changed in Premiere since stays. A split's later piece is `<clipId>~<frame>`. Cut speech by word, not by frame: removeWords and trimPause take word numbers from `video_timeline_words` as they were before this call, so one call can hold several; put them before other edits. Stellar measures the audio and puts each of their edges on the quietest point between the words, and `cuts` reports every one: the frames removed, the level at each edge in dBFS, and how far it moved. An edit that would start or end a clip inside a word while it sounds is refused, naming the word and the nearest quiet point: redo it by word or at that point. One bad edit refuses the whole call. Edits change Stellar's timeline only; `video_premiere_push` plans how to make them in the Premiere sequence it came from, and `video_premiere_export` sends a first cut as a new sequence. `summary` says in one sentence what this call did and where: the user reviews each call as a numbered edit (E1, E2…) to keep, undo or send back, so make one call per change they would judge on its own. Set `check` only for a doubt the user must settle by watching or listening.",
   parameters: Schema.Struct({
     timeline: Schema.String,
     edits: Schema.Array(VideoTimelineEdit),
@@ -187,7 +188,7 @@ const PremiereExportTool = Tool.make("video_premiere_export", {
 
 const PremierePushTool = Tool.make("video_premiere_push", {
   description:
-    "Plan how to bring the sequence open in Premiere up to the timeline edited in Stellar, changing only what differs so effects, titles and hand polish stay. Use this, not `video_premiere_export`, whenever the sequence already exists in Premiere. Changes nothing itself: `plan` is numbered steps (ripple-remove a range, remove, trim, move, enable or disable, split, then markers to add, change or remove) in seconds and frames, each at the position it has when that step runs. Apply them in order with the Premiere tools, reading clip ids from the sequence again after each step; then save the project in Premiere and call `video_timeline_read`, whose `premiere` is `current` once Premiere matches and whose `changes` say what still differs. `manual` lists what no step does safely (new clips, effects, text, tracks). When `refused` is set there is no plan: it says why, such as Premiere holding a newer save to pull first. When `premiereRunning` is false, apply nothing and tell the user to open Premiere. `instructions` repeats what applies to this plan.",
+    "Plan how to bring the sequence open in Premiere up to the timeline edited in Stellar, changing only what differs so effects, titles and hand polish stay. Use this, not `video_premiere_export`, whenever the sequence already exists in Premiere. Changes nothing itself: `plan` is numbered steps (add a track, ripple-remove a range, split, insert or overwrite a clip of a media file, remove, trim, move, enable or disable, then markers to add, change or remove) in seconds and frames, each at the position it has when that step runs. Apply them in order with the Premiere tools, importing a step's media into the Premiere project first when it isn't there, and reading clip ids from the sequence again after each step; then save the project in Premiere and call `video_timeline_read`, whose `premiere` is `current` once Premiere matches and whose `changes` say what still differs. `manual` lists what no step does (effects, text, the mix): do what your Premiere tools can, yourself. When `refused` is set there is no plan: it says why, such as Premiere holding a newer save to pull first. When `premiereRunning` is false, call `video_premiere_open` and continue once Premiere answers. `instructions` repeats what applies to this plan.",
   parameters: Schema.Struct({ timeline: Schema.optional(Schema.String) }),
   success: VideoPremierePushPlan,
   failure: OrchestratorMcpFailure,
@@ -196,6 +197,21 @@ const PremierePushTool = Tool.make("video_premiere_push", {
 })
   .annotate(Tool.Title, "Plan the push to Premiere")
   .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const PremiereOpenTool = Tool.make("video_premiere_open", {
+  description:
+    "Open this project's Premiere project in Premiere Pro on the machine running Stellar, or bring it to the front when it is open, then wait up to a minute for Premiere to start. Call it yourself whenever the work needs Premiere and it isn't open (`premiereRunning` false, or the read says Premiere is NOT open): never ask the user to open it. While Premiere runs and the user's Premiere tools are connected, their open_project does the same. `next` says what to check before going on: a project takes a while to load, so check with a Premiere tool that it answers with this project. Refused, saying why, when no Premiere project is linked or found, Premiere isn't installed, or the host can't run it.",
+  parameters: Tool.EmptyParams,
+  success: VideoPremiereOpenResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Open the project in Premiere")
+  .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
@@ -357,6 +373,7 @@ export const VideoToolkit = Toolkit.make(
   VoiceOverTool,
   PremiereExportTool,
   PremierePushTool,
+  PremiereOpenTool,
   ProjectStartTool,
   PremierePullTool,
   FootageTool,

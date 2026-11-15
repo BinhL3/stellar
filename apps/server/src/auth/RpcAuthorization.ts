@@ -162,6 +162,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.videoProjectsImportFootage]: AuthFilesystemWriteScope,
   [WS_METHODS.videoProjectsSaveVoiceOver]: AuthFilesystemWriteScope,
   [WS_METHODS.videoProjectsSync]: AuthFilesystemWriteScope,
+  [WS_METHODS.videoProjectsOpenInPremiere]: AuthFilesystemWriteScope,
   [WS_METHODS.videoProjectsTranscribe]: AuthFilesystemWriteScope,
   [WS_METHODS.videoProjectsReadScript]: AuthFilesystemReadScope,
   [WS_METHODS.videoProjectsCheckRender]: AuthFilesystemWriteScope,

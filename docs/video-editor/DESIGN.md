@@ -338,7 +338,9 @@ Built from the past threads: it targets where time and failures actually went, a
   Premiere yet. For a sequence that already exists in Premiere, `video_premiere_push` instead
   returns an ordered plan (`packages/timeline/src/premiere/pushPlan.ts`) that the agent applies
   to the live sequence with its Premiere tools, touching only what differs from Premiere's last
-  save; Stellar's server cannot drive Premiere itself, and the next read's sync is the check.
+  save, new media placed by insert or overwrite included. Stellar's server cannot drive Premiere
+  itself beyond opening the project in it (`video_premiere_open`), and the next read's sync is
+  the check.
   No plan has been applied to a real Premiere yet. The baton and native re-attach are not built.
 - **Cutting by words, on measured quiet: built.** `video_timeline_words` numbers the words heard
   on a timeline, and the `removeWords` edit cuts a run of them and `trimPause` the pause after

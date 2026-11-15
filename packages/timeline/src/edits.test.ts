@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { applyEdits, gapAt, linkedTracks, rippleDeleteBlocked } from "./edits.ts";
+import {
+  applyEdits,
+  gapAt,
+  linkedTracks,
+  type MediaFacts,
+  placementProblem,
+  rippleDeleteBlocked,
+} from "./edits.ts";
 import { layoutTimeline } from "./layout.ts";
 import { timelineMarkers } from "./markers.ts";
 import { type Clip, type Gap, rationalTime, type Timeline, timeRange, type Track } from "./otio.ts";
@@ -608,5 +615,150 @@ describe("trimming tools", () => {
     expect(
       spans(applyEdits(quiet, [{ kind: "removeRange", start: 60, end: 80, ripple: true }])).V1,
     ).toEqual(["a 0–30 src 100", "b 30–60 src 200", "c 60–90 src 5"]);
+  });
+});
+
+describe("insert and overwrite", () => {
+  const known: Record<string, MediaFacts> = {
+    "Footage/broll.mov": { seconds: 10, picture: true, sound: true },
+    "Footage/mute.mov": { seconds: 10, picture: true, sound: false },
+    "Audio/vo.wav": { seconds: 20, picture: false, sound: true },
+    "Footage/photo.heic": { picture: true, sound: false },
+  };
+  const options = { media: (target: string) => known[target] };
+
+  it("inserts on one track, cutting and moving later clips on every track", () => {
+    const edited = applyEdits(
+      timeline,
+      [
+        {
+          kind: "insert",
+          media: "Footage/mute.mov",
+          startFrame: 15,
+          sourceIn: 1,
+          sourceOut: 2,
+          videoTrack: "V1",
+        },
+      ],
+      options,
+    );
+    expect(spans(edited)).toEqual({
+      V2: ["c 10–15 src 50", "c~15 45–70 src 55"],
+      V1: ["a 0–15 src 100", "V1@15 15–45 src 30", "a~15 45–60 src 115", "b 90–120 src 0"],
+      A1: ["d 0–15 src 0", "d~15 45–60 src 15"],
+    });
+    // Only the tracks named move, and always the one it lands on.
+    const held = applyEdits(
+      timeline,
+      [
+        {
+          kind: "insert",
+          media: "Footage/mute.mov",
+          startFrame: 15,
+          frames: 30,
+          videoTrack: "V1",
+          rippleTracks: ["A1"],
+        },
+      ],
+      options,
+    );
+    expect(spans(held)).toMatchObject({
+      V2: ["c 10–40 src 50"],
+      V1: ["a 0–15 src 100", "V1@15 15–45 src 0", "a~15 45–60 src 115", "b 90–120 src 0"],
+      A1: ["d 0–15 src 0", "d~15 45–60 src 15"],
+    });
+  });
+
+  it("overwrites what is there, moving nothing", () => {
+    const edited = applyEdits(
+      timeline,
+      [
+        {
+          kind: "overwrite",
+          media: "Footage/photo.heic",
+          startFrame: 20,
+          frames: 30,
+          videoTrack: "V1",
+          name: "Logo",
+        },
+      ],
+      options,
+    );
+    expect(spans(edited)).toEqual({
+      V2: ["c 10–40 src 50"],
+      V1: ["a 0–20 src 100", "V1@20 20–50 src 0", "b 60–90 src 0"],
+      A1: ["d 0–30 src 0"],
+    });
+    expect(layoutTimeline(edited).tracks[1]?.clips[1]?.clip.name).toBe("Logo");
+  });
+
+  it("places picture and sound as linked partners, on tracks it makes", () => {
+    const edited = applyEdits(
+      timeline,
+      [
+        {
+          kind: "insert",
+          media: "Footage/broll.mov",
+          startFrame: 30,
+          sourceIn: 2,
+          sourceOut: 3,
+          videoTrack: "V3",
+          audioTrack: "A1",
+        },
+        {
+          kind: "overwrite",
+          media: "Audio/vo.wav",
+          startFrame: 0,
+          sourceIn: 4,
+          sourceOut: 6,
+          audioTrack: "A2",
+        },
+      ],
+      options,
+    );
+    expect(edited.tracks.children.map((t) => `${t.name} ${t.kind}`)).toEqual([
+      "V1 Video",
+      "V2 Video",
+      "V3 Video",
+      "A1 Audio",
+      "A2 Audio",
+    ]);
+    expect(spans(edited)).toEqual({
+      V3: ["V3@30 30–60 src 60"],
+      V2: ["c 10–30 src 50", "c~30 60–70 src 70"],
+      V1: ["a 0–30 src 100", "b 90–120 src 0"],
+      A1: ["d 0–30 src 0", "A1@30 30–60 src 60"],
+      A2: ["A2@0 0–60 src 120"],
+    });
+    expect(linkedTracks(edited, "V3@30")).toEqual(["V3", "A1"]);
+    // The pair moves together like any linked clip.
+    expect(spans(applyEdits(edited, [{ kind: "slip", clipId: "A1@30", frames: 3 }]))).toMatchObject(
+      { V3: ["V3@30 30–60 src 63"], A1: ["d 0–30 src 0", "A1@30 30–60 src 63"] },
+    );
+  });
+
+  it("refuses media the project doesn't know, and ranges or tracks that don't fit it", () => {
+    const at = { kind: "insert", startFrame: 0, videoTrack: "V1" } as const;
+    expect(placementProblem(timeline, { ...at, media: "Footage/new.mov" }, options)).toBe(
+      "Footage/new.mov isn't a media file this project knows",
+    );
+    expect(
+      placementProblem(timeline, { ...at, media: "Footage/mute.mov", sourceOut: 12 }, options),
+    ).toBe("sourceOut 12s is past the media's end (10s)");
+    expect(
+      placementProblem(
+        timeline,
+        { kind: "overwrite", media: "Audio/vo.wav", startFrame: 0, audioTrack: "V2" },
+        options,
+      ),
+    ).toBe("V2 is a video track");
+    expect(placementProblem(timeline, { ...at, media: "Audio/vo.wav" }, options)).toBe(
+      "Audio/vo.wav has no picture",
+    );
+    expect(placementProblem(timeline, { ...at, media: "Footage/mute.mov" }, options)).toBeNull();
+    // A refused placement changes nothing.
+    expect(spans(applyEdits(timeline, [{ ...at, media: "Footage/new.mov" }], options))).toEqual(
+      spans(timeline),
+    );
   });
 });

@@ -37,6 +37,9 @@ export interface PremiereSyncStatus {
   readonly transcripts: VideoTranscriptStatus | null;
   /** Absent when this connection can't write to the project. */
   readonly onTranscribe?: () => void;
+  /** Opens the project in Premiere on the host, or brings it forward. */
+  readonly onOpenInPremiere?: () => void;
+  readonly opening?: boolean;
 }
 
 type State = VideoProjectSyncResult["state"];
@@ -153,8 +156,8 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
           ) : null}
           {props.link?.premiereRunning === false ? (
             <p className="text-warning">
-              Premiere isn't open on this machine. An agent can read and edit this timeline, but
-              can't change the Premiere sequence until you open it.
+              Premiere isn't open on the machine running Stellar. An agent opens it when it needs to
+              change the sequence, or open it here.
             </p>
           ) : null}
           {diverged && pending.length > 0 ? (
@@ -234,8 +237,19 @@ export function PremiereSyncBadge(props: PremiereSyncStatus) {
               ? ` ${failedTranscripts} ${failedTranscripts === 1 ? "file" : "files"} could not be transcribed.`
               : ""}
           </p>
-          {props.onSync || canTranscribe ? (
+          {props.onSync || canTranscribe || props.onOpenInPremiere ? (
             <div className="flex flex-wrap gap-1">
+              {props.onOpenInPremiere && state !== null && state !== "offline" ? (
+                <Button
+                  size="xs"
+                  variant={props.link?.premiereRunning === false ? "default" : "outline"}
+                  disabled={props.opening === true}
+                  onClick={props.onOpenInPremiere}
+                >
+                  {props.opening === true ? <Spinner size="xs" /> : null}
+                  Open in Premiere
+                </Button>
+              ) : null}
               {state === "conflict" && props.onMerge ? (
                 <Button
                   size="xs"

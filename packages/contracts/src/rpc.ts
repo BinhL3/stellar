@@ -249,6 +249,8 @@ import {
   VideoProjectScanIntakeInput,
   VideoProjectScanIntakeResult,
   VideoProjectSyncInput,
+  VideoPremiereOpenInput,
+  VideoPremiereOpenResult,
   VideoProjectSyncResult,
   VideoTranscribeInput,
   VideoTranscriptStatus,
@@ -479,6 +481,7 @@ export const WS_METHODS = {
   videoProjectsImportFootage: "videoProjects.importFootage",
   videoProjectsSaveVoiceOver: "videoProjects.saveVoiceOver",
   videoProjectsSync: "videoProjects.sync",
+  videoProjectsOpenInPremiere: "videoProjects.openInPremiere",
   videoProjectsTranscribe: "videoProjects.transcribe",
   videoProjectsReadScript: "videoProjects.readScript",
   videoProjectsCheckRender: "videoProjects.checkRender",
@@ -1495,6 +1498,12 @@ const WsVideoProjectsSyncRpc = Rpc.make(WS_METHODS.videoProjectsSync, {
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVideoProjectsOpenInPremiereRpc = Rpc.make(WS_METHODS.videoProjectsOpenInPremiere, {
+  payload: VideoPremiereOpenInput,
+  success: VideoPremiereOpenResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsVideoProjectsTranscribeRpc = Rpc.make(WS_METHODS.videoProjectsTranscribe, {
   payload: VideoTranscribeInput,
   success: VideoTranscriptStatus,
@@ -2418,6 +2427,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsImportFootageRpc,
   WsVideoProjectsSaveVoiceOverRpc,
   WsVideoProjectsSyncRpc,
+  WsVideoProjectsOpenInPremiereRpc,
   WsVideoProjectsTranscribeRpc,
   WsVideoProjectsReadScriptRpc,
   WsVideoProjectsCheckRenderRpc,

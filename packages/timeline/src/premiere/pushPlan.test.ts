@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { applyEdits, type TimelineEdit } from "../edits.ts";
+import { applyEdits, type TimelineEdit, withTrack } from "../edits.ts";
 import { layoutTimeline } from "../layout.ts";
 import {
   type Clip,
@@ -122,6 +122,29 @@ const follow = (from: Timeline, steps: ReadonlyArray<PushStep>): Timeline =>
         return applyEdits(timeline, [
           { kind: "split", frame: step.at.frame, tracks: [step.clip.track.name] },
         ]);
+      case "addTrack":
+        return withTrack(
+          timeline,
+          step.track.name,
+          step.track.kind === "video" ? "Video" : "Audio",
+        );
+      case "place":
+        return applyEdits(
+          timeline,
+          [
+            {
+              kind: step.mode,
+              media: step.media,
+              name: step.name,
+              startFrame: step.at.frame,
+              frames: step.end.frame - step.at.frame,
+              ...(step.source === null ? {} : { sourceIn: step.source.in }),
+              ...(step.videoTrack === null ? {} : { videoTrack: step.videoTrack.name }),
+              ...(step.audioTrack === null ? {} : { audioTrack: step.audioTrack.name }),
+            },
+          ],
+          { media: () => ({ picture: true, sound: true }) },
+        );
       // Marker steps touch no clip; the cut these checks follow is the same without them.
       case "addMarker":
       case "removeMarker":
@@ -349,7 +372,7 @@ describe("pushPlan", () => {
     );
   });
 
-  it("lists what no step does: added clips, properties, tracks", () => {
+  it("lists what no step does: text, properties", () => {
     const fresh = clip("broll", 30, 50, 30, "broll.mov");
     const ours: Timeline = {
       ...base,
@@ -380,13 +403,58 @@ describe("pushPlan", () => {
       },
     };
     const plan = pushPlan(base, ours);
-    expect(plan.steps).toEqual([]);
-    expect(plan.manual).toEqual([
-      "Added track A2",
-      "Changed text of title on V2 at 0:00",
-      "Add broll to V2 at 3.333333s-5.000s (frames 100-150, source in 1.000s of broll.mov); import its media first if the project lacks it",
+    expect(plan.text.split("\n")).toEqual([
+      "1. add audio track A2 (audio track 2)",
+      '2. overwrite "broll" on V2 (picture only) at 3.333333s-5.000s (frames 100-150; source 1.000s-2.666667s of broll.mov): covering what is there',
+      "By hand, no step here does it safely:",
+      "- Changed text of title on V2 at 0:00",
     ]);
-    expect(plan.text.split("\n")[0]).toBe("By hand, no step here does it safely:");
+  });
+
+  it("places new media: inserted where the clips after it moved, else overwritten", () => {
+    const known = { media: () => ({ seconds: 20, picture: true, sound: true }) };
+    // B-roll with its sound ahead of v2, and two voice-over ranges on a track Premiere lacks.
+    const ours = applyEdits(
+      base,
+      [
+        {
+          kind: "insert",
+          media: "Footage/broll.mov",
+          startFrame: 100,
+          sourceIn: 2,
+          frames: 120,
+          videoTrack: "V1",
+          audioTrack: "A1",
+        },
+        {
+          kind: "overwrite",
+          media: "Audio/vo.wav",
+          startFrame: 30,
+          sourceIn: 4,
+          sourceOut: 6,
+          audioTrack: "A2",
+        },
+        {
+          kind: "overwrite",
+          media: "Audio/vo.wav",
+          startFrame: 300,
+          sourceIn: 10,
+          sourceOut: 11.5,
+          audioTrack: "A2",
+        },
+      ],
+      known,
+    );
+    const plan = pushPlan(base, ours, { mediaPath: (target) => `/home/user/Shorts/${target}` });
+    expect(plan.text.split("\n")).toEqual([
+      "1. add audio track A2 (audio track 2)",
+      '2. insert "broll.mov" on V1 and A1 at 3.333333s-7.333333s (frames 100-220; source 2.000s-6.000s of /home/user/Shorts/Footage/broll.mov): everything from 3.333333s on every track moves 4.000s later',
+      '3. overwrite "vo.wav" on A2 (sound only) at 10.000s-11.500s (frames 300-345; source 10.000s-11.500s of /home/user/Shorts/Audio/vo.wav): covering what is there',
+      '4. overwrite "vo.wav" on A2 (sound only) at 1.000s-3.000s (frames 30-90; source 4.000s-6.000s of /home/user/Shorts/Audio/vo.wav): covering what is there',
+    ]);
+    expect(plan.manual).toEqual([]);
+    const premiere = follow(base, pushPlan(base, ours).steps);
+    expect(spans(premiere)).toEqual(spans(ours));
   });
 
   it("adds marker steps after the cut, each marker at the place it ends up", () => {

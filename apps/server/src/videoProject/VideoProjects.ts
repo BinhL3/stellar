@@ -15,6 +15,8 @@ import {
   type VideoProjectScanIntakeInput,
   type VideoProjectScanIntakeResult,
   type VideoProjectSyncInput,
+  type VideoPremiereOpenInput,
+  type VideoPremiereOpenResult,
   type VideoPremierePushPlan,
   type VideoProjectSyncResult,
   type VideoScriptReadInput,
@@ -72,7 +74,15 @@ import {
   readMediaIndex,
 } from "@t3tools/timeline/conformBuilder";
 import { changeLine, diffSentences, diffTimelines } from "@t3tools/timeline/diff";
-import { applyEdits, editClipId, type TimelineEdit } from "@t3tools/timeline/edits";
+import {
+  applyEdits,
+  editClipId,
+  type MediaFacts,
+  type Placement,
+  placementProblem,
+  STILL_PATH,
+  type TimelineEdit,
+} from "@t3tools/timeline/edits";
 import {
   auditJoins,
   clippedEdgeReason,
@@ -94,7 +104,12 @@ import {
   writeFootageStringout,
 } from "@t3tools/timeline/footage";
 import { layoutTimeline } from "@t3tools/timeline/layout";
-import { serializeJson, serializeTimeline, type Timeline } from "@t3tools/timeline/otio";
+import {
+  serializeJson,
+  serializeTimeline,
+  type Timeline,
+  TIMELINE_NAMESPACE,
+} from "@t3tools/timeline/otio";
 import { toFcpXml } from "@t3tools/timeline/premiere/fcpxml";
 import { parsePrproj } from "@t3tools/timeline/premiere/prproj";
 import { pushPlan as planPush } from "@t3tools/timeline/premiere/pushPlan";
@@ -135,11 +150,13 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { findPremiereApp } from "./PremiereApp.ts";
 import { parentFolderFor, resolveProjectsFolder } from "./ProjectsFolder.ts";
 import {
   newestExport,
@@ -217,6 +234,8 @@ const EDGE_MAKING_EDITS: ReadonlySet<VideoTimelineEdit["kind"]> = new Set([
   "slide",
   "removeRange",
   "setEnabled",
+  "insert",
+  "overwrite",
 ]);
 
 const HANDLE_EDITS: ReadonlySet<TimelineEdit["kind"]> = new Set([
@@ -242,6 +261,10 @@ const toTimelineEdit = (
   ) => FrameRange | string | null,
   /** Who a marker made by this edit is from. */
   author: "user" | "agent",
+  /** The media file an insert or overwrite names, found in the project, or why it isn't. */
+  mediaOf: (name: string) => PlacedMedia | string,
+  /** The timeline's tracks, for where a placement's picture and sound go. */
+  tracks: ReadonlyArray<{ readonly name: string; readonly kind: "Video" | "Audio" }>,
 ): TimelineEdit | string | null => {
   const missing = (...keys: ReadonlyArray<keyof VideoTimelineEdit>) =>
     `needs ${keys.filter((key) => edit[key] === undefined).join(", ")}`;
@@ -353,8 +376,49 @@ const toTimelineEdit = (
         : { kind: "removeMarker", markerId: edit.markerId.replace(/^#/, "") };
     case "restoreVersion":
       return "a restore is the only edit in its call";
+    case "insert":
+    case "overwrite": {
+      const { media, toTrack, startFrame } = edit;
+      if (media === undefined || toTrack === undefined || startFrame === undefined) {
+        return missing("media", "toTrack", "startFrame");
+      }
+      const found = mediaOf(media);
+      if (typeof found === "string") return found;
+      const kindOf = (name: string) => tracks.find((track) => track.name === name)?.kind;
+      // A file with picture puts its picture on toTrack, unless toTrack is for sound.
+      const soundOnly =
+        !found.facts.picture ||
+        (kindOf(toTrack) ?? (/^A\d+$/i.test(toTrack) ? "Audio" : "Video")) === "Audio";
+      const firstAudio = tracks.find((track) => track.kind === "Audio")?.name ?? "A1";
+      const audioTrack = soundOnly
+        ? toTrack
+        : !found.facts.sound || edit.audioTrack === "none"
+          ? undefined
+          : (edit.audioTrack ?? firstAudio);
+      const placement: Placement = {
+        kind: edit.kind,
+        media: found.target,
+        startFrame,
+        ...(soundOnly ? {} : { videoTrack: toTrack }),
+        ...(audioTrack === undefined ? {} : { audioTrack }),
+        ...(edit.sourceIn === undefined ? {} : { sourceIn: edit.sourceIn }),
+        ...(edit.sourceOut === undefined ? {} : { sourceOut: edit.sourceOut }),
+        ...(edit.duration === undefined ? {} : { frames: edit.duration }),
+        ...(edit.tracks === undefined ? {} : { rippleTracks: edit.tracks }),
+        ...(edit.name === undefined ? {} : { name: edit.name }),
+      };
+      return placement;
+    }
   }
 };
+
+interface PlacedMedia {
+  /** As timelines name it: relative to the media root. */
+  readonly target: string;
+  readonly facts: MediaFacts;
+}
+
+const PLACING_EDITS: ReadonlySet<VideoTimelineEdit["kind"]> = new Set(["insert", "overwrite"]);
 
 const sequenceSentence = (change: SequenceChange) =>
   change.kind === "added"
@@ -510,6 +574,13 @@ export class VideoProjects extends Context.Service<
     readonly pushPlan: (
       input: VideoTimelineReadInput,
     ) => Effect.Effect<VideoPremierePushPlan, VideoProjectError>;
+    /**
+     * Opens the project's `.prproj` in Premiere Pro on the host, or brings it forward when it is
+     * open, then waits a while for Premiere to be running. Refused where Premiere doesn't run.
+     */
+    readonly openInPremiere: (
+      input: VideoPremiereOpenInput,
+    ) => Effect.Effect<VideoPremiereOpenResult, VideoProjectError>;
     /** A timeline as an agent reads it, synced with Premiere first so it is never stale. */
     readonly readTimeline: (
       input: VideoTimelineReadInput,
@@ -667,11 +738,14 @@ const make = Effect.gen(function* () {
   const MEASURE_WAIT_MILLIS = 20_000;
   const savingScript = yield* Semaphore.make(1);
   // Premiere's process is named for its year ("Adobe Premiere Pro 2026"); `ps` lists it on macOS
-  // and Linux. Where `ps` isn't there, the answer is unknown rather than "closed".
-  const premiereRunning = spawner.string(ChildProcess.make("ps", ["-axo", "comm"])).pipe(
-    Effect.map((processes) => /Adobe Premiere Pro/.test(processes)),
-    Effect.orElseSucceed((): boolean | null => null),
-  );
+  // and Linux, `tasklist` on Windows. Where neither runs, the answer is unknown, not "closed".
+  const premiereRunning = Effect.gen(function* () {
+    const listing =
+      (yield* HostProcess.Platform) === "win32"
+        ? ChildProcess.make("tasklist", ["/FO", "CSV", "/NH"])
+        : ChildProcess.make("ps", ["-axo", "comm"]);
+    return /Adobe Premiere Pro/.test(yield* spawner.string(listing));
+  }).pipe(Effect.orElseSucceed((): boolean | null => null));
   const building = new Set<string>();
   const importing = new Set<string>();
   const downloads = path.join(yield* HostProcess.HomeDirectory, "Downloads");
@@ -1384,7 +1458,7 @@ const make = Effect.gen(function* () {
         ? "may or may not be open (can't tell on this system)"
         : synced.premiereRunning
           ? "is open"
-          : "is NOT open: Premiere tools will fail until the user opens it";
+          : "is NOT open: video_premiere_open opens the project in it";
     const linked =
       link === null
         ? "no Premiere project is linked (save one into the Premiere folder, then video_premiere_pull)"
@@ -1980,6 +2054,134 @@ const make = Effect.gen(function* () {
     };
   });
 
+  /** What ffprobe says a file holds; null when it reads no picture or sound in it. */
+  const probeMedia = (file: string) =>
+    spawner
+      .string(
+        ChildProcess.make("ffprobe", [
+          "-v",
+          "error",
+          "-show_entries",
+          "stream=codec_type:stream_disposition=attached_pic:format=duration",
+          "-of",
+          "json",
+          file,
+        ]),
+      )
+      .pipe(
+        Effect.flatMap(decodeJson),
+        Effect.map((value): MediaFacts | null => {
+          const probed = value as {
+            streams?: ReadonlyArray<{
+              codec_type?: string;
+              disposition?: { attached_pic?: number };
+            }>;
+            format?: { duration?: string };
+          };
+          const streams = probed.streams ?? [];
+          // Audio files can carry cover art as a one-frame "video" stream.
+          const picture = streams.some(
+            (stream) => stream.codec_type === "video" && stream.disposition?.attached_pic !== 1,
+          );
+          const sound = streams.some((stream) => stream.codec_type === "audio");
+          const seconds = Number(probed.format?.duration);
+          if (!picture && !sound) return null;
+          return { ...(Number.isFinite(seconds) ? { seconds } : {}), picture, sound };
+        }),
+        Effect.orElseSucceed(() => null),
+      );
+
+  /**
+   * The media files edits name for insert and overwrite, found in the project: what the
+   * previews' index, the voice-over takes or a probe know of them. A file outside the project
+   * must be brought in first.
+   */
+  const findMedia = Effect.fn("VideoProjects.findMedia")(function* (
+    workspaceRoot: string,
+    names: ReadonlyArray<string>,
+  ) {
+    const mediaRoot = path.dirname(workspaceRoot);
+    const index = yield* fileSystem.readFileString(path.join(workspaceRoot, PROXY_INDEX_PATH)).pipe(
+      Effect.flatMap(decodeJson),
+      Effect.map((value) => value as ProxyIndex),
+      Effect.orElseSucceed(() => null),
+    );
+    const known = new Map<string, MediaFacts>();
+    for (const [target, entry] of Object.entries(index?.media ?? {})) {
+      const still = STILL_PATH.test(target) || entry.still !== undefined;
+      known.set(target, {
+        ...(still ? {} : { seconds: entry.duration }),
+        picture: still || entry.video !== undefined,
+        sound: entry.audio !== undefined,
+      });
+    }
+    for (const take of (yield* onHost(readTakeIndex(workspaceRoot))).takes) {
+      if (!known.has(take.file)) {
+        known.set(take.file, { seconds: take.seconds, picture: false, sound: true });
+      }
+    }
+    // An original that switches frame rate is cut from its constant-rate copy.
+    const { copyOf } = (yield* onHost(readConformState(workspaceRoot))).state;
+    const base = (target: string) => target.slice(target.lastIndexOf("/") + 1).toLowerCase();
+    const bare = (name: string) => name.replace(/\.[^.]+$/, "");
+    const found = new Map<string, PlacedMedia | string>();
+    for (const name of new Set(names)) {
+      const asked = name.trim().replace(/^\.\//, "");
+      const inside = path.isAbsolute(asked)
+        ? asked.startsWith(`${mediaRoot}/`)
+          ? asked.slice(mediaRoot.length + 1)
+          : null
+        : asked;
+      if (inside === null) {
+        found.set(
+          name,
+          `${asked} is outside the project folder (${mediaRoot}): bring it in first, with video_footage import for footage, or video_voice_over import for a voice-over recording`,
+        );
+        continue;
+      }
+      const target = copyOf.get(inside) ?? inside;
+      const facts = known.get(target);
+      if (facts !== undefined) {
+        found.set(name, { target, facts });
+        continue;
+      }
+      const file = path.join(mediaRoot, target);
+      if (yield* fileSystem.exists(file).pipe(Effect.orElseSucceed(() => false))) {
+        const probed = STILL_PATH.test(target)
+          ? { picture: true, sound: false }
+          : yield* probeMedia(file);
+        found.set(
+          name,
+          probed === null
+            ? `${target} has no picture or sound ffprobe can read`
+            : { target, facts: probed },
+        );
+        continue;
+      }
+      const wanted = base(target);
+      const byName = [...known.keys(), ...copyOf.keys()].filter(
+        (key) => base(key) === wanted || bare(base(key)) === bare(wanted),
+      );
+      const targets = [...new Set(byName.map((key) => copyOf.get(key) ?? key))];
+      const [only] = targets;
+      const onlyFacts = only === undefined ? undefined : known.get(only);
+      if (only !== undefined && targets.length === 1 && onlyFacts !== undefined) {
+        found.set(name, { target: only, facts: onlyFacts });
+        continue;
+      }
+      const listed = [...known.keys()].toSorted();
+      found.set(
+        name,
+        targets.length > 1
+          ? `"${asked}" names ${targets.length} files (${targets.join(", ")}): give its path`
+          : `no media "${asked}" in this project. Media is known once it is in the project folder: video_footage imports footage, video_voice_over import brings in a recording${
+              index?.building === undefined ? "" : ", and previews are still being built"
+            }. Known: ${listed.length === 0 ? "none" : capped(listed).join(", ")}`,
+      );
+    }
+    return { found, indexed: known, previewed: new Set(Object.keys(index?.media ?? {})) };
+  });
+
   const editTimeline: VideoProjects["Service"]["editTimeline"] = Effect.fn(
     "VideoProjects.editTimeline",
   )(function* (input) {
@@ -2089,11 +2291,25 @@ const make = Effect.gen(function* () {
       if (ripple) rippled.push(range);
       return placed;
     };
+    const media = input.edits.some((edit) => PLACING_EDITS.has(edit.kind))
+      ? yield* findMedia(
+          input.workspaceRoot,
+          input.edits.flatMap((edit) => (edit.media === undefined ? [] : [edit.media])),
+        )
+      : null;
+    const mediaOf = (name: string) => media?.found.get(name) ?? `no media "${name}"`;
+    const placing = {
+      media: (target: string) =>
+        media?.indexed.get(target) ??
+        [...(media?.found.values() ?? [])].find(
+          (found): found is PlacedMedia => typeof found !== "string" && found.target === target,
+        )?.facts,
+    };
     const edits: Array<TimelineEdit> = [];
     // The call's edit each applied one came from, since a pause with nothing to trim is skipped.
     const asked: Array<number> = [];
     for (const [index, edit] of input.edits.entries()) {
-      const parsed = toTimelineEdit(edit, framesOfWords, by);
+      const parsed = toTimelineEdit(edit, framesOfWords, by, mediaOf, layout.tracks);
       if (parsed === null) continue;
       const clipId = typeof parsed === "string" ? undefined : (editClipId(parsed) ?? undefined);
       const problem =
@@ -2103,10 +2319,12 @@ const make = Effect.gen(function* () {
             ? `no clip #${clipId}`
             : parsed.kind === "move" && !trackNames.has(parsed.toTrack)
               ? `no track ${parsed.toTrack}`
-              : (parsed.kind === "setMarker" || parsed.kind === "removeMarker") &&
-                  !markerIds.has(parsed.markerId)
-                ? `no marker #${parsed.markerId}`
-                : null;
+              : parsed.kind === "insert" || parsed.kind === "overwrite"
+                ? placementProblem(applyEdits(timeline, edits, placing), parsed, placing)
+                : (parsed.kind === "setMarker" || parsed.kind === "removeMarker") &&
+                    !markerIds.has(parsed.markerId)
+                  ? `no marker #${parsed.markerId}`
+                  : null;
       if (problem !== null || typeof parsed === "string") {
         return yield* new VideoProjectError({
           reason: `Edit ${index + 1} (${edit.kind}): ${problem}. Nothing was changed.`,
@@ -2123,7 +2341,10 @@ const make = Effect.gen(function* () {
           Effect.orElseSucceed(() => null),
         )
       : null;
-    const options = { mediaSeconds: (target: string) => proxies?.media[target]?.duration };
+    const options = {
+      mediaSeconds: (target: string) => proxies?.media[target]?.duration,
+      ...placing,
+    };
     const edited = applyEdits(timeline, edits, options);
     if (sound !== null && by === "agent") {
       const clippedBy = (result: Timeline) =>
@@ -2186,6 +2407,16 @@ const make = Effect.gen(function* () {
         ).pipe(Effect.mapError(historyError)),
       ),
     );
+    // Media new to the timelines gets its preview made, as a pull's would.
+    if (
+      edits.some(
+        (edit) =>
+          (edit.kind === "insert" || edit.kind === "overwrite") &&
+          media?.previewed.has(edit.media) === false,
+      )
+    ) {
+      yield* startProxies(input.workspaceRoot);
+    }
     const { result: after, view: synced } = yield* syncWithPremiere({
       workspaceRoot: input.workspaceRoot,
     });
@@ -2353,14 +2584,23 @@ const make = Effect.gen(function* () {
       if (Option.isNone(base)) {
         return refuse("No record of Premiere's version yet; sync once with Premiere open.");
       }
+      const mediaRoot =
+        (timeline.metadata[TIMELINE_NAMESPACE] as { mediaRoot?: string } | undefined)?.mediaRoot ??
+        path.dirname(input.workspaceRoot);
       const plan = yield* Effect.try({
-        try: () => planPush(base.value, timeline),
+        try: () =>
+          planPush(base.value, timeline, {
+            mediaPath: (target) =>
+              path.isAbsolute(target) ? target : path.join(mediaRoot, target),
+          }),
         catch: (cause) =>
           new VideoProjectError({ reason: `Could not plan the push of ${chosen}.`, cause }),
       });
       const closed =
         synced.premiereRunning === false
-          ? ["Premiere is NOT open: apply nothing. Tell the user to open the project in Premiere."]
+          ? [
+              "Premiere is NOT open: call video_premiere_open first, check with a Premiere tool that the project has loaded, then apply the steps.",
+            ]
           : [];
       const instructions =
         plan.steps.length === 0 && plan.manual.length === 0
@@ -2378,10 +2618,15 @@ const make = Effect.gen(function* () {
                     "Marker steps come last and give each marker's final place. List the sequence's markers first and find each by name and comment: Premiere may have moved them with the ripple steps. Write a marker's comment exactly as given; a last line like [stellar: agent, resolved] is how Stellar reads back who made it and that it is resolved. A clip marker goes on the source clip in the project, at the source time given.",
                   ]
                 : []),
+              ...(plan.steps.some((step) => step.kind === "place")
+                ? [
+                    "An insert or overwrite step places a clip of a media file: find the file in the Premiere project by its path, importing it when it isn't there, then insert or overwrite it at the step's time on the tracks named, with the source in and out given. Target only those tracks; an insert moves every track's later clips (sync lock on), an overwrite moves nothing. A track to add comes first as its own step.",
+                  ]
+                : []),
               ...(plan.manual.length === 0
                 ? []
                 : [
-                    "The plan's by-hand list is not covered by the steps: do what a Premiere tool can do safely, and tell the user the rest.",
+                    "The plan's by-hand list is not covered by the steps: do what your Premiere tools can do safely yourself, and tell the user only what is left.",
                   ]),
               "Then save the project in Premiere and call video_timeline_read: `premiere` is `current` once Premiere matches, and `changes` lists what still differs.",
             ].join("\n");
@@ -2395,6 +2640,104 @@ const make = Effect.gen(function* () {
       };
     },
   );
+
+  /** The `.prproj` a project follows, else the only one in its Premiere folder. */
+  const premiereProjectOf = Effect.fn("VideoProjects.premiereProjectOf")(function* (
+    workspaceRoot: string,
+  ) {
+    const linked = yield* fileSystem
+      .readFileString(path.join(workspaceRoot, PREMIERE_LINK_PATH))
+      .pipe(
+        Effect.flatMap(decodeJson),
+        Effect.map((value) => (value as { project?: string }).project ?? null),
+        Effect.orElseSucceed(() => null),
+      );
+    if (linked !== null) {
+      if (yield* fileSystem.exists(linked).pipe(Effect.orElseSucceed(() => false))) return linked;
+      return yield* new VideoProjectError({
+        reason: `The linked Premiere project ${linked} can't be found: its drive may be unplugged, or it moved.`,
+      });
+    }
+    const folder = path.join(path.dirname(workspaceRoot), "Premiere");
+    const found = (yield* fileSystem
+      .readDirectory(folder)
+      .pipe(Effect.orElseSucceed((): Array<string> => [])))
+      .filter((name) => name.endsWith(".prproj") && !name.startsWith("."))
+      .toSorted();
+    const [only] = found;
+    if (only !== undefined && found.length === 1) return path.join(folder, only);
+    return yield* new VideoProjectError({
+      reason:
+        found.length === 0
+          ? `No Premiere project yet: none is linked and ${folder} holds no .prproj. Make one in Premiere (a Premiere tool can create it) and save it there, then video_premiere_pull.`
+          : `No Premiere project is linked and ${folder} holds ${found.length}: ${found.join(", ")}. video_premiere_pull the one to follow.`,
+    });
+  });
+
+  const openInPremiere: VideoProjects["Service"]["openInPremiere"] = Effect.fn(
+    "VideoProjects.openInPremiere",
+  )(function* (input) {
+    yield* requireProject(input.workspaceRoot);
+    const project = yield* premiereProjectOf(input.workspaceRoot);
+    const platform = yield* HostProcess.Platform;
+    if (platform !== "darwin" && platform !== "win32") {
+      return yield* new VideoProjectError({
+        reason: `Premiere Pro runs on macOS and Windows only, and Stellar's host here is ${platform}. Open ${project} in Premiere on a Mac or PC that can reach it.`,
+      });
+    }
+    const app = platform === "darwin" ? yield* onHost(findPremiereApp()) : null;
+    if (platform === "darwin" && app === null) {
+      return yield* new VideoProjectError({
+        reason:
+          "Premiere Pro isn't installed in /Applications on this Mac. Install it from Creative Cloud, then try again.",
+      });
+    }
+    const wasRunning = yield* premiereRunning;
+    // Both return once the app has the file: `open -a` also brings a running Premiere forward,
+    // and `start` hands the project to the app Windows opens .prproj files with.
+    const command =
+      app !== null
+        ? ChildProcess.make("open", ["-a", app, project])
+        : // The empty argument is `start`'s window title, quoted by Node as "".
+          ChildProcess.make("cmd.exe", ["/c", "start", "", project]);
+    yield* spawner.string(command).pipe(
+      Effect.mapError(
+        (cause) =>
+          new VideoProjectError({
+            reason:
+              app === null
+                ? `Windows couldn't open ${project}. Is Premiere Pro installed, and does it open .prproj files?`
+                : `Could not open ${project} with ${app}.`,
+            cause,
+          }),
+      ),
+    );
+    // Premiere's process shows within seconds of launch; loading the project takes longer.
+    const running =
+      wasRunning === true
+        ? true
+        : yield* premiereRunning.pipe(
+            Effect.repeat({
+              schedule: Schedule.spaced("1 second"),
+              until: (now) => now !== false,
+            }),
+            Effect.timeoutOption("60 seconds"),
+            Effect.map(Option.getOrElse((): boolean | null => false)),
+          );
+    const name = path.basename(project);
+    return {
+      project,
+      app,
+      wasRunning,
+      premiereRunning: running,
+      next:
+        running === false
+          ? `Premiere didn't start within a minute. Check the host for a sign-in or update prompt, then call video_premiere_open again.`
+          : wasRunning === true
+            ? `Premiere was running and has ${name} in front. Check with a Premiere tool that ${name} is the open project, then continue.`
+            : `Premiere is starting with ${name}; loading takes up to a minute. Check with a Premiere tool (its connection check, then the open project) until it answers with ${name}, then continue.`,
+    };
+  });
 
   // One writer of the take index at a time, so two saves can't be given the same take id.
   const savingTakes = yield* Semaphore.make(1);
@@ -2858,6 +3201,7 @@ const make = Effect.gen(function* () {
     setPosted,
     exportForPremiere,
     pushPlan,
+    openInPremiere,
     saveVoiceOver,
     readTimeline,
     readWords,

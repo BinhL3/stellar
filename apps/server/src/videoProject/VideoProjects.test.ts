@@ -24,6 +24,7 @@ import { timelineFingerprint } from "@t3tools/timeline/renderProbe";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as PremiereApp from "./PremiereApp.ts";
 import { findTranscript, runTranscription, transcriptCoverage } from "./Transcriber.ts";
 import * as VideoProjects from "./VideoProjects.ts";
 
@@ -1419,6 +1420,211 @@ it.live("plans a push from Premiere's last save, and says why when it can't", ()
     ),
     Effect.scoped,
   );
+});
+
+it.live("plans an inserted still as a step that places its file", () => {
+  const created: Array<string> = [];
+  return Effect.gen(function* () {
+    const { fs, path, root, premiereProjectPath } = yield* setup;
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    yield* fs.writeFile(
+      premiereProjectPath,
+      prprojWithSequences([
+        {
+          id: "seq-1",
+          name: "Polish v1",
+          clips: [
+            { name: "a.MOV", start: 0, end: 100 },
+            { name: "b.MOV", start: 100, end: 200 },
+          ],
+        },
+      ]),
+    );
+    const { workspaceRoot, timelinePath } = yield* videoProjects.createFromPremiere({
+      premiereProjectPath,
+      sequenceId: "seq-1",
+    });
+    const mediaRoot = path.join(root, "SFUniqlo");
+    yield* fs.makeDirectory(path.join(mediaRoot, "Footage"), { recursive: true });
+    yield* fs.writeFileString(path.join(mediaRoot, "Footage", "card.png"), "png");
+    const insert = (media: string) =>
+      videoProjects.editTimeline({
+        workspaceRoot,
+        timeline: timelinePath,
+        edits: [{ kind: "insert", media, toTrack: "V1", startFrame: 100, duration: 30 }],
+      });
+    const refused = yield* insert("/elsewhere/card.png").pipe(Effect.flip);
+    assert.match(
+      refused.message,
+      /^Edit 1 \(insert\): \/elsewhere\/card.png is outside the project/,
+    );
+    const edited = yield* insert("Footage/card.png");
+    assert.include(edited.text, "V1 100-130 #V1@100 card.png");
+    assert.include(edited.text, "V1 130-230 #");
+
+    const planned = yield* videoProjects.pushPlan({ workspaceRoot });
+    assert.strictEqual(
+      planned.plan,
+      `1. insert "card.png" on V1 (picture only) at 3.333333s-4.333333s (frames 100-130; a still of ${path.join(mediaRoot, "Footage", "card.png")}): everything from 3.333333s on every track moves 1.000s later`,
+    );
+    assert.deepStrictEqual(planned.manual, []);
+    assert.include(planned.instructions, "importing it when it isn't there");
+  }).pipe(
+    Effect.provide(
+      VideoProjects.layer.pipe(
+        Layer.provideMerge(withProjects(created)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+      ),
+    ),
+    Effect.scoped,
+  );
+});
+
+/**
+ * Stands in for the host's process list and app launcher: Premiere runs once `open` or
+ * `start` has been called, or from the start when `running`. Records every such command.
+ */
+const fakeLauncher = (calls: Array<string>, options: { readonly running: boolean }) =>
+  Layer.effect(
+    ChildProcessSpawner.ChildProcessSpawner,
+    Effect.gen(function* () {
+      const real = yield* ChildProcessSpawner.ChildProcessSpawner;
+      let running = options.running;
+      const answer = (stdout: string) =>
+        ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(1),
+          exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+          isRunning: Effect.succeed(false),
+          kill: () => Effect.void,
+          unref: Effect.succeed(Effect.void),
+          stdin: Sink.drain,
+          stdout: Stream.make(new TextEncoder().encode(stdout)),
+          stderr: Stream.empty,
+          all: Stream.empty,
+          getInputFd: () => Sink.drain,
+          getOutputFd: () => Stream.empty,
+        });
+      return ChildProcessSpawner.make((command) => {
+        if (!ChildProcess.isStandardCommand(command)) return real.spawn(command);
+        const line = [command.command, ...command.args.map(String)].join(" ");
+        switch (command.command) {
+          case "ps":
+          case "tasklist":
+            return Effect.succeed(
+              answer(
+                running
+                  ? "/Applications/Adobe Premiere Pro 2026/Adobe Premiere Pro 2026\n"
+                  : "launchd\n",
+              ),
+            );
+          case "open":
+          case "cmd.exe":
+            calls.push(line);
+            running = true;
+            return Effect.succeed(answer(""));
+          default:
+            return real.spawn(command);
+        }
+      });
+    }),
+  ).pipe(Layer.provide(NodeServices.layer));
+
+const openLayer = (created: Array<string>, calls: Array<string>, running: boolean) =>
+  VideoProjects.layer.pipe(
+    Layer.provideMerge(withProjects(created)),
+    Layer.provideMerge(
+      Layer.mergeAll(
+        NodeServices.layer,
+        NodeCrypto.layer,
+        noTranscriber,
+        fakeLauncher(calls, { running }),
+      ),
+    ),
+  );
+
+/** A linked project, and an Applications folder holding these Premiere releases. */
+const openSetup = (releases: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const { fs, path, root, premiereProjectPath } = yield* setup;
+    const videoProjects = yield* VideoProjects.VideoProjects;
+    const { workspaceRoot } = yield* videoProjects.createFromPremiere({
+      premiereProjectPath,
+      sequenceId: "seq-1",
+    });
+    const applications = path.join(root, "Applications");
+    for (const release of releases) {
+      yield* fs.makeDirectory(path.join(applications, release, `${release}.app`), {
+        recursive: true,
+      });
+    }
+    return { videoProjects, workspaceRoot, premiereProjectPath, applications, path };
+  });
+
+it.live("opens the project with the newest Premiere release and waits for it to run", () => {
+  const created: Array<string> = [];
+  const calls: Array<string> = [];
+  return Effect.gen(function* () {
+    const { videoProjects, workspaceRoot, premiereProjectPath, applications, path } =
+      yield* openSetup([
+        "Adobe Premiere Pro 2025",
+        "Adobe Premiere Pro 2026",
+        "Adobe Premiere Pro (Beta)",
+      ]);
+    const app = path.join(applications, "Adobe Premiere Pro 2026", "Adobe Premiere Pro 2026.app");
+    const opened = yield* videoProjects
+      .openInPremiere({ workspaceRoot })
+      .pipe(
+        Effect.provideService(HostProcess.Platform, "darwin"),
+        Effect.provideService(PremiereApp.ApplicationFolders, [applications]),
+      );
+    assert.deepStrictEqual(calls, [`open -a ${app} ${premiereProjectPath}`]);
+    assert.deepStrictEqual(
+      [opened.project, opened.app, opened.wasRunning, opened.premiereRunning],
+      [premiereProjectPath, app, false, true],
+    );
+    assert.match(opened.next, /^Premiere is starting with SFUniqlo.prproj/);
+  }).pipe(Effect.provide(openLayer(created, calls, false)), Effect.scoped);
+});
+
+it.live("brings an open Premiere forward, and opens with the app Windows picks", () => {
+  const created: Array<string> = [];
+  const calls: Array<string> = [];
+  return Effect.gen(function* () {
+    const { videoProjects, workspaceRoot, premiereProjectPath, applications } = yield* openSetup([
+      "Adobe Premiere Pro 2026",
+    ]);
+    const mac = yield* videoProjects
+      .openInPremiere({ workspaceRoot })
+      .pipe(
+        Effect.provideService(HostProcess.Platform, "darwin"),
+        Effect.provideService(PremiereApp.ApplicationFolders, [applications]),
+      );
+    assert.deepStrictEqual([mac.wasRunning, mac.premiereRunning], [true, true]);
+    assert.match(mac.next, /^Premiere was running/);
+    const windows = yield* videoProjects
+      .openInPremiere({ workspaceRoot })
+      .pipe(Effect.provideService(HostProcess.Platform, "win32"));
+    assert.strictEqual(windows.app, null);
+    assert.strictEqual(calls[1], `cmd.exe /c start  ${premiereProjectPath}`);
+  }).pipe(Effect.provide(openLayer(created, calls, true)), Effect.scoped);
+});
+
+it.live("says why it can't open Premiere: not installed, or a host it doesn't run on", () => {
+  const created: Array<string> = [];
+  const calls: Array<string> = [];
+  return Effect.gen(function* () {
+    const { videoProjects, workspaceRoot, applications } = yield* openSetup([]);
+    const open = (platform: NodeJS.Platform) =>
+      videoProjects.openInPremiere({ workspaceRoot }).pipe(
+        Effect.provideService(HostProcess.Platform, platform),
+        Effect.provideService(PremiereApp.ApplicationFolders, [applications]),
+        Effect.flip,
+        Effect.map((error) => error.message),
+      );
+    assert.match(yield* open("darwin"), /^Premiere Pro isn't installed in \/Applications/);
+    assert.match(yield* open("linux"), /^Premiere Pro runs on macOS and Windows only/);
+    assert.deepStrictEqual(calls, []);
+  }).pipe(Effect.provide(openLayer(created, calls, false)), Effect.scoped);
 });
 
 // Stands in for ffmpeg and ffprobe, which CI doesn't have: a "recording" is its length in

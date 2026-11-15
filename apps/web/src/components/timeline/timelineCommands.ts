@@ -9,6 +9,7 @@ export interface TimelineCommandHandlers {
   readonly importFootage: () => void;
   readonly recordVoiceOver: () => void;
   readonly pullFromPremiere: () => void;
+  readonly openInPremiere: () => void;
   readonly checkRender: () => void;
 }
 

@@ -2975,6 +2975,14 @@ export const layerWsRpc = (
                 (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
               ),
             ),
+        [WS_METHODS.videoProjectsOpenInPremiere]: (input) =>
+          videoProjects
+            .openInPremiere(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
         [WS_METHODS.videoProjectsTranscribe]: (input) =>
           videoProjects
             .transcribe(input)

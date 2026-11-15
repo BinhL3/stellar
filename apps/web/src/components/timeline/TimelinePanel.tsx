@@ -412,6 +412,35 @@ export default function TimelinePanel(props: {
     });
   };
 
+  const openProject = useAtomCommand(projectEnvironment.openVideoInPremiere, {
+    reportFailure: false,
+  });
+  const [opening, setOpening] = useState(false);
+  const openInPremiere = async () => {
+    setOpening(true);
+    const result = await openProject({
+      environmentId: props.environmentId,
+      input: { workspaceRoot: props.workspaceRoot },
+    });
+    setOpening(false);
+    if (result._tag === "Success") {
+      // The badge says whether Premiere is open from the last sync.
+      void sync({ quiet: true });
+      return;
+    }
+    if (isAtomCommandInterrupted(result)) return;
+    const error = squashAtomCommandFailure(result);
+    toastManager.add({
+      type: "error",
+      title: "Could not open Premiere",
+      description: error instanceof Error ? error.message : "Try again in a moment.",
+    });
+  };
+  useProvideTimelineCommand(
+    "openInPremiere",
+    canWriteFiles && !opening ? () => void openInPremiere() : null,
+  );
+
   const projectKey = timelineProjectKey(props.environmentId, props.workspaceRoot);
   const workspace = useTimelineLayoutStore((state) =>
     state.active?.projectKey === projectKey ? state.active : null,
@@ -782,8 +811,10 @@ export default function TimelinePanel(props: {
                       onUsePremiere: () => void sync({ usePremiere: true }),
                       onMerge: () => void sync({ merge: true }),
                       onTranscribe: () => void transcribe(),
+                      onOpenInPremiere: () => void openInPremiere(),
                     }
                   : {})}
+                opening={opening}
               />
             }
             workspace={{

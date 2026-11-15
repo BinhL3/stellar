@@ -5,7 +5,7 @@
  * when it brings the copy closer to ours; what no step reaches is listed as `manual`. Pure.
  */
 import { changeSentence, diffTimelines, type TimelineChange } from "../diff.ts";
-import { applyEdits, STILL_PATH, type TimelineEdit } from "../edits.ts";
+import { applyEdits, STILL_PATH, type TimelineEdit, withTrack } from "../edits.ts";
 import { clipIdOf, layoutTimeline } from "../layout.ts";
 import { type MarkerEntry, markerPairs } from "../markerDiff.ts";
 import { PREMIERE_MARKER_COLORS, premiereMarkerComment, withoutMarkers } from "../markers.ts";
@@ -59,6 +59,26 @@ export type PushStep =
     }
   | { readonly kind: "setEnabled"; readonly clip: PushClip; readonly enabled: boolean }
   | { readonly kind: "split"; readonly clip: PushClip; readonly at: PushTime }
+  /** A track the sequence doesn't have yet, added after the last of its kind. */
+  | { readonly kind: "addTrack"; readonly track: PushTrack }
+  /**
+   * A clip of a media file put on the sequence: `insert` moves everything from `at` later by
+   * its length on every track, `overwrite` covers what is there. Picture and sound land
+   * linked on the tracks given; a null track gets none of it.
+   */
+  | {
+      readonly kind: "place";
+      readonly mode: "insert" | "overwrite";
+      readonly name: string;
+      /** The file to import when the project lacks it. */
+      readonly media: string;
+      readonly at: PushTime;
+      readonly end: PushTime;
+      /** Source in and out in seconds; null for a still. */
+      readonly source: { readonly in: number; readonly out: number } | null;
+      readonly videoTrack: PushTrack | null;
+      readonly audioTrack: PushTrack | null;
+    }
   /** A marker to make, as it should end up. `comment` carries Stellar's tag when it has one. */
   | { readonly kind: "addMarker"; readonly marker: PushMarker }
   /** `marker` is where Premiere's last save has it; `premiereId` is its id there, if it has one. */
@@ -94,9 +114,10 @@ export interface PushPlan {
   /** Frames per second of the sequence. */
   readonly rate: number;
   /**
-   * In the order to run them: ripple removes from the end of the timeline toward the start,
-   * then splits, removes, trims, moves and enables, each also from the end. Every position is
-   * the one the sequence has when that step runs, after the steps before it.
+   * In the order to run them: new tracks, ripple removes from the end of the timeline toward
+   * the start, splits, inserts from the start, then overwrites, removes, trims, moves and
+   * enables, each from the end. Every position is the one the sequence has when that step
+   * runs, after the steps before it.
    */
   readonly steps: ReadonlyArray<PushStep>;
   /** What still differs after the steps, in plain words: no step here does it safely. */
@@ -361,14 +382,19 @@ interface Candidate {
   readonly cutsOnly?: boolean;
 }
 
+export interface PushOptions {
+  /** The path Premiere imports a timeline's media file from; the `target_url` when omitted. */
+  readonly mediaPath?: (target: string) => string;
+}
+
 /**
  * The steps that turn `base`, Premiere's last save as it was read here, into `ours`. Nothing is
  * assumed about which edits made ours: the two are diffed, so it holds after a merge as well.
  */
-export const pushPlan = (base: Timeline, ours: Timeline): PushPlan => {
+export const pushPlan = (base: Timeline, ours: Timeline, options: PushOptions = {}): PushPlan => {
   const rate = ours.global_start_time.rate;
   // The cut is planned without markers, so trying a step never counts a marker it rippled.
-  const cut = cutPlan(withoutMarkers(base), withoutMarkers(ours));
+  const cut = cutPlan(withoutMarkers(base), withoutMarkers(ours), options);
   const markers = markerSteps(base, ours);
   return markers.length === 0 ? cut : finish(rate, [...cut.steps, ...markers], cut.manual);
 };
@@ -436,7 +462,7 @@ const markerSteps = (base: Timeline, ours: Timeline): Array<PushStep> => {
 };
 
 /** The steps for the clips alone; see `pushPlan`. */
-const cutPlan = (base: Timeline, ours: Timeline): PushPlan => {
+const cutPlan = (base: Timeline, ours: Timeline, options: PushOptions): PushPlan => {
   const rate = ours.global_start_time.rate;
   const first = diffTimelines(base, ours);
   if (first.changes.length === 0) return { rate, steps: [], manual: [], text: "" };
@@ -463,15 +489,102 @@ const cutPlan = (base: Timeline, ours: Timeline): PushPlan => {
       track.name === change.before ? { ...track, name: change.after } : track,
     );
   }
+  const steps: Array<PushStep> = [];
+  // New tracks first, so the steps that fill them can name them.
+  for (const change of first.changes) {
+    if (change.kind !== "trackAdded") continue;
+    const track = ours.tracks.children.find((candidate) => candidate.name === change.track);
+    if (track === undefined || isCaptionTrack(track)) continue;
+    working = withTrack(working, change.track, change.trackKind);
+    const added = trackRefs(working).get(change.track);
+    if (added !== undefined) steps.push({ kind: "addTrack", track: added });
+  }
   working = settle(working);
 
-  const steps: Array<PushStep> = [];
   const describe = (item: Placed, tracks: ReadonlyMap<string, PushTrack>): PushClip => ({
     name: item.clip.name,
     track: tracks.get(item.track) ?? { kind: "video", index: 0, name: item.track },
     start: at(item.start),
     end: at(item.end),
   });
+
+  /**
+   * A clip no clip here is a piece of comes from its media file: inserted, when that opens the
+   * time the timeline here moved later clips by, else overwritten. Its linked partner, picture
+   * for sound or sound for picture, lands with it.
+   */
+  const placements = (
+    piece: Placed,
+    tracks: ReadonlyMap<string, PushTrack>,
+    present: ReadonlyMap<string, Placed>,
+  ): Array<Candidate> => {
+    if (timeScalarOf(piece.clip) !== 1 || targetOf(piece.clip) === "") return [];
+    const partner = wanted.find(
+      (item) =>
+        item.kind !== piece.kind &&
+        !present.has(item.id) &&
+        item.start === piece.start &&
+        item.end === piece.end &&
+        targetOf(item.clip) === targetOf(piece.clip) &&
+        Math.abs(sourceSeconds(item.clip) - sourceSeconds(piece.clip)) < 1e-3,
+    );
+    const picture = piece.kind === "Video" ? piece : partner;
+    const sound = piece.kind === "Audio" ? piece : partner;
+    const videoTrack = picture === undefined ? null : (tracks.get(picture.track) ?? null);
+    const audioTrack = sound === undefined ? null : (tracks.get(sound.track) ?? null);
+    if (
+      (picture !== undefined && videoTrack === null) ||
+      (sound !== undefined && audioTrack === null)
+    ) {
+      return [];
+    }
+    const into = sourceSeconds(piece.clip);
+    const length = piece.end - piece.start;
+    const media = targetOf(piece.clip);
+    return (["insert", "overwrite"] as const).map((mode) => ({
+      key: `${mode}:${piece.id}`,
+      // Positions are where the clips end up, which holds for an insert only once the inserts
+      // before it are in: they go from the start. Overwrites move nothing, so they follow.
+      order: mode === "insert" ? 2 : 3,
+      frame: mode === "insert" ? -piece.start : piece.start,
+      steps: [
+        {
+          kind: "place",
+          mode,
+          name: piece.clip.name,
+          media: options.mediaPath?.(media) ?? media,
+          at: at(piece.start),
+          end: at(piece.end),
+          source: isStill(piece.clip)
+            ? null
+            : {
+                in: Math.round(into * 1e6) / 1e6,
+                out: Math.round((into + exactSeconds(length, rate)) * 1e6) / 1e6,
+              },
+          videoTrack,
+          audioTrack,
+        },
+      ],
+      apply: (timeline) =>
+        applyEdits(
+          timeline,
+          [
+            {
+              kind: mode,
+              media,
+              name: piece.clip.name,
+              startFrame: piece.start,
+              sourceIn: into,
+              frames: length,
+              ...(picture === undefined ? {} : { videoTrack: picture.track }),
+              ...(sound === undefined ? {} : { audioTrack: sound.track }),
+            },
+          ],
+          // Ours already holds the clip, so its file is known to have what it plays.
+          { media: () => ({ picture: true, sound: true }) },
+        ),
+    }));
+  };
 
   /** Tries candidates in order until none is left, keeping each that brings `view` closer. */
   const run = (
@@ -573,6 +686,7 @@ const cutPlan = (base: Timeline, ours: Timeline): PushPlan => {
         if (change.kind === "added") {
           const piece = wanted.find((item) => item.id === change.after.id);
           const cut = piece === undefined ? undefined : cutFor(clips, piece, rate);
+          if (piece !== undefined && cut === undefined) return placements(piece, tracks, byId);
           if (cut === undefined || !tracks.has(cut.parent.track)) return [];
           return [
             {
@@ -595,7 +709,7 @@ const cutPlan = (base: Timeline, ours: Timeline): PushPlan => {
           return [
             {
               key: `open:${change.fromFrame}:${change.byFrames}`,
-              order: 4,
+              order: 6,
               frame: last.start,
               steps: moving.map((item) => {
                 const clip = describe(item, tracks);
@@ -635,7 +749,7 @@ const cutPlan = (base: Timeline, ours: Timeline): PushPlan => {
             return [
               {
                 key: `remove:${clipId}`,
-                order: 2,
+                order: 4,
                 frame: item.start,
                 steps: [{ kind: "remove", clip }],
                 apply: edit([{ kind: "delete", clipId }]),
@@ -653,7 +767,7 @@ const cutPlan = (base: Timeline, ours: Timeline): PushPlan => {
               return [
                 {
                   key: `trim:${clipId}:${edge}`,
-                  order: 3,
+                  order: 5,
                   frame: item.start,
                   steps: [
                     {
@@ -677,7 +791,7 @@ const cutPlan = (base: Timeline, ours: Timeline): PushPlan => {
             return [
               {
                 key: `move:${clipId}`,
-                order: 4,
+                order: 6,
                 frame: item.start,
                 steps: [{ kind: "move", clip, toTrack, toStart: at(startFrame) }],
                 apply: edit([{ kind: "move", clipId, toTrack: toTrack.name, startFrame }]),
@@ -690,7 +804,7 @@ const cutPlan = (base: Timeline, ours: Timeline): PushPlan => {
             return [
               {
                 key: `enable:${clipId}`,
-                order: 5,
+                order: 7,
                 frame: item.start,
                 steps: [{ kind: "setEnabled", clip, enabled }],
                 apply: edit([{ kind: "setEnabled", clipId, enabled }]),
@@ -755,6 +869,28 @@ const stepLine = (step: PushStep): string => {
       return `${step.enabled ? "enable" : "disable"} ${where(step.clip)} (frame ${step.clip.start.frame})`;
     case "split":
       return `split ${where(step.clip)}: cut at ${stamp(step.at.seconds)} (frame ${step.at.frame})`;
+    case "addTrack":
+      return `add ${step.track.kind} track ${step.track.name} (${step.track.kind} track ${step.track.index})`;
+    case "place": {
+      const tracks = [step.videoTrack, step.audioTrack].flatMap((track) =>
+        track === null ? [] : [track.name],
+      );
+      const only =
+        step.videoTrack === null
+          ? " (sound only)"
+          : step.audioTrack === null
+            ? " (picture only)"
+            : "";
+      const source =
+        step.source === null
+          ? "a still"
+          : `source ${stamp(step.source.in)}-${stamp(step.source.out)}`;
+      const effect =
+        step.mode === "insert"
+          ? `everything from ${stamp(step.at.seconds)} on every track moves ${stamp(secondsBetween(step))} later`
+          : "covering what is there";
+      return `${step.mode} ${JSON.stringify(step.name)} on ${tracks.join(" and ")}${only} at ${stamp(step.at.seconds)}-${stamp(step.end.seconds)} (frames ${step.at.frame}-${step.end.frame}; ${source} of ${step.media}): ${effect}`;
+    }
     case "addMarker": {
       const { marker } = step;
       const length = marker.duration.frame === 0 ? "" : `, ${stamp(marker.duration.seconds)} long`;
@@ -777,6 +913,9 @@ const stepLine = (step: PushStep): string => {
     }
   }
 };
+
+const secondsBetween = (step: Extract<PushStep, { kind: "place" }>) =>
+  Math.round((step.end.seconds - step.at.seconds) * 1e6) / 1e6;
 
 const COLOR_NAMES = PREMIERE_MARKER_COLORS.map((color) => color.toLowerCase());
 const markerKind = (marker: PushMarker) =>

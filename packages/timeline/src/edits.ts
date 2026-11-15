@@ -2,6 +2,7 @@
  * Hand edits as pure operations, in whole timeline frames, so the UI can show them pending.
  * Moves overwrite what they land on; trims stop at the neighbour and the media's first frame.
  * Ripple, roll, slip and slide carry a clip's linked partner: see `linkedGroup`.
+ * Insert and overwrite put media from the project onto a track, as Premiere's do.
  */
 import { layoutTimeline } from "./layout.ts";
 import {
@@ -19,6 +20,7 @@ import {
   type Timeline,
   TIMELINE_NAMESPACE,
   timeRange,
+  type Track,
   type TrackChild,
 } from "./otio.ts";
 import { STILL_PATH } from "./proxies.ts";
@@ -83,7 +85,44 @@ export type TimelineEdit =
   /** New words for a text graphic; its style stays in the native blob. */
   | { readonly kind: "setText"; readonly clipId: string; readonly text: string }
   /** Notes on the sequence or on a clip; see `markers.ts`. */
-  | MarkerEdit;
+  | MarkerEdit
+  | Placement;
+
+/**
+ * Premiere's insert and overwrite of a media file at `startFrame`. Insert cuts what crosses it
+ * and moves what follows on `rippleTracks` (all when omitted) and the tracks it lands on; picture
+ * and sound land as linked partners, and a missing track is made.
+ */
+export interface Placement {
+  readonly kind: "insert" | "overwrite";
+  /** The file as timelines name it: its `target_url`. */
+  readonly media: string;
+  readonly startFrame: number;
+  /** Seconds into the media the clip starts; 0 when omitted. A still has no source time. */
+  readonly sourceIn?: number;
+  /** Seconds into the media it ends; the media's end when omitted. */
+  readonly sourceOut?: number;
+  /** Its length in timeline frames, in place of `sourceOut`; a still plays 5 s without it. */
+  readonly frames?: number;
+  /** Where its picture goes; none when omitted. */
+  readonly videoTrack?: string;
+  /** Where its sound goes; none when omitted. */
+  readonly audioTrack?: string;
+  readonly rippleTracks?: ReadonlyArray<string>;
+  /** The clip's name; the file's name when omitted. */
+  readonly name?: string;
+}
+
+/** What the project knows of a media file. */
+export interface MediaFacts {
+  /** Its length; undefined when not known, and for a still, which has none. */
+  readonly seconds?: number;
+  readonly picture: boolean;
+  readonly sound: boolean;
+}
+
+// Premiere's default length for a still.
+const STILL_SECONDS = 5;
 
 /** The clip an edit is about, if it is about one clip. */
 export const editClipId = (edit: TimelineEdit): string | null =>
@@ -210,6 +249,8 @@ const placedTracks = (timeline: Timeline) => {
 export interface EditOptions {
   /** A media file's length in seconds, when known, so edits stop where its handles run out. */
   readonly mediaSeconds?: (target: string) => number | undefined;
+  /** What a file placed by insert or overwrite holds; a file it doesn't know can't be placed. */
+  readonly media?: (target: string) => MediaFacts | undefined;
 }
 
 const targetOf = (clip: Clip) => clip.media_references.DEFAULT_MEDIA.target_url;
@@ -565,6 +606,202 @@ export const gapAt = (
   return { start, end, shared: gapIsShared(tracks, start, end, "") };
 };
 
+/** Cuts the clip crossing `frame` on a track in two; the later piece is `<id>~<frame>`. */
+const cutTrackAt = (placed: Array<Placed>, frame: number, rate: number) => {
+  const kept: Array<Placed> = [];
+  for (const item of placed) {
+    if (item.start >= frame || item.end <= frame) {
+      kept.push(item);
+      continue;
+    }
+    kept.push({ ...item, end: frame, clip: reslice(item.clip, rate, 0, frame - item.start) });
+    kept.push({
+      id: `${item.id}~${frame}`,
+      start: frame,
+      end: item.end,
+      clip: reslice(item.clip, rate, frame - item.start, item.end - frame),
+    });
+  }
+  placed.splice(0, placed.length, ...kept);
+};
+
+/** The timeline with an empty track added after the last of its kind, as editors add them. */
+export const withTrack = (timeline: Timeline, name: string, kind: Track["kind"]): Timeline => {
+  const children = [...timeline.tracks.children];
+  children.splice(trackSlot(children, kind), 0, emptyTrack(name, kind));
+  return { ...timeline, tracks: { ...timeline.tracks, children } };
+};
+
+const emptyTrack = (name: string, kind: Track["kind"]): Track => ({
+  OTIO_SCHEMA: "Track.1",
+  name,
+  kind,
+  children: [],
+  enabled: true,
+  metadata: {},
+});
+
+// Video tracks come before audio ones in a file Premiere wrote, so a first video track goes first.
+const trackSlot = (
+  tracks: ReadonlyArray<{ readonly kind: Track["kind"] }>,
+  kind: Track["kind"],
+) => {
+  const last = tracks.findLastIndex((track) => track.kind === kind);
+  return last >= 0 ? last + 1 : kind === "Video" ? 0 : tracks.length;
+};
+
+const isStillMedia = (media: string) => media === "" || STILL_PATH.test(media);
+
+/** Why a placement can't be made on `timeline`, in plain words; null when it can. */
+export const placementProblem = (
+  timeline: Timeline,
+  edit: Placement,
+  options: EditOptions = {},
+): string | null =>
+  problemOf(
+    new Map(timeline.tracks.children.map((track) => [track.name, track.kind])),
+    timeline.global_start_time.rate,
+    edit,
+    options,
+  );
+
+const problemOf = (
+  kinds: ReadonlyMap<string, Track["kind"]>,
+  rate: number,
+  edit: Placement,
+  options: EditOptions,
+): string | null => {
+  const facts = options.media?.(edit.media);
+  if (facts === undefined) return `${edit.media} isn't a media file this project knows`;
+  if (edit.videoTrack === undefined && edit.audioTrack === undefined) {
+    return "needs videoTrack or audioTrack";
+  }
+  if (edit.videoTrack !== undefined && !facts.picture) return `${edit.media} has no picture`;
+  if (edit.audioTrack !== undefined && !facts.sound) return `${edit.media} has no sound`;
+  for (const [name, kind] of [
+    [edit.videoTrack, "Video"],
+    [edit.audioTrack, "Audio"],
+  ] as const) {
+    const existing = name === undefined ? undefined : kinds.get(name);
+    if (existing !== undefined && existing !== kind) {
+      return `${name} is ${existing === "Video" ? "a video" : "an audio"} track`;
+    }
+  }
+  if (edit.videoTrack !== undefined && edit.videoTrack === edit.audioTrack) {
+    return "picture and sound need tracks of their own";
+  }
+  const unknown = edit.rippleTracks?.find(
+    (name) => !kinds.has(name) && name !== edit.videoTrack && name !== edit.audioTrack,
+  );
+  if (unknown !== undefined) return `no track ${unknown}`;
+  if (edit.startFrame < 0) return "startFrame is before the timeline starts";
+  if (edit.frames !== undefined && edit.frames < 1) return "frames must be 1 or more";
+  if (isStillMedia(edit.media)) return null;
+  const from = edit.sourceIn ?? 0;
+  const length = facts.seconds;
+  if (from < 0) return "sourceIn is before the media starts";
+  if (length !== undefined && from >= length) {
+    return `sourceIn ${from}s is past the media's end (${length}s)`;
+  }
+  if (edit.sourceOut !== undefined) {
+    if (edit.sourceOut <= from) return "sourceOut must be after sourceIn";
+    // A frame of slack, since a length read from a probe is rounded.
+    if (length !== undefined && edit.sourceOut > length + 1 / rate) {
+      return `sourceOut ${edit.sourceOut}s is past the media's end (${length}s)`;
+    }
+  }
+  if (length === undefined && edit.sourceOut === undefined && edit.frames === undefined) {
+    return `${edit.media} has no known length: give sourceOut or frames`;
+  }
+  return null;
+};
+
+/** A clip id not yet on the timeline, from the track and frame a new clip lands at. */
+const freshId = (tracks: PlacedTracks, track: string, frame: number) => {
+  const taken = new Set(tracks.flatMap(({ placed }) => placed.map((item) => item.id)));
+  let id = `${track}@${frame}`;
+  while (taken.has(id)) id += "'";
+  return id;
+};
+
+const place = (
+  tracks: PlacedTracks,
+  edit: Placement,
+  rate: number,
+  markers: MarkerHost,
+  options: EditOptions,
+) => {
+  // Checked against the tracks as the edits before it in the call left them.
+  const kinds = new Map(tracks.map(({ track }) => [track.name, track.kind]));
+  if (problemOf(kinds, rate, edit, options) !== null) return;
+  const still = isStillMedia(edit.media);
+  const from = still ? 0 : (edit.sourceIn ?? 0);
+  const until = edit.sourceOut ?? options.media?.(edit.media)?.seconds;
+  const length = Math.max(
+    1,
+    Math.round(
+      edit.frames ?? (still || until === undefined ? STILL_SECONDS * rate : (until - from) * rate),
+    ),
+  );
+  const start = Math.round(edit.startFrame);
+  const end = start + length;
+  const targets: Array<PlacedTracks[number]> = [];
+  for (const [name, kind] of [
+    [edit.videoTrack, "Video"],
+    [edit.audioTrack, "Audio"],
+  ] as const) {
+    if (name === undefined) continue;
+    let target = tracks.find((t) => t.track.name === name);
+    if (target === undefined) {
+      target = { track: emptyTrack(name, kind), placed: [] };
+      tracks.splice(
+        trackSlot(
+          tracks.map((t) => t.track),
+          kind,
+        ),
+        0,
+        target,
+      );
+    }
+    targets.push(target);
+  }
+  if (edit.kind === "insert") {
+    const rippling = tracks.filter(
+      (t) =>
+        targets.includes(t) ||
+        edit.rippleTracks === undefined ||
+        edit.rippleTracks.includes(t.track.name),
+    );
+    for (const { placed } of rippling) {
+      cutTrackAt(placed, start, rate);
+      for (const [index, item] of placed.entries()) {
+        if (item.start >= start)
+          placed[index] = { ...item, start: item.start + length, end: item.end + length };
+      }
+    }
+    if (rippling.length === tracks.length) {
+      markers.sequence = shiftMarkersFrom(markers.sequence, start, length, rate);
+    }
+  } else {
+    for (const { placed } of targets) overwrite(placed, start, end, rate);
+  }
+  const name = edit.name ?? edit.media.slice(edit.media.lastIndexOf("/") + 1);
+  const clip: Clip = {
+    OTIO_SCHEMA: "Clip.2",
+    name,
+    source_range: timeRange(Math.round(from * rate * 1000) / 1000, length, rate),
+    media_references: {
+      DEFAULT_MEDIA: { OTIO_SCHEMA: "ExternalReference.1", target_url: edit.media, metadata: {} },
+    },
+    active_media_reference_key: "DEFAULT_MEDIA",
+    enabled: true,
+    metadata: {},
+  };
+  for (const target of targets) {
+    target.placed.push({ id: freshId(tracks, target.track.name, start), start, end, clip });
+  }
+};
+
 const applyRangeEdit = (
   tracks: PlacedTracks,
   edit: TimelineEdit,
@@ -575,21 +812,7 @@ const applyRangeEdit = (
     const frame = Math.round(edit.frame);
     for (const { track, placed } of tracks) {
       if (edit.tracks && !edit.tracks.includes(track.name)) continue;
-      const kept: Array<Placed> = [];
-      for (const item of placed) {
-        if (item.start >= frame || item.end <= frame) {
-          kept.push(item);
-          continue;
-        }
-        kept.push({ ...item, end: frame, clip: reslice(item.clip, rate, 0, frame - item.start) });
-        kept.push({
-          id: `${item.id}~${frame}`,
-          start: frame,
-          end: item.end,
-          clip: reslice(item.clip, rate, frame - item.start, item.end - frame),
-        });
-      }
-      placed.splice(0, placed.length, ...kept);
+      cutTrackAt(placed, frame, rate);
     }
     return true;
   }
@@ -632,6 +855,10 @@ const applyOne = (
 ) => {
   if (isMarkerEdit(edit)) {
     applyMarkerEdit(markers, edit, rate);
+    return;
+  }
+  if (edit.kind === "insert" || edit.kind === "overwrite") {
+    place(tracks, edit, rate, markers, options);
     return;
   }
   if (applyRangeEdit(tracks, edit, rate, markers)) return;

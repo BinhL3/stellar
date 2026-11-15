@@ -196,6 +196,8 @@ const EDIT_LABELS: Record<TimelineEdit["kind"], string> = {
   addMarker: "add marker",
   setMarker: "change marker",
   removeMarker: "remove marker",
+  insert: "insert",
+  overwrite: "overwrite",
 };
 
 const editLabel = (edit: TimelineEdit) =>

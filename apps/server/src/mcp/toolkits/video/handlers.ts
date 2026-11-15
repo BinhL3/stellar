@@ -230,6 +230,13 @@ const handlers = {
         .pipe(Effect.mapError(refused));
     }),
   ),
+  video_premiere_open: McpToolAccess.actsAsCaller(() =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      return yield* videoProjects.openInPremiere({ workspaceRoot }).pipe(Effect.mapError(refused));
+    }),
+  ),
   video_project_start: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const videoProjects = yield* VideoProjects.VideoProjects;
