@@ -5,6 +5,11 @@ import {
   toolOutputImages,
 } from "@t3tools/shared/toolOutput";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
+import {
+  awaitsKnownMcpServer,
+  compareMcpTools,
+  type McpToolFingerprints,
+} from "./McpToolChanges.ts";
 import { claudeTaskOutputRoot, tailClaudeTaskOutput } from "./ClaudeTaskOutputTail.ts";
 import {
   dynamicToolTitle,
@@ -2380,6 +2385,33 @@ function isSupportedClaudeImageMimeType(
   mimeType: string,
 ): mimeType is SupportedClaudeImageMimeType {
   return supportedClaudeImageMimeTypes.has(mimeType);
+}
+
+const CLAUDE_MCP_CONNECT_POLLS = 10;
+const CLAUDE_MCP_CONNECT_POLL_INTERVAL = "500 millis";
+const CLAUDE_MCP_TOOL_CHECK_TIMEOUT = "10 seconds";
+const CLAUDE_MCP_TOOL_FINGERPRINT_THREADS = 200;
+
+function claudeUserMessageStartsWithCommand(message: SDKUserMessage): boolean {
+  const content = message.message.content;
+  const last = typeof content === "string" ? content : content.at(-1);
+  const text = typeof last === "string" ? last : last?.type === "text" ? last.text : undefined;
+  return text?.trimStart().startsWith("/") ?? false;
+}
+
+/** Puts context before the prompt's blocks, leaving the last block where Claude reads commands. */
+function withClaudeLeadingText(message: SDKUserMessage, text: string): SDKUserMessage {
+  const content = message.message.content;
+  return {
+    ...message,
+    message: {
+      ...message.message,
+      content: [
+        { type: "text", text },
+        ...(typeof content === "string" ? [{ type: "text" as const, text: content }] : content),
+      ],
+    },
+  };
 }
 
 export function makeClaudeUserMessage(input: {
@@ -4901,6 +4933,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     adapterOptions.settings.homePath.trim().length > 0 ||
     adapterOptions.environment.CLAUDE_CONFIG_DIR !== hostEnvironment.CLAUDE_CONFIG_DIR;
   const announcedBypassDowngrades = new Set<ThreadId>();
+  // Held across sessions and worker restarts, since a restart is when a server's tools change.
+  const mcpToolFingerprints = new Map<string, McpToolFingerprints>();
   const readBypassSettings = (filePath: string) =>
     fileSystem.readFileString(filePath).pipe(
       Effect.flatMap(decodeClaudeBypassSettings),
@@ -11113,6 +11147,49 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           return context;
         });
 
+        // Claude Code connects MCP servers in the background, so a fresh worker reports them pending.
+        const readMcpToolChangeNote = Effect.fn("ClaudeAdapterV2.readMcpToolChangeNote")(
+          function* (
+            query: ClaudeAgentSdkQuerySession,
+            nativeThreadId: string,
+            userMessage: SDKUserMessage,
+          ) {
+            // Claude runs a slash command only from a plain prompt; keep the note for the next turn.
+            if (claudeUserMessageStartsWithCommand(userMessage)) return undefined;
+            const previous = mcpToolFingerprints.get(nativeThreadId);
+            let statuses = yield* query.mcpServerStatus;
+            for (
+              let attempt = 0;
+              attempt < CLAUDE_MCP_CONNECT_POLLS && awaitsKnownMcpServer(previous, statuses);
+              attempt++
+            ) {
+              yield* Effect.sleep(CLAUDE_MCP_CONNECT_POLL_INTERVAL);
+              statuses = yield* query.mcpServerStatus;
+            }
+            const { next, note } = compareMcpTools({
+              previous,
+              statuses,
+              qualifiedToolName: (server, tool) =>
+                `${claudeMcpToolPrefix(server)}${claudeMcpToolNamePart(tool)}`,
+            });
+            mcpToolFingerprints.delete(nativeThreadId);
+            mcpToolFingerprints.set(nativeThreadId, next);
+            if (mcpToolFingerprints.size > CLAUDE_MCP_TOOL_FINGERPRINT_THREADS) {
+              const oldest = mcpToolFingerprints.keys().next().value;
+              if (oldest !== undefined) mcpToolFingerprints.delete(oldest);
+            }
+            return note;
+          },
+          Effect.timeout(CLAUDE_MCP_TOOL_CHECK_TIMEOUT),
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterruptsOnly(cause),
+            (cause) =>
+              Effect.logWarning("Failed to compare Claude MCP tool lists.", { cause }).pipe(
+                Effect.as(undefined),
+              ),
+          ),
+        );
+
         const startTurn = Effect.fn("ClaudeAdapterV2.startTurn")(
           function* (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) {
             modelCatalog = yield* loadModelCatalog;
@@ -11301,11 +11378,20 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               });
             });
             if (userMessage !== null) {
+              const mcpToolNote = yield* readMcpToolChangeNote(
+                querySession.query,
+                nativeThreadId,
+                userMessage,
+              );
+              const promptMessage =
+                mcpToolNote === undefined
+                  ? userMessage
+                  : withClaudeLeadingText(userMessage, mcpToolNote);
               yield* attachTurn;
               yield* startUserTurnForWakeReports(nativeThreadId);
               yield* Effect.uninterruptibleMask((restore) =>
                 restore(
-                  querySession.query.offer(userMessage, () => {
+                  querySession.query.offer(promptMessage, () => {
                     pdfReservation.commit();
                   }),
                 ).pipe(

@@ -4437,6 +4437,79 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         ),
     );
 
+    it.effect("tells Claude when a connecting MCP server's tools changed since the last turn", () =>
+      Effect.gen(function* () {
+        const premiere = (tools: ReadonlyArray<string>): ClaudeSdk.McpServerStatus => ({
+          name: "premiere-pro",
+          status: "connected",
+          tools: tools.map((name) => ({ name, description: `${name} v${tools.length}` })),
+        });
+        // A fresh Claude worker lists the server as pending until it connects.
+        const statuses: Array<ReadonlyArray<ClaudeSdk.McpServerStatus>> = [
+          [premiere(["undo"])],
+          [{ name: "premiere-pro", status: "pending" }],
+          [premiere(["undo", "multiple_undo"])],
+        ];
+        const servedPending = yield* Deferred.make<void>();
+        const harness = yield* makeWakeHarnessWithOptions({
+          mcp: {
+            mcpServerStatus: Effect.sync(() => statuses.shift() ?? []).pipe(
+              Effect.tap((served) =>
+                served[0]?.status === "pending"
+                  ? Deferred.succeed(servedPending, undefined)
+                  : Effect.void,
+              ),
+            ),
+            readMcpResource: () => Effect.die("unexpected MCP resource read"),
+            callMcpTool: () => Effect.die("unexpected MCP tool call"),
+          },
+        });
+        const startTurn = (ordinal: number) =>
+          Effect.gen(function* () {
+            return yield* harness.runtime.startTurn(
+              makeClaudeTestTurnInput({
+                threadId: harness.threadId,
+                providerThread: harness.providerThread,
+                now: yield* DateTime.now,
+                attemptId: RunAttemptId.make(`attempt-mcp-tools-${ordinal}`),
+                providerTurnOrdinal: ordinal,
+                text: "Undo the last cut.",
+                attachments: [],
+              }),
+            );
+          });
+        yield* startTurn(1);
+        const firstPrompt = harness.offeredMessages[0]?.message.content;
+        assert.equal(typeof firstPrompt, "string", "The first turn carries no note.");
+        yield* harness.offerAndWait(
+          makeResultFrame({ uuid: "mcp-tools-result-1", result: "Done." }),
+        );
+        assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "completed");
+
+        const second = yield* Effect.forkChild(startTurn(2));
+        yield* Deferred.await(servedPending);
+        yield* TestClock.adjust("500 millis");
+        yield* Fiber.join(second);
+        const content = harness.offeredMessages[1]?.message.content;
+        assert.isTrue(Array.isArray(content));
+        const [note, prompt] = content as ReadonlyArray<{ type: string; text: string }>;
+        assert.include(
+          note?.text,
+          "The tools from MCP server `premiere-pro` changed since this thread last used them: added multiple_undo; changed description: undo.",
+        );
+        assert.deepEqual(prompt, { type: "text", text: firstPrompt });
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    );
+
     it.effect("pins tool search on when the user's Claude settings choose auto", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -5544,7 +5617,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     Effect.gen(function* () {
       const { harness, item, mcpRequests } = yield* runClaudeMcpAppToolTurn([]);
       assert.isUndefined(mcpAppFromToolItem(item));
-      assert.deepEqual(mcpRequests, []);
+      // Only the turn start's tool-change check; no app capture.
+      assert.deepEqual(mcpRequests, ["mcpServerStatus"]);
       const exit = yield* Effect.exit(
         harness.runtime.mcpApps!.callTool({
           providerThread: harness.providerThread,
@@ -5554,7 +5628,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         }),
       );
       assert.isTrue(Exit.isFailure(exit));
-      assert.deepEqual(mcpRequests, []);
+      assert.deepEqual(mcpRequests, ["mcpServerStatus"]);
     }).pipe(
       Effect.scoped,
       Effect.provide(
