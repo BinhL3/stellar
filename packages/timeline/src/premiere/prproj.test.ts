@@ -81,9 +81,13 @@ const fixture = () => {
         `<${tag} ObjectID="${id}"><ComponentChain><Components>${components.map((c, i) => `<Component Index="${i}" ObjectRef="${c}"/>`).join("")}</Components></ComponentChain></${tag}>`,
     );
   let uid = 0;
-  const media = (path: string, frameRate: bigint) => {
+  const media = (path: string, frameRate: bigint, videoStream = "") => {
     const mediaUid = `media-${uid++}`;
-    objects.push(`<Media ObjectUID="${mediaUid}"><FilePath>${path}</FilePath></Media>`);
+    const stream =
+      videoStream === ""
+        ? ""
+        : `<VideoStream ObjectRef="${add((id) => `<VideoStream ObjectID="${id}">${videoStream}</VideoStream>`)}"/>`;
+    objects.push(`<Media ObjectUID="${mediaUid}">${stream}<FilePath>${path}</FilePath></Media>`);
     const logging = add(
       (id) =>
         `<ClipLoggingInfo ObjectID="${id}"><MediaFrameRate>${frameRate}</MediaFrameRate></ClipLoggingInfo>`,
@@ -132,7 +136,13 @@ const fixture = () => {
     );
   };
 
-  const camera = media("/media/root/Footage/IMG_1.MOV", CAM);
+  // An iPhone clip shot sideways, its orientation overridden in Interpret Footage: Premiere
+  // shows it as stored, where every player turns it upright.
+  const camera = media(
+    "/media/root/Footage/IMG_1.MOV",
+    CAM,
+    "<IsOverridenImageOrientationType>true</IsOverridenImageOrientationType><OriginalImageOrientationType>6</OriginalImageOrientationType><FrameRect>0,0,3840,2160</FrameRect>",
+  );
   const card = media("/media/root/Graphics/card.png", STILL);
   const v1a = item(
     "VideoClipTrackItem",
@@ -429,6 +439,7 @@ describe("parsePrproj", () => {
       record: { startFrame: 0, endFrame: 120 },
     });
     expect((first as Clip).metadata[TIMELINE_NAMESPACE]).toMatchObject({
+      mediaRotation: -90,
       transform: {
         position: [0.5, 0.25],
         keyframes: {

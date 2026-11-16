@@ -47,6 +47,8 @@ interface GraphicMetadata {
   readonly textStyle?: TextStyle;
   readonly caption?: boolean;
   readonly blendMode?: string;
+  /** Degrees clockwise Premiere turns the media's upright picture before effects and Motion. */
+  readonly mediaRotation?: number;
   readonly effects?: ReadonlyArray<{
     kind: string;
     label: string;
@@ -66,6 +68,16 @@ export const graphicText = (item: LaidOutClip): string => {
   const graphic = graphicOf(item);
   if (graphic.text !== undefined) return graphic.text;
   return graphic.effects?.find((e) => e.kind === "Text" && e.label !== e.kind)?.label ?? "";
+};
+
+/**
+ * The layer Premiere's effects and Motion act on, for media whose upright picture is `width` by
+ * `height`: that picture turned by the clip's `mediaRotation`. A clip Premiere shows as stored,
+ * sideways, measures and moves sideways here too, and Motion's Rotation stands it up.
+ */
+export const mediaLayerOf = (item: LaidOutClip, width: number, height: number) => {
+  const turn = graphicOf(item).mediaRotation ?? 0;
+  return turn % 180 === 0 ? { turn, width, height } : { turn, width: height, height: width };
 };
 
 /** Where the text layer's anchor sits, as a fraction of the frame. */

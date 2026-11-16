@@ -20,6 +20,7 @@ import {
   graphicText,
   graphicTextPosition,
   identityMatrix,
+  mediaLayerOf,
   type Matrix,
   poseAt,
   transformOf,
@@ -132,6 +133,8 @@ interface Layer {
   height: number;
   pixelWidth: number;
   pixelHeight: number;
+  /** Degrees the upright drawable turns to become the layer; `width` and `height` are after it. */
+  turn: number;
   blend: GlobalCompositeOperation;
   /** The clip's Transform effects, and what they come to this frame. */
   plan: EffectPlan | null;
@@ -741,6 +744,7 @@ export class PreviewEngine {
         height: 0,
         pixelWidth: 0,
         pixelHeight: 0,
+        turn: 0,
         blend: "source-over",
         plan: null,
         matrix: identityMatrix(),
@@ -868,6 +872,8 @@ export class PreviewEngine {
     const cropped = keepX !== 1 || keepY !== 1;
     // Crop after a Transform cuts the moved picture: a window that only later effects move.
     const windowed = cropped && layer.plan !== null && layer.plan.beforeCrop > 0;
+    // A turned picture's pixels don't line up with its layer, so Crop cuts the layer instead.
+    const clipped = cropped && !windowed && layer.turn !== 0;
     if (windowed) {
       const after = layer.cropMatrix;
       context.save();
@@ -882,7 +888,19 @@ export class PreviewEngine {
       const m = layer.matrix;
       context.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
     }
-    if (!cropped || windowed) {
+    if (clipped) {
+      context.save();
+      context.beginPath();
+      context.rect(x, y, w * keepX, h * keepY);
+      context.clip();
+    }
+    if (layer.turn !== 0) {
+      const [uprightW, uprightH] = layer.turn % 180 === 0 ? [w, h] : [h, w];
+      context.save();
+      context.rotate((layer.turn * Math.PI) / 180);
+      context.drawImage(layer.drawable, -uprightW / 2, -uprightH / 2, uprightW, uprightH);
+      context.restore();
+    } else if (!cropped || windowed) {
       context.drawImage(layer.drawable, -w / 2, -h / 2, w, h);
     } else {
       context.drawImage(
@@ -904,6 +922,7 @@ export class PreviewEngine {
       if (windowed) context.fillRect(-w / 2, -h / 2, w, h);
       else context.fillRect(x, y, w * keepX, h * keepY);
     }
+    if (clipped) context.restore();
     if (windowed) context.restore();
   }
 
@@ -1037,6 +1056,7 @@ export class PreviewEngine {
         // A graphic's layer is the frame.
         layer.width = scene.frame.width;
         layer.height = scene.frame.height;
+        layer.turn = 0;
         count += 1;
         signature += `${posed}t${words}${this.shape(layer, seconds, pixels, scene.layout.rate)}`;
         continue;
@@ -1084,14 +1104,16 @@ export class PreviewEngine {
         }
         continue;
       }
+      const media = mediaLayerOf(item, naturalWidth, naturalHeight);
       layer.kind = "picture";
       layer.drawable = drawable;
-      layer.width = naturalWidth;
-      layer.height = naturalHeight;
+      layer.width = media.width;
+      layer.height = media.height;
+      layer.turn = media.turn;
       layer.pixelWidth = pixelWidth;
       layer.pixelHeight = pixelHeight;
       count += 1;
-      signature += `${posed}${stamp}${this.shape(layer, seconds, pixels, scene.layout.rate)}`;
+      signature += `${posed}${stamp}r${media.turn}${this.shape(layer, seconds, pixels, scene.layout.rate)}`;
     }
     if (signature === this.drawn) return;
     this.drawn = signature;

@@ -300,6 +300,20 @@ const effectTier = (matchName: string): EffectRef["tier"] =>
       ? "mappable"
       : "native";
 
+// EXIF orientations a camera stores, as the clockwise turn that shows the picture upright.
+const ORIENTATION_TURN: Readonly<Record<string, number>> = { "3": 180, "6": 90, "8": -90 };
+
+/**
+ * Degrees clockwise Premiere turns a media's upright picture, as browsers and proxies show
+ * it, before effects and Motion. An orientation overridden in Interpret Footage is the only
+ * case seen: Premiere then shows the frame as stored, so a sideways iPhone clip needs Motion
+ * Rotation to stand up there.
+ */
+const mediaRotation = (stream: XmlNode | undefined): number => {
+  if (text(stream, "IsOverridenImageOrientationType") !== "true") return 0;
+  return -(ORIENTATION_TURN[text(stream, "OriginalImageOrientationType") ?? ""] ?? 0);
+};
+
 interface ItemRead {
   readonly clip: Clip;
   readonly start: bigint;
@@ -477,6 +491,10 @@ const readSequence = (
     const inPoint = bigint(text(clipNode, "InPoint"), 0n);
     const outPoint = bigint(text(clipNode, "OutPoint"), inPoint);
     const rawPath = text(media?.node, "ActualMediaFilePath") ?? text(media?.node, "FilePath") ?? "";
+    const turn =
+      object.tag === "VideoClipTrackItem"
+        ? mediaRotation(graph.resolve(at(media?.node, "VideoStream"))?.node)
+        : 0;
     // Graphics and other synthetic media store an id where a file path would be.
     const syntheticId = /[\\/]/.test(rawPath) ? undefined : rawPath;
     const path = syntheticId === undefined ? rawPath : "";
@@ -522,6 +540,7 @@ const readSequence = (
           ...(textPosition === undefined ? {} : { textPosition }),
           ...(textStyle === undefined ? {} : { textStyle }),
           ...(blendMode === undefined ? {} : { blendMode }),
+          ...(turn === 0 ? {} : { mediaRotation: turn }),
           ...(Object.keys(transform).length > 0 ? { transform } : {}),
           ...(effects.length > 0 ? { effects } : {}),
         },

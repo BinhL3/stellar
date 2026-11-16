@@ -12,6 +12,7 @@ import {
   effectsMatrixAt,
   identityMatrix,
   type Matrix,
+  mediaLayerOf,
   poseAt,
 } from "./clipTransform";
 
@@ -234,6 +235,83 @@ describe("Transform effects", () => {
     // A pop to 130% keeps the centre and grows the corner's canvas offset by 1.3.
     const pop = aboutMotionAnchor(matrixOf(plan({ scale: 130 })).into, W, H, 0.5, 0.5, 0.5);
     expectPoint(apply(pop, 250, 200), 325, 260);
+  });
+
+  it("stands a sideways iPhone clip up the way Premiere does, Transform push-in and all", () => {
+    // Polish v1: a 2160 by 3840 sequence of iPhone clips whose orientation Premiere was told to
+    // ignore, so Premiere sees the 3840 by 2160 frame as stored and Motion turns it upright.
+    // The preview's picture is already upright: 2160 by 3840, as every player shows it.
+    const frame = { width: 2160, height: 3840 };
+    const clip = (stellar: object) =>
+      ({ clip: { metadata: { stellar } } }) as unknown as LaidOutClip;
+    const turned = { mediaRotation: -90, transform: { rotation: 90 } };
+    const pushIn = {
+      ...turned,
+      effects: [
+        {
+          kind: "Transform",
+          label: "Transform",
+          matchName: "AE.ADBE Geometry2",
+          params: {
+            anchor_point: [0, 0.5],
+            position: [0, 0.5],
+            keyframes: {
+              scale: [
+                [0, 100, [0.3706, 0, 0, 1]],
+                [2.1333, 130],
+              ],
+            },
+            shutter_angle: 360,
+          },
+        },
+      ],
+    };
+    // Where the upright picture's corners land in the sequence, as the engine composes it:
+    // Motion's position and rotation, then Transforms about Motion's anchor, then the turn.
+    const corners = (item: LaidOutClip, seconds: number) => {
+      const layer = mediaLayerOf(item, 2160, 3840);
+      const pose = poseAt({ rotation: 90 }, seconds);
+      const shaped = identityMatrix();
+      const plan = effectPlanOf(item);
+      if (plan !== null) effectsMatrixAt(plan, seconds, layer.width, layer.height, 0, shaped);
+      aboutMotionAnchor(shaped, layer.width, layer.height, pose.scale, 0.5, 0.5);
+      const turn = (degrees: number): Matrix => {
+        const r = (degrees * Math.PI) / 180;
+        return [Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0];
+      };
+      const times = (m: Matrix, n: Matrix): Matrix => [
+        m[0] * n[0] + m[2] * n[1],
+        m[1] * n[0] + m[3] * n[1],
+        m[0] * n[2] + m[2] * n[3],
+        m[1] * n[2] + m[3] * n[3],
+        m[0] * n[4] + m[2] * n[5] + m[4],
+        m[1] * n[4] + m[3] * n[5] + m[5],
+      ];
+      const motion = turn(pose.rotation);
+      motion[4] = pose.x * frame.width;
+      motion[5] = pose.y * frame.height;
+      const all = times(times(motion, shaped), turn(layer.turn));
+      return [apply(all, -1080, -1920), apply(all, 1080, 1920)];
+    };
+
+    expect(mediaLayerOf(clip(turned), 2160, 3840)).toEqual({
+      turn: -90,
+      width: 3840,
+      height: 2160,
+    });
+    // Rotation alone (IMG_8163): upright, filling the frame.
+    const [topLeft, bottomRight] = corners(clip(turned), 0);
+    expectPoint(topLeft!, 0, 0);
+    expectPoint(bottomRight!, 2160, 3840);
+    // The push-in (IMG_8148) starts the same and ends 130%, held at the stored frame's left
+    // edge, which Motion has turned into the top of the upright picture.
+    const [startTopLeft] = corners(clip(pushIn), 0);
+    expectPoint(startTopLeft!, 0, 0);
+    const [endTopLeft, endBottomRight] = corners(clip(pushIn), 2.1333);
+    expectPoint(endTopLeft!, 1080 - 1.3 * 1080, 0);
+    expectPoint(endBottomRight!, 1080 + 1.3 * 1080, 1.3 * 3840);
+    // Media Premiere shows as players do keeps its size and draws untouched.
+    expect(mediaLayerOf(clip({}), 2160, 3840)).toEqual({ turn: 0, width: 2160, height: 3840 });
   });
 
   it("reads a clip's Transforms in order around Crop, skipping what it can't draw", () => {
