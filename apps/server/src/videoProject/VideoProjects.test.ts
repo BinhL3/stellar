@@ -200,6 +200,22 @@ it.live("syncs Premiere's saves without overwriting edits made here", () => {
     assert.strictEqual(yield* frameWidth, 540);
     assert.deepStrictEqual(yield* sync(), { state: "current", updated: [], kept: [] });
 
+    // A pull by an older reader is read again once, with no new save in Premiere.
+    const fresh = JSON.parse(yield* fs.readFileString(timelineFile)) as Timeline;
+    const stale = serializeTimeline({ ...fresh, name: "Read by an older Stellar" });
+    const linkFile = path.join(workspaceRoot, "premiere.json");
+    const { reader: _reader, ...link } = JSON.parse(yield* fs.readFileString(linkFile));
+    link.timelines[timelinePath] = {
+      ...link.timelines[timelinePath],
+      pulled: hashOfText(stale),
+      premiere: hashOfText(stale),
+    };
+    yield* fs.writeFileString(timelineFile, stale);
+    yield* fs.writeFileString(linkFile, JSON.stringify(link));
+    assert.deepStrictEqual(yield* sync(), { state: "updated", updated: [timelinePath], kept: [] });
+    assert.strictEqual(yield* fs.readFileString(timelineFile), serializeTimeline(fresh));
+    assert.deepStrictEqual(yield* sync(), { state: "current", updated: [], kept: [] });
+
     const edited = `${yield* fs.readFileString(timelineFile)}\n`;
     yield* fs.writeFileString(timelineFile, edited);
     assert.deepStrictEqual(yield* sync(), { state: "edited", updated: [], kept: [timelinePath] });
@@ -222,6 +238,8 @@ it.live("syncs Premiere's saves without overwriting edits made here", () => {
       history.versions.map((version) => [version.by, version.label]),
       [
         ["premiere", "Replaced by Premiere's version"],
+        ["outside", "Changed outside Stellar"],
+        ["premiere", "Pulled from Premiere"],
         ["outside", "Changed outside Stellar"],
         ["premiere", "Pulled from Premiere"],
         ["premiere", "Pulled from Premiere"],

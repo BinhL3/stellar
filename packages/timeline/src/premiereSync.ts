@@ -28,10 +28,15 @@ interface LinkedTimeline {
   readonly premiere: string;
 }
 
+/** Bump when reading a `.prproj` puts something new in a timeline, so pulls are read again. */
+const PRPROJ_READER = 2;
+
 interface PremiereLink {
   readonly version: 1;
   readonly project: string;
   readonly saved: { readonly size: number; readonly modified: number } | null;
+  /** The `PRPROJ_READER` that read `saved`; absent before it was kept. */
+  readonly reader?: number;
   /** By timeline path relative to the project folder. */
   readonly timelines: Readonly<Record<string, LinkedTimeline>>;
   /**
@@ -282,8 +287,10 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
     if (Option.isSome(read)) local.set(timelinePath, { ...read.value, hash: sha(read.value.text) });
   }
 
-  const unchanged =
+  const sameSave =
     link.saved !== null && link.saved.size === saved.size && link.saved.modified === saved.modified;
+  const unchanged = sameSave && link.reader === PRPROJ_READER;
+  const readerOnly = sameSave && !unchanged;
   // A conflict found by an earlier sync is merged from the same save, which must be read again.
   const mergeRemembered =
     input.merge === true &&
@@ -388,6 +395,14 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
         continue;
       }
       const editedHere = mine.hash !== entry.pulled;
+      // Only the reader changed: Premiere made no edit to weigh against the ones made here.
+      if (editedHere && readerOnly && input.usePremiere !== true && input.merge !== true) {
+        timelines[timelinePath] = entry;
+        kept.push(timelinePath);
+        if (entry.premiere !== entry.pulled) conflict = true;
+        yield* notePending(timelinePath, entry.pulled, mine.timeline);
+        continue;
+      }
       const base = editedHere
         ? yield* readBase(input.projectDir, timelinePath, entry.pulled)
         : mine.timeline;
@@ -496,6 +511,7 @@ export const syncFromPremiere = Effect.fn("timeline.syncFromPremiere")(function*
     version: 1,
     project: link.project,
     saved,
+    reader: PRPROJ_READER,
     timelines,
     ...(sequences === undefined ? {} : { sequences }),
   };
