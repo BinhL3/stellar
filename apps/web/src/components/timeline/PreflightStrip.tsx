@@ -322,7 +322,7 @@ export function PreflightStrip(props: {
           render={
             <Button
               size="xs"
-              variant="outline"
+              variant="ghost"
               aria-label={
                 preflight === null
                   ? `Stage: ${props.stage.label}`
@@ -332,8 +332,9 @@ export function PreflightStrip(props: {
             />
           }
         >
-          <span>{props.stage.label}</span>
-          {preflight === null ? null : (
+          {preflight === null ? (
+            <span>Steps</span>
+          ) : (
             <>
               <span aria-hidden className="flex items-center gap-0.5 pl-0.5">
                 {steps.map((step) => (

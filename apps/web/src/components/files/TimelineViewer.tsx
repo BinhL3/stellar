@@ -454,6 +454,34 @@ function aspectLabel(frame: { readonly width: number; readonly height: number })
  * let people drag, trim and delete clips. Edits stay pending, drawn over the timeline and played
  * by the preview, until they are committed (written back as the `.otio`) or discarded.
  */
+/**
+ * Space plays from anywhere in the tab, as in an editor: from the page, or from an empty chat
+ * box, where a leading space would type nothing useful. Text in the box keeps its spaces.
+ */
+function SpaceToPlay(props: { readonly onToggle: () => void }) {
+  const onKey = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== " " || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.defaultPrevented) return;
+    const target = event.target;
+    const emptyComposer =
+      target instanceof HTMLElement &&
+      target.matches('[data-testid="composer-editor"]') &&
+      (target.textContent ?? "").trim() === "" &&
+      target.querySelector("[data-composer-mention],[data-composer-skill]") === null;
+    if (!emptyComposer && target !== document.body) return;
+    event.preventDefault();
+    event.stopPropagation();
+    props.onToggle();
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Listens for Space on the window, outside React's tree.
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => onKey(event);
+    window.addEventListener("keydown", listener, true);
+    return () => window.removeEventListener("keydown", listener, true);
+  }, []);
+  return null;
+}
+
 export default function TimelineViewer(props: {
   readonly text: string;
   readonly media?: PreviewMedia;
@@ -685,6 +713,7 @@ export default function TimelineViewer(props: {
     revealFrame(clamped);
   };
   const shuttle = (next: number) => engine?.setSpeed(next);
+
   const loopRange = (enabled: boolean, range: typeof marks) =>
     enabled
       ? {
@@ -1493,6 +1522,9 @@ export default function TimelineViewer(props: {
               <PlayheadTimecode store={playheadStore} rate={rate} duration={duration} />
               <SpeedBadge store={speedStore} />
               <BackdropHoldWhilePlaying store={speedStore} />
+              {playable ? (
+                <SpaceToPlay onToggle={() => shuttle(speedStore.get() === 0 ? 1 : 0)} />
+              ) : null}
               {marks.in !== null || marks.out !== null ? (
                 <InOutReadout
                   marks={marks}
@@ -1852,16 +1884,9 @@ export default function TimelineViewer(props: {
               )}
             >
               <div
-                className="sticky left-0 z-40 flex shrink-0 items-center gap-2 bg-background pr-1.5"
+                className="sticky left-0 z-40 flex shrink-0 items-center bg-background pr-1.5 pl-2.75"
                 style={{ width: LABEL_PX }}
               >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "h-full w-[3px] shrink-0",
-                    track.kind === "Video" ? "bg-clip-video-tint/80" : "bg-clip-audio-tint/80",
-                  )}
-                />
                 <span className="truncate bay-label font-medium text-muted-foreground">
                   {track.name}
                 </span>

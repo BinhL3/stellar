@@ -4,7 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, VoiceOverChannels } from "@t3tools/contracts";
-import { ChevronDownIcon, CircleIcon, MicIcon, SquareIcon } from "lucide-react";
+import { ChevronDownIcon, MicIcon, SquareIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useStableCallback } from "~/hooks/useStableCallback";
@@ -248,24 +248,20 @@ export function RecordVoiceOverButton(props: {
         <TooltipTrigger
           render={
             <Button
-              size="xs"
-              variant="outline"
+              size="icon-xs"
+              variant="ghost"
               aria-label="Record voice-over"
               disabled={voiceOver.saving}
               onClick={() => void voiceOver.start()}
             />
           }
         >
-          {voiceOver.saving ? (
-            <Spinner size="xs" />
-          ) : (
-            <CircleIcon className="fill-destructive text-destructive" />
-          )}
-          <span className={label}>{voiceOver.saving ? "Saving…" : "Record VO"}</span>
+          {voiceOver.saving ? <Spinner size="xs" /> : <MicIcon />}
         </TooltipTrigger>
         <TooltipPopup side={side}>
-          Record a voice-over with {summary}. It doesn't follow the playhead: press play to narrate
-          to picture. Takes are saved in Audio/VO and handed to the chat.
+          {voiceOver.saving ? "Saving the take… " : null}Record a voice-over with {summary}. It
+          doesn't follow the playhead: press play to narrate to picture. Takes are saved in Audio/VO
+          and handed to the chat.
           {missing ? (
             <>
               <br />
@@ -285,7 +281,7 @@ export function RecordVoiceOverButton(props: {
               <MenuTrigger
                 disabled={voiceOver.saving}
                 render={
-                  <Button size="icon-xs" variant="outline" aria-label="Voice-over microphone" />
+                  <Button size="icon-xs" variant="ghost" aria-label="Voice-over microphone" />
                 }
               />
             }
