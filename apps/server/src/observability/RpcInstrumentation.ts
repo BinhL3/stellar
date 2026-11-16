@@ -167,6 +167,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.videoProjectsSync]: "orchestration",
   [WS_METHODS.videoProjectsOpenInPremiere]: "orchestration",
   [WS_METHODS.videoProjectsTranscribe]: "orchestration",
+  [WS_METHODS.videoProjectsReadFootageLog]: "orchestration",
+  [WS_METHODS.videoProjectsSetFootageNote]: "orchestration",
   [WS_METHODS.videoProjectsReadScript]: "orchestration",
   [WS_METHODS.videoProjectsCheckRender]: "orchestration",
   [WS_METHODS.videoProjectsPreflight]: "orchestration",

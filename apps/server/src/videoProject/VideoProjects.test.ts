@@ -24,6 +24,7 @@ import { timelineFingerprint } from "@t3tools/timeline/renderProbe";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as FootageLog from "./FootageLog.ts";
 import * as PremiereApp from "./PremiereApp.ts";
 import { findTranscript, runTranscription, transcriptCoverage } from "./Transcriber.ts";
 import * as VideoProjects from "./VideoProjects.ts";
@@ -83,6 +84,9 @@ const prprojWithSequences = (
 
 // Background work transcribes what it finds, so no test may reach a real transcriber on the PATH.
 const missingTranscriber = "/nonexistent/stellar-test-stt";
+// Proxies finishing start the footage log; its own tests cover what it does.
+const noFootageLog = Layer.mock(FootageLog.FootageLog)({ start: () => Effect.void });
+
 const noTranscriber = ServerSettings.ServerSettingsService.layerTest({
   videoTranscribeCommand: missingTranscriber,
 });
@@ -133,7 +137,9 @@ it.live("lists sequences and places the project beside the Premiere folder's par
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects([])),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -165,7 +171,9 @@ it.live("pulls the sequence into the project folder and reuses the project next 
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -261,7 +269,9 @@ it.live("syncs Premiere's saves without overwriting edits made here", () => {
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -465,7 +475,9 @@ it.live(
       Effect.provide(
         VideoProjects.layer.pipe(
           Layer.provideMerge(withProjects(created)),
-          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+          Layer.provideMerge(
+            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+          ),
         ),
       ),
       Effect.scoped,
@@ -516,7 +528,9 @@ it.live(
       Effect.provide(
         VideoProjects.layer.pipe(
           Layer.provideMerge(withProjects(created)),
-          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+          Layer.provideMerge(
+            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+          ),
         ),
       ),
       Effect.scoped,
@@ -562,7 +576,9 @@ it.live(
       Effect.provide(
         VideoProjects.layer.pipe(
           Layer.provideMerge(withProjects(created)),
-          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+          Layer.provideMerge(
+            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+          ),
         ),
       ),
       Effect.provideServiceEffect(
@@ -741,7 +757,9 @@ it.live("cuts by transcript words, numbered as they were before the call", () =>
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -801,7 +819,9 @@ it.live("refuses an agent's edit when the user saved while its sound was being m
             Effect.suspend(() => saveDuringDecode),
           ),
         ),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -867,7 +887,9 @@ it.live("makes the first edit to the footage timeline on a cut of its own", () =
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -1087,7 +1109,9 @@ it.live(
         VideoProjects.layer.pipe(
           Layer.provideMerge(withProjects(created)),
           Layer.provideMerge(fakeDecoder(decoded)),
-          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+          Layer.provideMerge(
+            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+          ),
         ),
       ),
       Effect.scoped,
@@ -1182,7 +1206,9 @@ it.live("reads a timeline for an agent and applies its edits, refusing a bad one
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -1303,7 +1329,9 @@ it.live("reports that nothing can be transcribed when the host has no transcribe
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -1355,7 +1383,9 @@ it.live("scans Downloads for new footage and only imports from there", () => {
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
         Layer.provideMerge(Layer.succeed(HostProcess.HomeDirectory, intakeHome)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -1373,7 +1403,9 @@ it.live("rejects files that aren't Premiere projects", () =>
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects([])),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
   ),
@@ -1439,7 +1471,9 @@ it.live("plans a push from Premiere's last save, and says why when it can't", ()
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -1497,7 +1531,9 @@ it.live("plans an inserted still as a step that places its file", () => {
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -1561,6 +1597,7 @@ const openLayer = (created: Array<string>, calls: Array<string>, running: boolea
         NodeServices.layer,
         NodeCrypto.layer,
         noTranscriber,
+        noFootageLog,
         fakeLauncher(calls, { running }),
       ),
     ),
@@ -1725,7 +1762,9 @@ it.live("keeps a stereo voice-over take in two channels and folds a mono one to 
       VideoProjects.layer.pipe(
         Layer.provide(recordingEncoder(encodes)),
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -1938,7 +1977,9 @@ it.live("places a line's take on a cut, and re-recording the line re-times only 
       VideoProjects.layer.pipe(
         Layer.provide(fakeEncoder),
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -2084,7 +2125,9 @@ it.live("follows a short's run from an idea to posted, and takes posted back", (
     Effect.provide(
       VideoProjects.layer.pipe(
         Layer.provideMerge(withProjects(created)),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+        Layer.provideMerge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+        ),
       ),
     ),
     Effect.scoped,
@@ -2278,7 +2321,9 @@ it.live(
       Effect.provide(
         VideoProjects.layer.pipe(
           Layer.provideMerge(withProjects(created)),
-          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber)),
+          Layer.provideMerge(
+            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, noTranscriber, noFootageLog),
+          ),
         ),
       ),
       Effect.scoped,

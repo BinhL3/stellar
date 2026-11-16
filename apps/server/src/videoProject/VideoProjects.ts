@@ -167,6 +167,7 @@ import {
   writePosted,
 } from "./RenderCheck.ts";
 import { ensureLevels, NO_FFMPEG } from "./AudioLevels.ts";
+import * as FootageLog from "./FootageLog.ts";
 import { drawSoundPicture } from "./SoundPicture.ts";
 import {
   decodeTranscript,
@@ -751,6 +752,7 @@ const make = Effect.gen(function* () {
   const downloads = path.join(yield* HostProcess.HomeDirectory, "Downloads");
   const queued = new Set<string>();
   const settings = yield* ServerSettings.ServerSettingsService;
+  const footageLog = yield* FootageLog.FootageLog;
   const onHost = <A, E>(
     effect: Effect.Effect<
       A,
@@ -880,7 +882,14 @@ const make = Effect.gen(function* () {
                 transcribing.delete(projectFolder);
                 const next = transcribeQueued.get(projectFolder);
                 transcribeQueued.delete(projectFolder);
-                return next === undefined ? Effect.void : startTranscripts(projectFolder, next);
+                // Clips left undescribed for want of their words are described now.
+                return footageLog
+                  .start(projectFolder)
+                  .pipe(
+                    Effect.andThen(
+                      next === undefined ? Effect.void : startTranscripts(projectFolder, next),
+                    ),
+                  );
               }),
             ),
           ),
@@ -986,6 +995,8 @@ const make = Effect.gen(function* () {
             ),
           ),
           Effect.tap(() => transcribeMissing(projectFolder)),
+          // After transcription starts, so the log knows which clips wait for their words.
+          Effect.tap(() => footageLog.start(projectFolder)),
           Effect.tap((result) =>
             Effect.logInfo("Video project proxies ready", {
               projectFolder,

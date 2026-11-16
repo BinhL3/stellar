@@ -1,3 +1,4 @@
+import { FootageLog } from "../videoProject/FootageLog.ts";
 import { VideoProjects } from "../videoProject/VideoProjects.ts";
 import { CarouselProjects } from "../carousel/CarouselProjects.ts";
 import { Learnings } from "../learnings/Learnings.ts";
@@ -64,6 +65,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(PeerLinks)({}),
   Layer.mock(PreviewAutomationBroker)({}),
   Layer.mock(VideoProjects)({}),
+  Layer.mock(FootageLog)({}),
   Layer.mock(CarouselProjects)({}),
   Layer.mock(Learnings)({}),
   Layer.mock(PreviewBrowser)({}),

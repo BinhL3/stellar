@@ -11,6 +11,7 @@ import * as Option from "effect/Option";
 
 import * as CarouselProjects from "../../../carousel/CarouselProjects.ts";
 import * as Project from "../../../project/ProjectService.ts";
+import * as FootageLog from "../../../videoProject/FootageLog.ts";
 import * as VideoProjects from "../../../videoProject/VideoProjects.ts";
 import { recipeText } from "../../../videoProject/recipes/VideoRecipes.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -296,6 +297,31 @@ const handlers = {
         .importFootage({ workspaceRoot, paths, folder })
         .pipe(Effect.mapError(refused));
       return { scan: null, importing: { files: paths.length, folder } };
+    }),
+  ),
+  video_footage_log: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const footageLog = yield* FootageLog.FootageLog;
+      const failed = (error: FootageLog.FootageLogError) =>
+        new OrchestratorMcpFailure({ code: "invalid_request", message: error.message });
+      if (input.action === "note") {
+        if (input.clip === undefined || input.note === undefined) {
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: "`note` needs `clip` and `note`.",
+          });
+        }
+        yield* footageLog
+          .setNote({ workspaceRoot, clip: input.clip, note: input.note })
+          .pipe(Effect.mapError(failed));
+      }
+      const clips =
+        input.action === "note" && input.clip !== undefined ? [input.clip] : input.clips;
+      const log = yield* footageLog
+        .read({ workspaceRoot, ...(clips === undefined ? {} : { clips }) })
+        .pipe(Effect.mapError(failed));
+      return { text: log.text, pending: log.pending, unavailable: log.unavailable };
     }),
   ),
   video_render_check: McpToolAccess.actsAsCaller((input) =>

@@ -19,6 +19,7 @@ import { Tool, Toolkit } from "effect/ai";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as CarouselProjects from "../../../carousel/CarouselProjects.ts";
+import * as FootageLog from "../../../videoProject/FootageLog.ts";
 import * as VideoProjects from "../../../videoProject/VideoProjects.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
@@ -27,6 +28,7 @@ const dependencies = [
   ThreadManagementService.ThreadManagementService,
   ProjectService.ProjectService,
   VideoProjects.VideoProjects,
+  FootageLog.FootageLog,
   CarouselProjects.CarouselProjects,
 ];
 
@@ -257,7 +259,7 @@ const PremierePullTool = Tool.make("video_premiere_pull", {
 
 const FootageTool = Tool.make("video_footage", {
   description:
-    "Bring footage into this thread's video project. `scan` lists videos and photos that arrived in the host's Downloads in the last few days (AirDrop keeps camera dates, so this goes by date added). `import` copies the `paths` the user approved into `Footage/<folder>`, size-checked, in the background, then builds previews and a Footage timeline; originals stay in Downloads. Show the scan and get the user's approval before importing. An import also makes a whole constant 59.94 copy (`<name>_5994.mov`, about 6 MB per second) of any clip that switches frame rate partway; `conform` does the same for footage that arrived another way, so ask first.",
+    "Bring footage into this thread's video project. `scan` lists videos and photos that arrived in the host's Downloads in the last few days (AirDrop keeps camera dates, so this goes by date added). `import` copies the `paths` the user approved into `Footage/<folder>`, size-checked, in the background, then builds previews and a Footage timeline, then reads and describes each clip for `video_footage_log`; originals stay in Downloads. Show the scan and get the user's approval before importing. An import also makes a whole constant 59.94 copy (`<name>_5994.mov`, about 6 MB per second) of any clip that switches frame rate partway; `conform` does the same for footage that arrived another way, so ask first.",
   parameters: Schema.Struct({
     action: Schema.Literals(["scan", "import", "conform"]),
     paths: Schema.optional(Schema.Array(Schema.String)),
@@ -275,6 +277,30 @@ const FootageTool = Tool.make("video_footage", {
   dependencies,
 })
   .annotate(Tool.Title, "Scan or import footage")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const FootageLogTool = Tool.make("video_footage_log", {
+  description:
+    "What each footage clip shows, to choose shots and b-roll by picture as well as by what is said. Read it before placing footage you haven't seen. One block per clip: `note`, the user's own words on the clip, which win over everything else; `seen`, what a model saw on the clip's contact sheet, then its stretches as `m:ss.s-m:ss.s place · subject · action`, marked UNUSABLE with why; `picture`, measured camera movement by stretch (static, handheld, on the move, pan, tilt, push in, pull out, fast motion; dark, covered, shaky) and cuts; `sheet`, the contact sheet image (open it with your image tool when you need to see the clip); `said`, the transcript. Times are seconds into the clip, for `sourceIn`/`sourceOut` of an insert with `video_timeline_edit`. Without `clips` every clip comes in brief; name clips by path, file name or folder for every stretch and the whole transcript. Stellar reads and describes footage in the background after import; the first line says what is still being done. When the user says what a clip is or where it was shot, save it with `action: \"note\"`, `clip` and `note`, in their words, not your guesses; an empty note removes it.",
+  parameters: Schema.Struct({
+    action: Schema.optional(Schema.Literals(["read", "note"])),
+    clips: Schema.optional(Schema.Array(Schema.String)),
+    clip: Schema.optional(Schema.String),
+    note: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    text: Schema.String,
+    pending: Schema.Struct({ picture: Schema.Number, description: Schema.Number }),
+    unavailable: Schema.NullOr(Schema.String),
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Read the footage log")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
@@ -377,6 +403,7 @@ export const VideoToolkit = Toolkit.make(
   ProjectStartTool,
   PremierePullTool,
   FootageTool,
+  FootageLogTool,
   RenderCheckTool,
   PreflightTool,
   PostedTool,

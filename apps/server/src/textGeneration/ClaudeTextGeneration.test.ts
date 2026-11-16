@@ -203,6 +203,35 @@ it.layer(layerClaudeTextGenerationTest)("ClaudeTextGeneration", (it) => {
     ),
   );
 
+  it.effect("lets footage description read images only in its own folder", () =>
+    withFakeClaudeEnv(
+      {
+        output: JSON.stringify({ structured_output: { summary: "A platform", segments: [] } }),
+        argsMustContain: "--tools Read --allowedTools Read(./**)",
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-claude-footage-" });
+          const request = (imageFile: string) =>
+            textGeneration.generateFootageDescription({
+              cwd,
+              prompt: "Describe contact-sheet.jpg",
+              imageFiles: [imageFile],
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("claudeAgent"),
+                model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+              },
+            });
+          const described = yield* request(path.join(cwd, "contact-sheet.jpg"));
+          expect(described.summary).toBe("A platform");
+          const outside = yield* request(path.join(cwd, "..", "secret.jpg")).pipe(Effect.flip);
+          expect(outside.detail).toBe("Claude reads images only from the request's own directory.");
+        }),
+    ),
+  );
+
   it.effect("runs Claude text generation with the configured CLAUDE_CONFIG_DIR", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;

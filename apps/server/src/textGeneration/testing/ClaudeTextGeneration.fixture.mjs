@@ -13,7 +13,11 @@ if (permissionIndex === -1 || argv[permissionIndex + 1] !== "dontAsk") {
   fail("text generation must deny permission prompts", 12);
 }
 const toolsIndex = argv.indexOf("--tools");
-if (toolsIndex === -1 || argv[toolsIndex + 1] !== "") {
+const allowedIndex = argv.indexOf("--allowedTools");
+// Footage description may read images, only in its own directory; nothing else gets a tool.
+const readsOwnFolder =
+  argv[toolsIndex + 1] === "Read" && allowedIndex !== -1 && argv[allowedIndex + 1] === "Read(./**)";
+if (toolsIndex === -1 || (argv[toolsIndex + 1] !== "" && !readsOwnFolder)) {
   fail("text generation must receive an explicit empty tool set", 6);
 }
 if (argv.includes("--dangerously-skip-permissions")) {

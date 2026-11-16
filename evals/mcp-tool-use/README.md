@@ -130,6 +130,9 @@ This API replay measures routing and recovery decisions. Screenshots return prod
 | video-premiere-closed-opens-it                     | bad     | With Premiere closed, the agent calls `video_premiere_open` instead of asking the user to open the project.                |
 | video-broll-inserted-ahead-of-clip                 | bad     | Two b-roll clips go ahead of a shot as `insert` edits, never an `overwrite` or a frame inside the shot before it.          |
 | video-control-timeline-trim-leaves-premiere-closed | control | A trim in Stellar's timeline with Premiere closed neither opens nor pushes to Premiere.                                    |
+| video-broll-chosen-from-footage-log                | guard   | B-roll asked for by what it shows comes from `video_footage_log`: the right clip, from after its unusable start.           |
+| video-user-names-clip-saves-note                   | guard   | When the user says what a clip is, it is saved as that clip's note with `video_footage_log`, in their words.               |
+| video-control-agent-guess-not-saved-as-note        | control | Asked which clip would work, the agent reads the footage log and writes no note of its own.                                |
 | carousel-from-photos-uses-carousel-start           | guard   | A carousel from photos starts with `carousel_start` and its title and folder, not a video project or a footage import.     |
 | carousel-thread-reads-edits-then-looks             | guard   | In a carousel project: `carousel_read`, then `carousel_edit` with the slide, then `carousel_look`; no video tools.         |
 | carousel-photo-imported-before-use                 | guard   | A photo outside the project is imported with `carousel_photos` before `carousel_edit` uses the `src` the import returned.  |

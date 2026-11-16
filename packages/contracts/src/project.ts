@@ -1080,6 +1080,91 @@ export const VideoTranscribeInput = Schema.Struct({
 });
 export type VideoTranscribeInput = typeof VideoTranscribeInput.Type;
 
+/** A stretch of a footage clip as the picture pass measured it, in seconds of the clip. */
+export const VideoFootagePictureSegment = Schema.Struct({
+  start: Schema.Number,
+  end: Schema.Number,
+  /** static, handheld, on the move, pan left|right, tilt up|down, push in, pull out, fast motion. */
+  camera: Schema.String,
+  /** dark, covered (lens blocked), shaky. */
+  issues: Schema.Array(Schema.String),
+});
+export type VideoFootagePictureSegment = typeof VideoFootagePictureSegment.Type;
+
+/** A stretch of a footage clip as the description model saw it. */
+export const VideoFootageDescribedSegment = Schema.Struct({
+  start: Schema.Number,
+  end: Schema.Number,
+  place: Schema.String,
+  subject: Schema.String,
+  action: Schema.String,
+  usable: Schema.Boolean,
+  why: Schema.String,
+});
+export type VideoFootageDescribedSegment = typeof VideoFootageDescribedSegment.Type;
+
+/** What Stellar knows about one footage clip's picture, and the user's note on it. */
+export const VideoFootageClip = Schema.Struct({
+  /** Relative to the project's media root, such as "Footage/Day 1/IMG_0001.MOV". */
+  clip: TrimmedNonEmptyString,
+  /** The folder the clip was imported into, such as "Day 1". */
+  folder: Schema.String,
+  duration: Schema.Number,
+  /** The user's own words on the clip. It always wins over the description. */
+  note: Schema.NullOr(Schema.String),
+  /** Null until the picture pass has read the clip's preview. */
+  picture: Schema.NullOr(
+    Schema.Struct({
+      cuts: Schema.Array(
+        Schema.Struct({ at: Schema.Number, kind: Schema.Literals(["cut", "jump"]) }),
+      ),
+      segments: Schema.Array(VideoFootagePictureSegment),
+      /** Absolute path of the clip's contact sheet, or null when none could be drawn. */
+      contactSheet: Schema.NullOr(Schema.String),
+    }),
+  ),
+  description: Schema.NullOr(
+    Schema.Struct({
+      summary: Schema.String,
+      segments: Schema.Array(VideoFootageDescribedSegment),
+      /** The model that wrote it, as `instance/model`. */
+      model: Schema.String,
+      /** False when the note changed since; a new description is on its way. */
+      current: Schema.Boolean,
+    }),
+  ),
+  /** Why the clip has no description, when describing it failed. */
+  describeFailed: Schema.NullOr(Schema.String),
+});
+export type VideoFootageClip = typeof VideoFootageClip.Type;
+
+export const VideoFootageLogInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** Clip paths, file names or folder names to show in full; omitted, every clip in brief. */
+  clips: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(200))),
+});
+export type VideoFootageLogInput = typeof VideoFootageLogInput.Type;
+
+export const VideoFootageLog = Schema.Struct({
+  clips: Schema.Array(VideoFootageClip),
+  /** Clips whose picture is still being read, and clips still waiting for a description. */
+  pending: Schema.Struct({ picture: Schema.Number, description: Schema.Number }),
+  /** Why no clip can be described here (no model that takes images), or null. */
+  unavailable: Schema.NullOr(Schema.String),
+  /** One block per clip, as an agent reads it. */
+  text: Schema.String,
+});
+export type VideoFootageLog = typeof VideoFootageLog.Type;
+
+export const VideoFootageNoteInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** The clip's path relative to the media root, or its file name when that is unique. */
+  clip: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** The note; empty removes it. */
+  note: Schema.String.check(Schema.isMaxLength(2000)),
+});
+export type VideoFootageNoteInput = typeof VideoFootageNoteInput.Type;
+
 /** One recording of a script line. */
 export const VideoVoiceOverTake = Schema.Struct({
   id: TrimmedNonEmptyString,

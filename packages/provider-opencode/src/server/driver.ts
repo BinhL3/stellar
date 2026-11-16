@@ -165,6 +165,11 @@ function selectOpenCodeRuntimeTextGeneration(
         v1: v1.generateLearningCheck(input),
         v2: v2.generateLearningCheck(input),
       }),
+    generateFootageDescription: (input) =>
+      byOpenCodeRuntime(probe.get, {
+        v1: v1.generateFootageDescription(input),
+        v2: v2.generateFootageDescription(input),
+      }),
   };
 }
 

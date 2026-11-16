@@ -27,6 +27,8 @@ export type {
   BranchNameGenerationResult,
   CommitMessageGenerationInput,
   CommitMessageGenerationResult,
+  FootageDescriptionInput,
+  FootageDescriptionResult,
   LearningCheckInput,
   LearningCheckResult,
   PrContentGenerationInput,
@@ -50,7 +52,8 @@ type TextGenerationOp =
   | "generateThreadTitle"
   | "generateReviewGuide"
   | "generateTranscriptionPostProcessing"
-  | "generateLearningCheck";
+  | "generateLearningCheck"
+  | "generateFootageDescription";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -72,6 +75,8 @@ const resolveInstance = (
 
 // Review guides investigate the checkout read-only; the other drivers reject that request.
 const INVESTIGATING_DRIVERS = new Set(["codex", "claudeAgent"]);
+// Footage description shows the model image files; only these runners can (see `fromRunner`).
+const IMAGE_FILE_DRIVERS = new Set(["codex", "claudeAgent"]);
 
 /** @public */
 export const make = Effect.gen(function* () {
@@ -124,6 +129,7 @@ export const make = Effect.gen(function* () {
               isProviderAvailable(provider) &&
               isProviderTextGenerationCapable(provider) &&
               (operation !== "generateReviewGuide" || INVESTIGATING_DRIVERS.has(driver)) &&
+              (operation !== "generateFootageDescription" || IMAGE_FILE_DRIVERS.has(driver)) &&
               !exhaustedUsageWindow(provider, now, defaultTextGenerationModel(driver))
             );
           },
@@ -170,6 +176,16 @@ export const make = Effect.gen(function* () {
         service.generateLearningCheck({ ...input, modelSelection }),
       );
     }),
+    generateFootageDescription: Effect.fn("TextGeneration.generateFootageDescription")(
+      function (input) {
+        return generate(
+          "generateFootageDescription",
+          input.modelSelection,
+          (service, modelSelection) =>
+            service.generateFootageDescription({ ...input, modelSelection }),
+        );
+      },
+    ),
     generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function (input) {
       return generate(
         "generateThreadTitle",

@@ -35,6 +35,10 @@
       "types": "./src/footage.ts",
       "import": "./src/footage.ts"
     },
+    "./footageLog": {
+      "types": "./src/footageLog.ts",
+      "import": "./src/footageLog.ts"
+    },
     "./frameTimes": {
       "types": "./src/frameTimes.ts",
       "import": "./src/frameTimes.ts"
@@ -58,6 +62,10 @@
     "./otio": {
       "types": "./src/otio.ts",
       "import": "./src/otio.ts"
+    },
+    "./picture": {
+      "types": "./src/picture.ts",
+      "import": "./src/picture.ts"
     },
     "./premiere/fcpxml": {
       "types": "./src/premiere/fcpxml.ts",

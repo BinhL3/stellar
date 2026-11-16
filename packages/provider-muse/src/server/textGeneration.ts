@@ -23,6 +23,7 @@ import {
 import { museModelCapabilities, resolveMuseReasoningEffort } from "./modelCatalog.ts";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import {
+  imageFilesUnsupported,
   investigationUnsupported,
   TranscriptionPostProcessingOutput,
   LearningCheckOutput,
@@ -372,6 +373,8 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
   });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
+  const generateFootageDescription: ProviderTextGeneration["generateFootageDescription"] = () =>
+    Effect.fail(imageFilesUnsupported("generateFootageDescription", "Muse Code"));
   return {
     generateCommitMessage,
     generatePrContent,
@@ -380,5 +383,6 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     generateReviewGuide,
     generateTranscriptionPostProcessing,
     generateLearningCheck,
+    generateFootageDescription,
   } satisfies ProviderTextGeneration;
 });

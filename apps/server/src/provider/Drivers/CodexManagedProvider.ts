@@ -291,6 +291,8 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
       ),
     generateLearningCheck: (value) =>
       protect("generateLearningCheck", nativeGeneration.generateLearningCheck(value)),
+    generateFootageDescription: (value) =>
+      protect("generateFootageDescription", nativeGeneration.generateFootageDescription(value)),
   };
   return {
     instanceId,

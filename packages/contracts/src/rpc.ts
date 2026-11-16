@@ -253,6 +253,10 @@ import {
   VideoPremiereOpenResult,
   VideoProjectSyncResult,
   VideoTranscribeInput,
+  VideoFootageClip,
+  VideoFootageLog,
+  VideoFootageLogInput,
+  VideoFootageNoteInput,
   VideoTranscriptStatus,
   VideoScriptReadInput,
   VideoScriptView,
@@ -483,6 +487,8 @@ export const WS_METHODS = {
   videoProjectsSync: "videoProjects.sync",
   videoProjectsOpenInPremiere: "videoProjects.openInPremiere",
   videoProjectsTranscribe: "videoProjects.transcribe",
+  videoProjectsReadFootageLog: "videoProjects.readFootageLog",
+  videoProjectsSetFootageNote: "videoProjects.setFootageNote",
   videoProjectsReadScript: "videoProjects.readScript",
   videoProjectsCheckRender: "videoProjects.checkRender",
   videoProjectsPreflight: "videoProjects.preflight",
@@ -1510,6 +1516,18 @@ const WsVideoProjectsTranscribeRpc = Rpc.make(WS_METHODS.videoProjectsTranscribe
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVideoProjectsReadFootageLogRpc = Rpc.make(WS_METHODS.videoProjectsReadFootageLog, {
+  payload: VideoFootageLogInput,
+  success: VideoFootageLog,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsVideoProjectsSetFootageNoteRpc = Rpc.make(WS_METHODS.videoProjectsSetFootageNote, {
+  payload: VideoFootageNoteInput,
+  success: VideoFootageClip,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsVideoProjectsReadScriptRpc = Rpc.make(WS_METHODS.videoProjectsReadScript, {
   payload: VideoScriptReadInput,
   success: VideoScriptView,
@@ -2433,6 +2451,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsVideoProjectsCheckRenderRpc,
   WsVideoProjectsPreflightRpc,
   WsVideoProjectsSetPostedRpc,
+  WsVideoProjectsReadFootageLogRpc,
+  WsVideoProjectsSetFootageNoteRpc,
   WsVideoProjectsCommitTimelineRpc,
   WsVideoProjectsListVersionsRpc,
   WsVideoProjectsReadVersionRpc,

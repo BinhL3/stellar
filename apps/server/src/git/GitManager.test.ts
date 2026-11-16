@@ -293,6 +293,7 @@ function createTextGeneration(
     generateTranscriptionPostProcessing: () =>
       Effect.succeed({ transcription: "processed transcript" }),
     generateLearningCheck: () => Effect.succeed({ rule: "", contradicts: "" }),
+    generateFootageDescription: () => Effect.succeed({ summary: "", segments: [] }),
     ...overrides,
   };
 
@@ -345,6 +346,7 @@ function createTextGeneration(
     generateTranscriptionPostProcessing: (input) =>
       implementation.generateTranscriptionPostProcessing(input),
     generateLearningCheck: (input) => implementation.generateLearningCheck(input),
+    generateFootageDescription: (input) => implementation.generateFootageDescription(input),
   };
 }
 

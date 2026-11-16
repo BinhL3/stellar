@@ -382,6 +382,24 @@ Built from the past threads: it targets where time and failures actually went, a
   quiet (word timings when nothing is measured), and the caption says where it landed. One clip
   is drawn at a time, the one with a transcript, so speech stays readable under music. Not yet
   run by an agent in a real thread.
+- **Footage log: built.** Agents choose shots by picture, not only by what is said. After
+  proxies, a picture pass (`packages/timeline/src/picture.ts`) reads each clip's proxy at
+  10 fps and 64 px: cuts and jump cuts, camera movement from one shift-and-zoom fit per sample
+  pair, and dark, covered or shaking stretches; it draws a time-labelled contact sheet. Then the
+  text-generation model describes each clip from its sheet, transcript, folder name and the
+  user's note (`apps/server/src/videoProject/FootageLog.ts`), one clip at a time; a clip still
+  waiting for its transcript is described once transcription ends. Both are kept in
+  `Stellar/footage-log/`, redone only when the proxy, the note or the model changes.
+  - Measures first, a model only for what code can't see. Faces are left to the model: a
+    detector worth having needs a model file and a runtime Stellar doesn't ship.
+  - The user's note always wins. Only `setNote` writes notes; the model is told the note is
+    true and fills in the rest, and the log puts the note first.
+  - Images reach the model only where the provider can take a file safely: Claude reads the
+    sheet with its Read tool limited to a temporary folder holding only the sheet, Codex gets
+    `--image`. Every other provider refuses with a "not supported here" error, recorded once
+    and not retried, so footage is never described blind.
+  - Agent first: `video_footage_log` reads the log and saves notes; the footage view has no
+    notes UI yet, though `videoProjects.readFootageLog` and `setFootageNote` exist for it.
 - **The script as project data: built.** The Google Doc stays the script's source of truth;
   the project keeps a snapshot (`script.md`, with beat ids in `script.json`). `video_script`
   and `videoProjects.readScript` split it into beats (`packages/timeline/src/script.ts`) and

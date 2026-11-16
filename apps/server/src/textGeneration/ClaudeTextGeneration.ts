@@ -48,6 +48,15 @@ const CLAUDE_INVESTIGATION_ALLOWED = [
 // Denies override allows; block git --output/-o because allowed trailing args can otherwise write anywhere.
 const CLAUDE_INVESTIGATION_DENIED = ["Bash(git * --output*)", "Bash(git * -o *)"].join(",");
 
+/** Images are read with the Read tool, and only inside the request's own directory. */
+const CLAUDE_IMAGE_TOOLS = ["--tools", "Read", "--allowedTools", "Read(./**)"];
+
+const insideFolder = (folder: string, file: string) => {
+  const slashes = (value: string) => value.replaceAll("\\", "/");
+  const base = slashes(folder).replace(/\/+$/, "");
+  return slashes(file).startsWith(`${base}/`) && !slashes(file).includes("/../");
+};
+
 const NO_SESSION_PERSISTENCE = "--no-session-persistence";
 // Claude Code before 2.0.63 exits with this on stderr; those runs retry without the flag.
 const NO_SESSION_PERSISTENCE_REJECTED = `error: unknown option '${NO_SESSION_PERSISTENCE}'`;
@@ -143,11 +152,19 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     outputSchema: outputSchemaJson,
     modelSelection,
     investigate,
+    imageFiles,
   }: TextGenerationOperations.Request<S>): Effect.fn.Return<
     S["Type"],
     TextGenerationError,
     S["DecodingServices"]
   > {
+    const images = imageFiles ?? [];
+    if (images.some((file) => !insideFolder(cwd, file))) {
+      return yield* new TextGenerationError({
+        operation,
+        detail: "Claude reads images only from the request's own directory.",
+      });
+    }
     const catalog = yield* scopedModelCatalog;
     const resolvedModelSelection = {
       ...modelSelection,
@@ -233,7 +250,9 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
                 "--disallowedTools",
                 CLAUDE_INVESTIGATION_DENIED,
               ]
-            : ["--tools", ""]),
+            : images.length > 0
+              ? CLAUDE_IMAGE_TOOLS
+              : ["--tools", ""]),
           "--disable-slash-commands",
           ...(noSessionPersistence ? [NO_SESSION_PERSISTENCE] : []),
           // managed-mcp.json already isolates servers and makes Claude reject this flag.
@@ -344,5 +363,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     );
   });
 
-  return TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson);
+  return TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson, {
+    imageFiles: true,
+  });
 });

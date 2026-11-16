@@ -221,13 +221,17 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     outputSchema: outputSchemaJson,
     modelSelection,
     attachments,
+    imageFiles,
     investigate,
   }: TextGenerationOperations.Request<S>): Effect.fn.Return<
     S["Type"],
     TextGenerationError,
     S["DecodingServices"]
   > {
-    const imagePaths = yield* materializeImageAttachments(attachments);
+    const imagePaths = [
+      ...(yield* materializeImageAttachments(attachments)),
+      ...(imageFiles ?? []),
+    ];
     const schemaJson = yield* encodeJsonForOperation(
       operation,
       toJsonSchemaObject(outputSchemaJson),
@@ -411,5 +415,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     }).pipe(Effect.ensuring(cleanup));
   });
 
-  return TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson);
+  return TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson, {
+    imageFiles: true,
+  });
 });

@@ -119,7 +119,35 @@ export interface LearningCheckResult {
   contradicts: string;
 }
 
+export interface FootageDescriptionInput {
+  /** A directory holding only the images, so a runner that reads files reads nothing else. */
+  cwd: string;
+  prompt: string;
+  /** Absolute paths inside `cwd` of the images the model must look at. */
+  imageFiles: ReadonlyArray<string>;
+  modelSelection: ModelSelection;
+}
+
+/** What a footage clip shows, stretch by stretch, in seconds of the clip. */
+export interface FootageDescriptionResult {
+  summary: string;
+  segments: ReadonlyArray<{
+    start: number;
+    end: number;
+    place: string;
+    subject: string;
+    action: string;
+    usable: boolean;
+    why: string;
+  }>;
+}
+
 export interface ProviderTextGeneration {
+  /** Fails with a TextGenerationError where the provider can't be handed image files. */
+  readonly generateFootageDescription: (
+    input: FootageDescriptionInput,
+  ) => Effect.Effect<FootageDescriptionResult, TextGenerationError>;
+
   readonly generateLearningCheck: (
     input: LearningCheckInput,
   ) => Effect.Effect<LearningCheckResult, TextGenerationError>;

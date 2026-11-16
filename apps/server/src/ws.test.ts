@@ -65,6 +65,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
+import * as FootageLog from "./videoProject/FootageLog.ts";
 import * as VideoProjects from "./videoProject/VideoProjects.ts";
 import * as CarouselProjects from "./carousel/CarouselProjects.ts";
 import * as LearningCheck from "./learnings/LearningCheck.ts";
@@ -841,6 +842,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(VcsProvisioningService.VcsProvisioningService)({}),
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
   Layer.mock(VideoProjects.VideoProjects)({}),
+  Layer.mock(FootageLog.FootageLog)({}),
   Layer.mock(CarouselProjects.CarouselProjects)({}),
   Layer.mock(Learnings.Learnings)({}),
   Layer.mock(LearningCheck.LearningCheck)({ notice: () => Effect.void }),

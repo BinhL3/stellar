@@ -17,6 +17,7 @@ import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as FootageLog from "../videoProject/FootageLog.ts";
 import * as VideoProjects from "../videoProject/VideoProjects.ts";
 import * as CarouselProjects from "../carousel/CarouselProjects.ts";
 import * as LearningCheck from "../learnings/LearningCheck.ts";
@@ -373,6 +374,11 @@ export const layer = Layer.mergeAll(
   layerLegacyV1ThreadImporterProvided,
 );
 
+// One instance: VideoProjects starts its runs, and the MCP tools and RPCs read it.
+const layerFootageLog = FootageLog.layer.pipe(
+  Layer.provide(Layer.mergeAll(layerProjectService, TextGeneration.layer)),
+);
+
 export const layerProduction = Layer.mergeAll(
   WorktreeBranchSync.layer.pipe(
     Layer.provide(Layer.merge(layerThreadManagementProvided, ProjectionStore.layer)),
@@ -380,7 +386,8 @@ export const layerProduction = Layer.mergeAll(
   layer.pipe(Layer.provide(layerProjectService)),
   layerProjectService,
   layerManagedProjectFoldersProvided,
-  VideoProjects.layer.pipe(Layer.provide(layerProjectService)),
+  layerFootageLog,
+  VideoProjects.layer.pipe(Layer.provide(Layer.merge(layerProjectService, layerFootageLog))),
   CarouselProjects.layer.pipe(Layer.provide(layerProjectService)),
   Learnings.layer,
   LearningCheck.layer.pipe(

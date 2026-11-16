@@ -218,6 +218,7 @@ import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts
 import * as ProjectService from "./project/ProjectService.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
+import * as FootageLog from "./videoProject/FootageLog.ts";
 import * as VideoProjects from "./videoProject/VideoProjects.ts";
 import * as CarouselProjects from "./carousel/CarouselProjects.ts";
 import * as LearningCheck from "./learnings/LearningCheck.ts";
@@ -1414,6 +1415,7 @@ export const layerWsRpc = (
       const projectService = yield* ProjectService.ProjectService;
       const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
       const videoProjects = yield* VideoProjects.VideoProjects;
+      const footageLog = yield* FootageLog.FootageLog;
       const carouselProjects = yield* CarouselProjects.CarouselProjects;
       const learnings = yield* Learnings.Learnings;
       const learningCheck = yield* LearningCheck.LearningCheck;
@@ -2986,6 +2988,22 @@ export const layerWsRpc = (
         [WS_METHODS.videoProjectsTranscribe]: (input) =>
           videoProjects
             .transcribe(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.videoProjectsReadFootageLog]: (input) =>
+          footageLog
+            .read(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.videoProjectsSetFootageNote]: (input) =>
+          footageLog
+            .setNote(input)
             .pipe(
               Effect.mapError(
                 (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),

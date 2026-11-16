@@ -25,6 +25,21 @@ export const LearningCheckOutput = Schema.Struct({
   contradicts: Schema.String,
 });
 
+export const FootageDescriptionOutput = Schema.Struct({
+  summary: Schema.String,
+  segments: Schema.Array(
+    Schema.Struct({
+      start: Schema.Number,
+      end: Schema.Number,
+      place: Schema.String,
+      subject: Schema.String,
+      action: Schema.String,
+      usable: Schema.Boolean,
+      why: Schema.String,
+    }),
+  ),
+});
+
 export type Operation = keyof ProviderTextGeneration;
 
 export interface Request<S extends Schema.Top> {
@@ -34,6 +49,8 @@ export interface Request<S extends Schema.Top> {
   readonly outputSchema: S;
   readonly modelSelection: ModelSelection;
   readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  /** Images on disk, inside `cwd`, for the model to look at; only runners that say they take them get any. */
+  readonly imageFiles?: ReadonlyArray<string> | undefined;
   /** Investigate cwd with read-only tools across turns; fail if the runner cannot guarantee read-only access. */
   readonly investigate?: { readonly timeoutMs: number } | undefined;
 }
@@ -75,7 +92,32 @@ export const decodeJsonReply = <S extends Schema.Top>(
   );
 };
 
-export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
+const IMAGE_FILES_UNSUPPORTED = "can't be handed images here";
+
+export const imageFilesUnsupported = (operation: Operation, provider: string) =>
+  new TextGenerationError({
+    operation,
+    detail: `${provider} ${IMAGE_FILES_UNSUPPORTED}, so it can't describe footage. Choose a Claude or Codex model for text generation in Settings.`,
+  });
+
+/** Whether a failure is the provider refusing images, which no retry changes. */
+export const isImageFilesUnsupported = (error: TextGenerationError) =>
+  error.detail.includes(IMAGE_FILES_UNSUPPORTED);
+
+export interface RunnerCapabilities {
+  /**
+   * The runner shows the model `imageFiles`. Claude reads them with its Read tool, limited to
+   * the request's directory; Codex attaches them with `--image`. Other runners don't take
+   * files from disk, so footage description is refused there rather than run blind.
+   */
+  readonly imageFiles?: boolean;
+}
+
+export function fromRunner(
+  name: string,
+  run: Runner,
+  capabilities: RunnerCapabilities = {},
+): ProviderTextGeneration {
   const generateCommitMessage: ProviderTextGeneration["generateCommitMessage"] = Effect.fn(
     `${name}.generateCommitMessage`,
   )(function* (input) {
@@ -184,6 +226,21 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const generateFootageDescription: ProviderTextGeneration["generateFootageDescription"] =
+    Effect.fn(`${name}.generateFootageDescription`)(function* (input) {
+      if (capabilities.imageFiles !== true) {
+        return yield* imageFilesUnsupported("generateFootageDescription", name);
+      }
+      return yield* run({
+        operation: "generateFootageDescription",
+        cwd: input.cwd,
+        prompt: input.prompt,
+        imageFiles: input.imageFiles,
+        outputSchema: FootageDescriptionOutput,
+        modelSelection: input.modelSelection,
+      });
+    });
+
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = Effect.fn(
     `${name}.generateReviewGuide`,
   )(function* (input) {
@@ -204,5 +261,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateReviewGuide,
     generateTranscriptionPostProcessing,
     generateLearningCheck,
+    generateFootageDescription,
   } satisfies ProviderTextGeneration;
 }
