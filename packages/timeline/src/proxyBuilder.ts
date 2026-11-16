@@ -627,7 +627,9 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
   const timelineDir = path.join(projectDir, "timelines");
   const files = (yield* fs
     .readDirectory(timelineDir)
-    .pipe(Effect.orElseSucceed((): Array<string> => []))).filter((f) => f.endsWith(".otio"));
+    .pipe(Effect.orElseSucceed((): Array<string> => []))).filter(
+    (f) => f.endsWith(".otio") && !f.startsWith("."),
+  );
   const targets = new Map<string, { readonly source: string; readonly identity: string }>();
   const mediaRoot = path.dirname(projectDir);
   for (const file of files) {

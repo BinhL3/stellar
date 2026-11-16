@@ -143,6 +143,8 @@ describe("buildProjectProxies", () => {
         const base = yield* fs.makeTempDirectoryScoped({ prefix: "t3-proxies-" });
         const root = path.join(base, "Drive");
         const projectDir = yield* makeProject(root, ["Footage/a.mp4", "Footage/b.mp4"]);
+        // macOS leaves a binary `._` twin beside each file on exFAT and network drives.
+        yield* fs.writeFileString(path.join(projectDir, "timelines", "._cut.otio"), "\u0000\u0005");
         yield* buildProjectProxies({ projectDir, concurrency: 1 });
         const built = yield* readIndex(projectDir);
         expect(ran).toEqual(["ffmpeg", "ffmpeg"]);
