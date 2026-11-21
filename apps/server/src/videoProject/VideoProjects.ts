@@ -3234,6 +3234,7 @@ const make = Effect.gen(function* () {
         timelineText,
         timeline,
         exportPath: input.exportPath,
+        platform: input.platform,
       }),
     ).pipe(Effect.mapError((cause) => new VideoProjectError({ reason: cause.message, cause })));
   });

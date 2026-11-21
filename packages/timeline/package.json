@@ -39,6 +39,10 @@
       "types": "./src/footageLog.ts",
       "import": "./src/footageLog.ts"
     },
+    "./framing": {
+      "types": "./src/framing.ts",
+      "import": "./src/framing.ts"
+    },
     "./frameTimes": {
       "types": "./src/frameTimes.ts",
       "import": "./src/frameTimes.ts"
@@ -118,6 +122,10 @@
     "./renderProbe": {
       "types": "./src/renderProbe.ts",
       "import": "./src/renderProbe.ts"
+    },
+    "./safeZones": {
+      "types": "./src/safeZones.ts",
+      "import": "./src/safeZones.ts"
     },
     "./script": {
       "types": "./src/script.ts",

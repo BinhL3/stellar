@@ -453,5 +453,14 @@ describe("the contact sheet", () => {
     expect(contactSheetFilter([{ frame: 15, seconds: 0.5, kind: "even" }], probe, false)).toBe(
       "select='eq(n,15)',scale=216:-2,tile=1x1:padding=4:margin=4:color=0x111111",
     );
+    // A portrait export's tiles have the apps' covered strips shaded.
+    const zoned = contactSheetFilter([{ frame: 15, seconds: 0.5, kind: "even" }], probe, false, {
+      top: 0.15,
+      bottom: 0.35,
+      left: 0.1,
+      right: 0.2,
+    });
+    expect(zoned).toContain("scale=216:-2,drawbox=x=0:y=0:w=iw:h=ih*0.15:color=red@0.22:t=fill");
+    expect(zoned).toContain("drawbox=x=iw*0.8:y=ih*0.15:w=iw*0.2:h=ih*0.5");
   });
 });

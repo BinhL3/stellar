@@ -3,9 +3,12 @@
  * has no renderer, so "done" is decided here, from what ffprobe and ffmpeg say about the export.
  * Everything in this file is pure; `renderProbe.ts` runs the tools.
  */
+import type { ClipFraming, PlacedText, SpeedChange } from "./framing.ts";
+import { LARGE_SPEED, textInSafeZones } from "./framing.ts";
 import { layoutTimeline } from "./layout.ts";
 import { type Clip, type Timeline, TIMELINE_NAMESPACE } from "./otio.ts";
 import { STILL_PATH } from "./proxies.ts";
+import { type Insets, safeZoneDrawFilter } from "./safeZones.ts";
 import { sourceSecondsAt, timeScalarOf } from "./speed.ts";
 
 /** What short-form platforms normalise towards; quieter or louder gets turned up or down. */
@@ -420,7 +423,10 @@ export interface RenderCheckItem {
     | "loudness"
     | "truePeak"
     | "cuts"
-    | "flashFrames";
+    | "flashFrames"
+    | "framing"
+    | "speed"
+    | "safeZones";
   readonly level: RenderCheckLevel;
   readonly title: string;
   readonly detail: string;
@@ -766,6 +772,111 @@ export const compareRender = (
   return items;
 };
 
+/** A source this much outside the frame, or a frame this much uncovered, is worth a look. */
+export const FRAMING_OUTSIDE_WARN = 0.1;
+export const FRAMING_UNCOVERED_WARN = 0.01;
+
+const percent = (share: number) => `${Math.round(share * 100)}%`;
+const speedText = (scalar: number) =>
+  scalar < 0
+    ? `backwards${scalar === -1 ? "" : ` at ${Math.abs(scalar)}x`}`
+    : `at ${Number(scalar.toFixed(2))}x`;
+
+/**
+ * What the timeline itself does to the picture, checked beside the export: sources that don't
+ * fit the frame, large speed changes the user must hear about, and text under an app's buttons.
+ */
+export const timelineItems = (input: {
+  readonly rate: number;
+  /** Null when the timeline records no frame size to measure against. */
+  readonly framing: ReadonlyArray<ClipFraming> | null;
+  readonly speeds: ReadonlyArray<SpeedChange>;
+  readonly texts: ReadonlyArray<PlacedText>;
+  readonly insets: Insets;
+  /** Who the strips are for, such as "TikTok". */
+  readonly zonesFor: string;
+}): Array<RenderCheckItem> => {
+  const items: Array<RenderCheckItem> = [];
+  const at = (frame: number) => place(frame / input.rate, input.rate);
+  if (input.framing !== null) {
+    const off = input.framing
+      .filter(
+        (clip) => clip.outside > FRAMING_OUTSIDE_WARN || clip.uncovered > FRAMING_UNCOVERED_WARN,
+      )
+      .toSorted((a, b) => b.outside + b.uncovered - (a.outside + a.uncovered));
+    items.push(
+      off.length === 0
+        ? {
+            id: "framing",
+            level: "pass",
+            title: "Framing",
+            detail:
+              input.framing.length === 0
+                ? "Every clip is the frame's size."
+                : `${input.framing.length} clips of another size fill the frame.`,
+          }
+        : {
+            id: "framing",
+            level: "warn",
+            title: "Framing",
+            detail: `Sources that don't fit the frame: ${listed(
+              off.map(
+                (clip) =>
+                  `${clip.track} ${clip.name} at ${at(clip.startFrame)} is ${clip.source.width}x${clip.source.height}: ${percent(clip.outside)} of it is outside the frame and ${percent(clip.uncovered)} of the frame is uncovered${clip.animated ? " (before its keyframes)" : ""}`,
+              ),
+            )}. Scale or reframe it in Premiere if that isn't meant.`,
+          },
+    );
+  }
+  items.push(
+    input.speeds.length === 0
+      ? {
+          id: "speed",
+          level: "pass",
+          title: "Speed",
+          detail: `No clip plays at ${LARGE_SPEED}x or faster, ${Number((1 / LARGE_SPEED).toFixed(2))}x or slower, or backwards.`,
+        }
+      : {
+          id: "speed",
+          level: "warn",
+          title: "Speed",
+          detail: `Large speed changes, which the user should know about: ${listed(
+            input.speeds.map(
+              (change) =>
+                `${change.track} ${change.name} at ${at(change.startFrame)} plays ${speedText(change.scalar)}`,
+            ),
+          )}.`,
+        },
+  );
+  const covered = textInSafeZones(input.texts, input.insets);
+  const unplaced = input.texts.filter((text) => text.box === null).length;
+  const unplacedNote =
+    unplaced === 0
+      ? ""
+      : ` ${unplaced} caption ${unplaced === 1 ? "cue keeps its" : "cues keep their"} position in Premiere's caption style, which Stellar can't read: compare ${unplaced === 1 ? "it" : "them"} with the shaded strips on the contact sheet.`;
+  items.push(
+    covered.length === 0
+      ? {
+          id: "safeZones",
+          level: "pass",
+          title: "Safe zones",
+          detail: `${input.texts.length === unplaced ? "No placed text to check" : "No text"} under the app buttons of ${input.zonesFor}.${unplacedNote}`,
+        }
+      : {
+          id: "safeZones",
+          level: "warn",
+          title: "Safe zones",
+          detail: `Text under the app buttons of ${input.zonesFor}: ${listed(
+            covered.map(
+              ({ text, edges }) =>
+                `"${text.text.slice(0, 40)}" at ${at(text.startFrame)} reaches the ${edges.join(" and ")} strip`,
+            ),
+          )}.${unplacedNote}`,
+        },
+  );
+  return items;
+};
+
 /** The contact sheet shows at most this many frames, this many of them spread evenly. */
 export const CONTACT_SHEET_MAX_TILES = 48;
 export const CONTACT_SHEET_EVEN_TILES = 12;
@@ -818,6 +929,8 @@ export const contactSheetFilter = (
   tiles: ReadonlyArray<ContactSheetTile>,
   probe: Pick<ExportProbe, "fps" | "width" | "height">,
   labels: boolean,
+  /** The strips the apps cover, shaded on a portrait export's tiles. */
+  zones?: Insets,
 ): string => {
   const columns = Math.min(tiles.length, probe.height >= probe.width ? 8 : 4);
   const rows = Math.ceil(tiles.length / columns);
@@ -841,6 +954,7 @@ export const contactSheetFilter = (
   return [
     `select='${tiles.map((tile) => `eq(n,${tile.frame})`).join("+")}'`,
     `scale=${width}:-2`,
+    ...(zones !== undefined && probe.height > probe.width ? [safeZoneDrawFilter(zones)] : []),
     ...(labels
       ? [
           `drawtext=text='%{eif\\:t*${probe.fps.toFixed(5)}+0.5\\:d}  %{pts\\:hms}':x=4:y=h-th-6:fontsize=13:fontcolor=white:box=1:boxborderw=3:boxcolor=black@0.65`,

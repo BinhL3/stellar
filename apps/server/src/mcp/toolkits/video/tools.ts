@@ -2,6 +2,7 @@ import {
   OrchestratorMcpFailure,
   VideoProjectCreateFromIdeaResult,
   VideoPremiereOpenResult,
+  VideoPlatform,
   VideoPremierePushPlan,
   VideoProjectScanIntakeResult,
   VideoScriptSaveInput,
@@ -308,10 +309,11 @@ const FootageLogTool = Tool.make("video_footage_log", {
 
 const RenderCheckTool = Tool.make("video_render_check", {
   description:
-    "Check the video exported from Premiere against a timeline; a short is done when this passes, not when it looked right in playback. Stellar can't export: the user (or a Premiere tool) exports into the project's Exports folder first. Omit `exportPath` for the newest video there, or name a file (absolute, or relative to the project folder); omit `timeline` for the main one. `report` has one line per check as `pass|warn|fail Title: detail`, with places as `m:ss.ff (frame n)` of the export: resolution, frame rate and length against the sequence (one frame of slack), codecs, audio, black frames, frozen picture and silences the timeline doesn't explain, loudness against -14 LUFS and true peak against -1 dBTP, cuts between different clips that don't show within one frame, and flash frames. `level` is the worst of them. `contactSheet` is the path of an image of the whole export: frames spread evenly plus the frame after each timeline cut, each labelled with its frame number and time, cuts and flashes tagged. Open that image with your file or image tool and look at it before you call the export good. Fix what failed in the timeline or in Premiere, have it exported again, and check again.",
+    "Check the video exported from Premiere against a timeline; a short is done when this passes, not when it looked right in playback. Stellar can't export: the user (or a Premiere tool) exports into the project's Exports folder first. Omit `exportPath` for the newest video there, or name a file (absolute, or relative to the project folder); omit `timeline` for the main one. `report` has one line per check as `pass|warn|fail Title: detail`, with places as `m:ss.ff (frame n)` of the export: resolution, frame rate and length against the sequence (one frame of slack), codecs, audio, black frames, frozen picture and silences the timeline doesn't explain, loudness against -14 LUFS and true peak against -1 dBTP, cuts between different clips that don't show within one frame, and flash frames; then the timeline itself: Framing (clips whose source doesn't fit the frame, with how much of the source is outside it and how much of the frame it leaves uncovered), Speed (clips at 1.25x or faster, 0.8x or slower, or backwards) and Safe zones (text placed where the apps' buttons cover it; `platform` reels, tiktok or shorts checks one app, all three when omitted). `level` is the worst of them. `contactSheet` is the path of an image of the whole export: frames spread evenly plus the frame after each timeline cut, each labelled with its frame number and time, cuts and flashes tagged, and on a vertical export the strips the apps cover shaded red. Open that image with your file or image tool and look at it before you call the export good. Fix what failed in the timeline or in Premiere, have it exported again, and check again.",
   parameters: Schema.Struct({
     timeline: Schema.optional(Schema.String),
     exportPath: Schema.optional(Schema.String),
+    platform: Schema.optional(VideoPlatform),
   }),
   success: Schema.Struct({
     level: Schema.Literals(["pass", "warn", "fail"]),

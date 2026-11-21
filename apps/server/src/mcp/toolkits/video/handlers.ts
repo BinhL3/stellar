@@ -333,6 +333,7 @@ const handlers = {
           workspaceRoot,
           ...(input.timeline === undefined ? {} : { timeline: input.timeline }),
           ...(input.exportPath === undefined ? {} : { exportPath: input.exportPath }),
+          ...(input.platform === undefined ? {} : { platform: input.platform }),
         })
         .pipe(Effect.mapError(refused));
       return {

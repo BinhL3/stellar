@@ -19,6 +19,7 @@ import {
   parseVideoAnalysis,
   videoAnalysisFilter,
 } from "./renderCheck.ts";
+import type { Insets } from "./safeZones.ts";
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 
@@ -99,6 +100,7 @@ export const writeContactSheet = Effect.fn("timeline.renderProbe.writeContactShe
     readonly output: string;
     readonly tiles: ReadonlyArray<ContactSheetTile>;
     readonly probe: ExportProbe;
+    readonly zones?: Insets;
   }) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -116,7 +118,7 @@ export const writeContactSheet = Effect.fn("timeline.renderProbe.writeContactShe
         "0:v:0",
         "-an",
         "-vf",
-        contactSheetFilter(input.tiles, input.probe, labels),
+        contactSheetFilter(input.tiles, input.probe, labels, input.zones),
         "-frames:v",
         "1",
         "-update",

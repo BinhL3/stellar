@@ -1256,6 +1256,13 @@ export const VideoVoiceOverSplitInput = Schema.Struct({
   timeline: VideoVoiceOverReadInput.fields.timeline,
 });
 export type VideoVoiceOverSplitInput = typeof VideoVoiceOverSplitInput.Type;
+/**
+ * The app a short is posted to, whose buttons cover the frame's edges; omitted where it is
+ * taken, Reels, TikTok and Shorts together.
+ */
+export const VideoPlatform = Schema.Literals(["reels", "tiktok", "shorts"]);
+export type VideoPlatform = typeof VideoPlatform.Type;
+
 /** One check of an exported file against the timeline it was cut from. */
 export const VideoRenderCheckItem = Schema.Struct({
   /** Which check, such as `duration`, `black`, `cuts` or `loudness`. */
@@ -1311,6 +1318,7 @@ export const VideoRenderCheckInput = Schema.Struct({
    * video in its Exports folder.
    */
   exportPath: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(4096))),
+  platform: Schema.optional(VideoPlatform),
 });
 export type VideoRenderCheckInput = typeof VideoRenderCheckInput.Type;
 

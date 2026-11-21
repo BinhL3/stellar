@@ -3,15 +3,19 @@
  * that the short is posted. The report and contact sheet live in the project folder's `render/`,
  * the posted record in its `project.json`, so every client and agent reads the same thing.
  */
-import { VideoPosted, VideoRenderReport } from "@t3tools/contracts";
+import { type VideoPlatform, VideoPosted, VideoRenderReport } from "@t3tools/contracts";
 import { serializeJson, type Timeline } from "@t3tools/timeline/otio";
+import { clipFraming, largeSpeedChanges, placedText } from "@t3tools/timeline/framing";
+import { PROXY_INDEX_PATH, type ProxyIndex } from "@t3tools/timeline/proxies";
 import {
   compareRender,
   contactSheetTiles,
   detectFlashes,
   reportLevel,
+  timelineItems,
   timelineRenderFacts,
 } from "@t3tools/timeline/renderCheck";
+import { safeZoneInsets, safeZoneName } from "@t3tools/timeline/safeZones";
 import {
   analyseExport,
   probeExport,
@@ -133,6 +137,7 @@ export const runRenderCheck = Effect.fn("VideoProjects.runRenderCheck")(function
   readonly timelineText: string;
   readonly timeline: Timeline;
   readonly exportPath: string | undefined;
+  readonly platform: VideoPlatform | undefined;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -154,11 +159,43 @@ export const runRenderCheck = Effect.fn("VideoProjects.runRenderCheck")(function
     Effect.mapError((cause) => new RenderCheckError({ reason: "tools-failed", cause })),
   );
   const facts = timelineRenderFacts(input.timeline);
-  const items = compareRender(facts, probe, analysis);
+  const insets = safeZoneInsets(input.platform);
+  // Media sizes come from the preview build; a clip it hasn't measured isn't framed.
+  const index = yield* fs.readFileString(path.join(input.projectDir, PROXY_INDEX_PATH)).pipe(
+    Effect.flatMap(decodeJson),
+    Effect.map((value) => value as ProxyIndex),
+    Effect.orElseSucceed(() => null),
+  );
+  const sizes = new Map(
+    Object.entries(index?.media ?? {}).map(([target, entry]) => [
+      target,
+      { width: entry.width, height: entry.height },
+    ]),
+  );
+  const items = [
+    ...compareRender(facts, probe, analysis),
+    ...timelineItems({
+      rate: facts.rate,
+      framing: facts.frame === null ? null : clipFraming(input.timeline, facts.frame, sizes),
+      speeds: largeSpeedChanges(input.timeline),
+      texts: placedText(
+        input.timeline,
+        facts.frame ?? { width: probe.width, height: probe.height },
+      ),
+      insets,
+      zonesFor: safeZoneName(input.platform),
+    }),
+  ];
   const tiles = contactSheetTiles(facts, probe, detectFlashes(analysis.diffs ?? []));
   const sheet = path.join(input.projectDir, CONTACT_SHEET_PATH);
   // The report stands without its picture: a sheet that can't be drawn is left out, not fatal.
-  const labelled = yield* writeContactSheet({ file: file.path, output: sheet, tiles, probe }).pipe(
+  const labelled = yield* writeContactSheet({
+    file: file.path,
+    output: sheet,
+    tiles,
+    probe,
+    zones: insets,
+  }).pipe(
     Effect.tapError((cause) => Effect.logWarning("Contact sheet failed", { cause })),
     Effect.option,
   );
