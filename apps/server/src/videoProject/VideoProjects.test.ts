@@ -26,7 +26,12 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as FootageLog from "./FootageLog.ts";
 import * as PremiereApp from "./PremiereApp.ts";
-import { findTranscript, runTranscription, transcriptCoverage } from "./Transcriber.ts";
+import {
+  findTranscript,
+  runTranscription,
+  transcriptCoverage,
+  transcriptLanguage,
+} from "./Transcriber.ts";
 import * as VideoProjects from "./VideoProjects.ts";
 
 // Tests close their scope after the service's layer, so background proxy builds have stopped
@@ -1337,6 +1342,72 @@ it.live("reports that nothing can be transcribed when the host has no transcribe
     Effect.scoped,
   );
 });
+
+// Settings are read when the service is built, so the stand-in transcriber has a fixed path.
+const languageTranscriber = `${NodeOS.tmpdir()}/stellar-language-stt-${process.pid}/stt`;
+
+it.live(
+  "never transcribes speech in an unknown language, which the transcriber takes as English",
+  () => {
+    const created: Array<string> = [];
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "stellar-video-language-" });
+      const command = languageTranscriber;
+      yield* fs.makeDirectory(path.dirname(command), { recursive: true });
+      yield* Effect.addFinalizer(() =>
+        fs.remove(path.dirname(command), { recursive: true }).pipe(Effect.ignore),
+      );
+      yield* fs.writeFileString(command, fakeTranscriber);
+      yield* fs.chmod(command, 0o755);
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const { workspaceRoot } = yield* videoProjects.createFromIdea({
+        title: "Jollibee",
+        parentFolder: root,
+      });
+      const mediaRoot = path.dirname(workspaceRoot);
+      yield* fs.writeFileString(path.join(mediaRoot, "Footage", "a.MOV"), "media");
+
+      const status = yield* videoProjects.transcribe({ workspaceRoot });
+      assert.strictEqual(status.building, null);
+      assert.match(status.unavailable ?? "", /language/);
+      assert.isFalse(yield* fs.exists(path.join(path.dirname(command), "calls.log")));
+
+      // Words already heard in Vietnamese settle it, as does a language the user names.
+      const heard = ["Hãy", "subscribe", "cho", "kênh"].map((w, i) => ({
+        w,
+        start: i,
+        end: i + 1,
+      }));
+      yield* fs.writeFileString(
+        path.join(mediaRoot, "Audio", "b.words.json"),
+        JSON.stringify(heard),
+      );
+      assert.strictEqual(yield* transcriptLanguage(workspaceRoot), "vi");
+      yield* fs.remove(path.join(mediaRoot, "Audio", "b.words.json"));
+      yield* videoProjects.transcribe({ workspaceRoot, language: "en", files: [] });
+      assert.strictEqual(yield* transcriptLanguage(workspaceRoot), "en");
+    }).pipe(
+      Effect.provide(
+        VideoProjects.layer.pipe(
+          Layer.provideMerge(withProjects(created)),
+          Layer.provideMerge(
+            Layer.mergeAll(
+              NodeServices.layer,
+              NodeCrypto.layer,
+              noFootageLog,
+              ServerSettings.ServerSettingsService.layerTest({
+                videoTranscribeCommand: languageTranscriber,
+              }),
+            ),
+          ),
+        ),
+      ),
+      Effect.scoped,
+    );
+  },
+);
 
 // The service reads the home folder when it is built, so the test's home has a fixed path.
 const intakeHome = `${NodeOS.tmpdir()}/stellar-intake-home-${process.pid}`;

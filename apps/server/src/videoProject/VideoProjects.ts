@@ -173,9 +173,11 @@ import {
   decodeTranscript,
   findTranscript,
   projectLanguage,
+  recordProjectLanguage,
   runTranscription,
   TRANSCRIPT_FOLDER,
   transcriptCoverage,
+  transcriptLanguage,
   writeTranscriptStatus,
 } from "./Transcriber.ts";
 import { encodeTake, readTakeIndex, TAKE_FOLDER, writeTakeIndex } from "./VoiceOverTakes.ts";
@@ -208,6 +210,8 @@ const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unkno
 const decodeIntakeStatus = Schema.decodeUnknownEffect(Schema.fromJsonString(IntakeStatusSchema));
 // What the host's transcriber is called when no command is set in settings.
 const DEFAULT_TRANSCRIBE_COMMAND = "stt";
+const UNKNOWN_LANGUAGE =
+  "Not transcribed: the project's language isn't set, and the transcriber would take the speech for English. Transcribe again with the language, English or Vietnamese.";
 
 /** The script snapshot in the project folder: the text, and beside it the ids its beats were given. */
 const SCRIPT_FILE = "script.md";
@@ -836,14 +840,17 @@ const make = Effect.gen(function* () {
           if ((yield* onHost(findTranscript(mediaRoot, file))) === null) targets.add(file);
         }
         const transcriber = yield* resolveTranscriber;
+        const language = request.language ?? (yield* onHost(transcriptLanguage(projectFolder)));
         const idle: VideoTranscriptStatus = {
           building: null,
           ready: coverage.total - coverage.missing.length,
           total: coverage.total,
           failed: [],
-          unavailable: transcriber.unavailable,
+          unavailable:
+            transcriber.unavailable ??
+            (language === undefined && targets.size > 0 ? UNKNOWN_LANGUAGE : null),
         };
-        if (transcriber.command === null || targets.size === 0) {
+        if (transcriber.command === null || targets.size === 0 || language === undefined) {
           yield* onHost(writeTranscriptStatus(projectFolder, idle));
           return idle;
         }
@@ -857,7 +864,7 @@ const make = Effect.gen(function* () {
             runTranscription({
               projectDir: projectFolder,
               command: transcriber.command,
-              language: request.language ?? (yield* onHost(projectLanguage(projectFolder))),
+              language,
               targets: [...targets],
               coverage,
               onStatus: (status) =>
@@ -1801,6 +1808,17 @@ const make = Effect.gen(function* () {
         return yield* new VideoProjectError({
           reason: `Files to transcribe are named relative to ${mediaRoot}.`,
         });
+      }
+      // The language named once is the project's, so later runs (after an import) know it.
+      if (
+        input.language !== undefined &&
+        (yield* onHost(projectLanguage(input.workspaceRoot))) === undefined
+      ) {
+        yield* onHost(recordProjectLanguage(input.workspaceRoot, input.language)).pipe(
+          Effect.mapError(
+            (cause) => new VideoProjectError({ reason: "Could not record the language.", cause }),
+          ),
+        );
       }
       return yield* startTranscripts(input.workspaceRoot, {
         everything: input.files === undefined,

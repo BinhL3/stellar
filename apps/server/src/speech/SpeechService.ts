@@ -7,6 +7,7 @@ import {
   type SpeechTranscriptionOptions,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { speechModelForLanguage } from "@t3tools/shared/speech";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -277,6 +278,22 @@ const make = Effect.gen(function* () {
 
   const selectedModel = (settings: SettingsSnapshot): SpeechModel =>
     getSpeechModel(settings.speechModelId) ?? getSpeechModel(DEFAULT_SPEECH_MODEL_ID)!;
+
+  /** The model `intent` is transcribed with; fails naming a model to install when none has it. */
+  const modelForLanguage = Effect.fn("SpeechService.modelForLanguage")(function* (
+    settings: SettingsSnapshot,
+    intent: string,
+  ) {
+    const selected = selectedModel(settings);
+    const installed = yield* Effect.filter(SPEECH_MODELS, (model) => store.isReady(model));
+    const model = speechModelForLanguage(selected, installed, intent);
+    if (model !== undefined) return model;
+    const needed = speechModelForLanguage(selected, SPEECH_MODELS, intent) ?? selected;
+    yield* Effect.logWarning(
+      `${selected.name} doesn't transcribe "${intent}" and no installed model does; ${needed.name} would.`,
+    );
+    return yield* new SpeechModelNotFoundError({ modelId: needed.id });
+  });
 
   let silenceRetryAt = 0;
   const acquireSilenceModel = Effect.fn("SpeechService.acquireSilenceModel")(function* (
@@ -586,7 +603,7 @@ const make = Effect.gen(function* () {
           if (pcm.length === 0) return "";
           activeTranscriptions += 1;
           return yield* Effect.gen(function* () {
-            const definition = selectedModel(settings);
+            const definition = yield* modelForLanguage(settings, options.speechLanguage);
             const language = effectiveSpeechLanguage(definition, options.speechLanguage);
             const translateToEnglish =
               options.speechTranslateToEnglish &&
@@ -729,7 +746,7 @@ const make = Effect.gen(function* () {
       }),
     );
     const settings = yield* readSettings(operation);
-    const definition = selectedModel(settings);
+    const definition = yield* modelForLanguage(settings, options.speechLanguage);
     const language = effectiveSpeechLanguage(definition, options.speechLanguage);
     const dictionary = normalizeSpeechCustomWords(options.speechCustomWords);
     const customWords = dictionary.map(({ term }) => term);

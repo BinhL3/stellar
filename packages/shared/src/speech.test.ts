@@ -4,6 +4,7 @@ import { DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS, SPEECH_MAX_OPTIONS_BYTES } from "
 import {
   chooseSetupSpeechModel,
   decodeSpeechPcmRequest,
+  speechModelForLanguage,
   encodeSpeechPcmRequest,
   resolveSpeechVocabulary,
 } from "./speech.ts";
@@ -148,5 +149,39 @@ describe("chooseSetupSpeechModel", () => {
   ] as const)("%s", (_, selectedModelId, intent, preferred, expected) => {
     const choice = chooseSetupSpeechModel(catalog, { selectedModelId, intent, preferred });
     expect(choice && { id: choice.model.id, language: choice.language }).toEqual(expected);
+  });
+});
+
+describe("speechModelForLanguage", () => {
+  const model = (id: string, languages: string[], recommended = true) => ({
+    id,
+    languages,
+    recommended,
+  });
+  const english = model("parakeet", ["en"]);
+  const many = model("nemotron", ["en", "vi", "de"]);
+  const other = model("cohere", ["en", "vi"], false);
+
+  it.each([
+    ["keeps the selected model for its own language", english, [english, many], "en", "parakeet"],
+    [
+      "keeps the selected model when the language is left to it",
+      english,
+      [english],
+      "auto",
+      "parakeet",
+    ],
+    [
+      "moves Vietnamese off an English-only model",
+      english,
+      [english, other, many],
+      "vi",
+      "nemotron",
+    ],
+    ["takes an installed model that isn't recommended", english, [english, other], "vi", "cohere"],
+    ["matches a regional tag by its language", english, [english, many], "vi-VN", "nemotron"],
+    ["finds nothing when no installed model has the language", english, [english], "vi", undefined],
+  ] as const)("%s", (_, selected, installed, intent, expected) => {
+    expect(speechModelForLanguage(selected, installed, intent)?.id).toBe(expected);
   });
 });

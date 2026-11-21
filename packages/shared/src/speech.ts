@@ -36,6 +36,24 @@ export function effectiveSpeechLanguage(
   return model.languages.find((language) => language === "en") ?? model.languages[0] ?? "auto";
 }
 
+const baseLanguage = (tag: string) => tag.toLowerCase().replaceAll("_", "-").split("-", 1)[0];
+
+/**
+ * The model to transcribe `intent` with: the selected one when it has that language, else an
+ * installed one that does, recommended first. Undefined when none does, since a model writes
+ * speech it lacks as words of its own languages. "auto" leaves the language to the selection.
+ */
+export function speechModelForLanguage<
+  Model extends { readonly languages: readonly string[]; readonly recommended: boolean },
+>(selected: Model, installed: readonly Model[], intent: string): Model | undefined {
+  const has = (model: Model) =>
+    intent === "auto" ||
+    model.languages.some((language) => baseLanguage(language) === baseLanguage(intent));
+  if (has(selected)) return selected;
+  const capable = installed.filter(has);
+  return capable.find((model) => model.recommended) ?? capable[0];
+}
+
 /**
  * The model first-run setup offers: the selected one, else a recommended one, else any that the
  * server would really transcribe the person's language with. Without a language hint,

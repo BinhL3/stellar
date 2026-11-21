@@ -23,12 +23,15 @@ const VOICE_OVER_FOLDER = "Audio/VO";
 const PROJECT_FILE = "project.json";
 
 const TranscriptLanguage = Schema.Literals(["en", "vi"]);
-type TranscriptLanguage = typeof TranscriptLanguage.Type;
+export type TranscriptLanguage = typeof TranscriptLanguage.Type;
 
 export const decodeTranscript = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
     Schema.Array(Schema.Struct({ w: Schema.String, start: Schema.Number, end: Schema.Number })),
   ),
+);
+const decodeJsonObject = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
 );
 const decodeProjectFile = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ language: Schema.optional(TranscriptLanguage) })),
@@ -104,6 +107,60 @@ export const projectLanguage = Effect.fn("VideoProjects.projectLanguage")(functi
   );
 });
 
+// Marks only Vietnamese puts on a letter once decomposed: circumflex, breve, horn, hook above,
+// dot below, and đ. English loanwords carry acute and grave accents, so those don't count.
+const VIETNAMESE_MARK = /[\u0302\u0306\u031B\u0309\u0323đ]/i;
+
+/** "vi" when enough of these words are written as only Vietnamese writes them. */
+const heardLanguage = (words: ReadonlyArray<string>): TranscriptLanguage | undefined => {
+  const marked = words.filter((word) => VIETNAMESE_MARK.test(word.normalize("NFD"))).length;
+  return marked > 0 && marked >= words.length * 0.05 ? "vi" : undefined;
+};
+
+/**
+ * The language to transcribe a project's speech in: the one its `project.json` records, else
+ * Vietnamese when its transcripts so far are. Undefined when neither says; English is never
+ * assumed, since the transcriber's English-only model writes other speech out as English.
+ */
+export const transcriptLanguage = Effect.fn("VideoProjects.transcriptLanguage")(function* (
+  projectDir: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const recorded = yield* projectLanguage(projectDir);
+  if (recorded !== undefined) return recorded;
+  const mediaRoot = path.dirname(projectDir);
+  const words: Array<string> = [];
+  for (const folder of [TRANSCRIPT_FOLDER, `${TRANSCRIPT_FOLDER}/transcripts`]) {
+    const names = yield* fs
+      .readDirectory(path.join(mediaRoot, folder))
+      .pipe(Effect.orElseSucceed((): Array<string> => []));
+    for (const name of names.filter((n) => n.endsWith(".words.json") && !n.startsWith("."))) {
+      const transcript = yield* fs.readFileString(path.join(mediaRoot, folder, name)).pipe(
+        Effect.flatMap(decodeTranscript),
+        Effect.orElseSucceed(() => []),
+      );
+      words.push(...transcript.map((word) => word.w));
+    }
+  }
+  return heardLanguage(words);
+});
+
+/** Records the project's language in `project.json`, keeping what else it holds. */
+export const recordProjectLanguage = Effect.fn("VideoProjects.recordProjectLanguage")(function* (
+  projectDir: string,
+  language: TranscriptLanguage,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const file = path.join(projectDir, PROJECT_FILE);
+  const current = yield* fs.readFileString(file).pipe(
+    Effect.flatMap(decodeJsonObject),
+    Effect.orElseSucceed(() => ({})),
+  );
+  yield* fs.writeFileString(file, serializeJson({ ...current, language }));
+});
+
 export const writeTranscriptStatus = Effect.fn("VideoProjects.writeTranscriptStatus")(function* (
   projectDir: string,
   status: VideoTranscriptStatus,
@@ -123,7 +180,7 @@ export const writeTranscriptStatus = Effect.fn("VideoProjects.writeTranscriptSta
 export const runTranscription = Effect.fn("VideoProjects.runTranscription")(function* (input: {
   readonly projectDir: string;
   readonly command: string;
-  readonly language: TranscriptLanguage | undefined;
+  readonly language: TranscriptLanguage;
   /** Media-root-relative files to transcribe. */
   readonly targets: ReadonlyArray<string>;
   /** What `transcriptCoverage` said before the run. */
@@ -170,7 +227,8 @@ export const runTranscription = Effect.fn("VideoProjects.runTranscription")(func
             path.join(mediaRoot, target),
             "-o",
             part,
-            ...(input.language === undefined ? [] : ["--lang", input.language]),
+            "--lang",
+            input.language,
           ]),
         );
         // Only a transcript that reads back is kept, whatever the command's exit said.

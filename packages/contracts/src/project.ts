@@ -1067,7 +1067,7 @@ export const VideoTranscriptStatus = Schema.Struct({
   total: Schema.Number,
   /** Media-root-relative paths the last run couldn't transcribe. */
   failed: Schema.Array(Schema.String),
-  /** Why nothing can be transcribed (no transcriber on the host), or null. */
+  /** Why nothing can be transcribed (no transcriber on the host, no language set), or null. */
   unavailable: Schema.NullOr(Schema.String),
 });
 export type VideoTranscriptStatus = typeof VideoTranscriptStatus.Type;

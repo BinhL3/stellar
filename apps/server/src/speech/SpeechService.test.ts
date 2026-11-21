@@ -78,6 +78,19 @@ const modelDefinitions = vi.hoisted(() => [
     supportsLanguageDetection: false,
     supportsTranslation: true,
   },
+  {
+    id: "vietnamese-model",
+    name: "vietnamese",
+    description: "vietnamese",
+    size: 8,
+    languages: ["en", "vi"],
+    accuracy: 2,
+    speed: 2,
+    recommended: true,
+    supportsStreaming: false,
+    supportsLanguageDetection: false,
+    supportsTranslation: false,
+  },
 ]);
 vi.mock("./native.ts", () => ({
   loadNativeSpeechModel: loadNative,
@@ -98,7 +111,13 @@ const store = Layer.succeed(
   SpeechModelStore.SpeechModelStore.of({
     isReady: (model) => Effect.sync(() => readyModels.has(model.id)),
     installedPath: (model) =>
-      Effect.sync(() => (readyModels.has(model.id) ? "test.gguf" : undefined)),
+      Effect.sync(() =>
+        !readyModels.has(model.id)
+          ? undefined
+          : model.id === "vietnamese-model"
+            ? "vietnamese.gguf"
+            : "test.gguf",
+      ),
     download,
     remove: (model) =>
       Effect.sync(() => {
@@ -224,6 +243,24 @@ it.effect("sends the chosen language in the spelling the loaded model advertises
       ["test.gguf", "auto"],
       ["test.gguf", "cpu"],
     ]);
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect("never sends speech in a language the selected model lacks to that model", () =>
+  Effect.gen(function* () {
+    const speech = yield* SpeechService.SpeechService;
+    native.supportsStreaming = false;
+    const vietnamese = { ...DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS, speechLanguage: "vi" };
+    const missing = yield* Effect.result(speech.transcribe(pcm(), vietnamese));
+    expect(Result.isFailure(missing) && missing.failure).toMatchObject({
+      _tag: "SpeechModelNotFoundError",
+      modelId: "vietnamese-model",
+    });
+    expect(native.transcribe).not.toHaveBeenCalled();
+
+    readyModels.add("vietnamese-model");
+    expect(yield* speech.transcribe(pcm(), vietnamese)).toBe("hello");
+    expect(loadNative.mock.calls.at(-1)?.[0]).toBe("vietnamese.gguf");
   }).pipe(Effect.provide(layer)),
 );
 
