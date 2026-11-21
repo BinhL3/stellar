@@ -49,6 +49,8 @@ import {
   type VideoVoiceOverView,
 } from "@t3tools/contracts";
 import {
+  type VideoCaptionsInput,
+  type VideoCaptionsResult,
   VideoProjectIntakeStatus as IntakeStatusSchema,
   type VideoPreflight,
   type VideoPreflightInput,
@@ -168,6 +170,7 @@ import {
   writePosted,
 } from "./RenderCheck.ts";
 import { ensureLevels, NO_FFMPEG } from "./AudioLevels.ts";
+import { makeCaptions as writeCaptions } from "./Captions.ts";
 import * as FootageLog from "./FootageLog.ts";
 import { drawSoundPicture } from "./SoundPicture.ts";
 import {
@@ -718,6 +721,14 @@ export class VideoProjects extends Context.Service<
       input: VideoRenderCheckInput,
     ) => Effect.Effect<VideoRenderReport, VideoProjectError>;
     /**
+     * Caption cues from a timeline's words, broken where the speech breaks and never across a
+     * picture cut, each placed on the stillest band clear of the apps' buttons, checked against
+     * the caption font, and written as `captions/<timeline>.srt` for Premiere to import.
+     */
+    readonly makeCaptions: (
+      input: VideoCaptionsInput,
+    ) => Effect.Effect<VideoCaptionsResult, VideoProjectError>;
+    /**
      * Where the short's run stands, step by step from footage to posted, read from what the
      * project folder records. Pulls nothing and writes nothing.
      */
@@ -754,7 +765,8 @@ const make = Effect.gen(function* () {
   }).pipe(Effect.orElseSucceed((): boolean | null => null));
   const building = new Set<string>();
   const importing = new Set<string>();
-  const downloads = path.join(yield* HostProcess.HomeDirectory, "Downloads");
+  const home = yield* HostProcess.HomeDirectory;
+  const downloads = path.join(home, "Downloads");
   const queued = new Set<string>();
   const settings = yield* ServerSettings.ServerSettingsService;
   const footageLog = yield* FootageLog.FootageLog;
@@ -3239,6 +3251,43 @@ const make = Effect.gen(function* () {
     ).pipe(Effect.mapError((cause) => new VideoProjectError({ reason: cause.message, cause })));
   });
 
+  const makeCaptions: VideoProjects["Service"]["makeCaptions"] = Effect.fn(
+    "VideoProjects.makeCaptions",
+  )(function* (input) {
+    // Merged first, so the captions follow Premiere's latest cut.
+    yield* syncForAgent(input.workspaceRoot);
+    const timelines = yield* listTimelines(input.workspaceRoot);
+    const chosen = input.timeline ?? (yield* defaultTimeline(input.workspaceRoot, timelines));
+    if (chosen === undefined || !timelines.includes(chosen)) {
+      return yield* new VideoProjectError({
+        reason: `No timeline to caption. This project has: ${timelines.join(", ") || "none"}.`,
+      });
+    }
+    const timeline = yield* loadTimeline(input.workspaceRoot, chosen);
+    const sound = yield* loadSound(input.workspaceRoot, timeline);
+    const result = yield* onHost(
+      writeCaptions({
+        projectDir: input.workspaceRoot,
+        timelinePath: chosen,
+        timeline,
+        view: sound.view,
+        levels: sound.levels,
+        home,
+        platform: input.platform,
+        font: input.font,
+        maxLineChars: input.maxLineChars,
+        maxLines: input.maxLines,
+      }),
+    ).pipe(Effect.mapError((cause) => new VideoProjectError({ reason: cause.message, cause })));
+    return {
+      ...result,
+      notes: [
+        ...result.notes,
+        ...sound.unmeasured.map((reason) => `Pauses read from word timings only: ${reason}.`),
+      ],
+    };
+  });
+
   const setPosted: VideoProjects["Service"]["setPosted"] = Effect.fn("VideoProjects.setPosted")(
     function* (input) {
       yield* requireProject(input.workspaceRoot);
@@ -3261,6 +3310,7 @@ const make = Effect.gen(function* () {
     applyVoiceOver,
     splitTake,
     checkRender,
+    makeCaptions,
     preflight,
     setPosted,
     exportForPremiere,

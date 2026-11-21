@@ -1322,6 +1322,59 @@ export const VideoRenderCheckInput = Schema.Struct({
 });
 export type VideoRenderCheckInput = typeof VideoRenderCheckInput.Type;
 
+export const VideoCaptionsInput = Schema.Struct({
+  workspaceRoot: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  /** A path from `timelines`; omitted, the project's main timeline. */
+  timeline: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+  platform: Schema.optional(VideoPlatform),
+  /** The caption font's name, such as "BeVietnamPro-SemiBold"; omitted, the timeline's. */
+  font: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
+  maxLineChars: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 8, maximum: 60 }))),
+  maxLines: Schema.optional(Schema.Literals([1, 2])),
+});
+export type VideoCaptionsInput = typeof VideoCaptionsInput.Type;
+
+/** Captions made from a timeline's words, written as an SRT for Premiere to import. */
+export const VideoCaptionsResult = Schema.Struct({
+  timeline: Schema.String,
+  /** The SRT's absolute path, in the project folder's `captions/`. */
+  srt: Schema.String,
+  rate: Schema.Number,
+  frame: Schema.Struct({ width: Schema.Number, height: Schema.Number }),
+  /** The apps whose covered strips the captions keep out of. */
+  zonesFor: Schema.String,
+  cues: Schema.Array(
+    Schema.Struct({
+      index: Schema.Number,
+      startFrame: Schema.Number,
+      /** Exclusive. */
+      endFrame: Schema.Number,
+      lines: Schema.Array(Schema.String),
+      /** The caption's centre as fractions of the frame, on the stillest clear band. */
+      x: Schema.Number,
+      y: Schema.Number,
+      /** How much the picture moves in that band, 0 (still) to 255. */
+      motion: Schema.Number,
+      /** The same centre in the sequence's pixels, as Premiere's Position takes it. */
+      premiere: Schema.Struct({ x: Schema.Number, y: Schema.Number }),
+    }),
+  ),
+  /**
+   * The caption font and the letters of the captions it can't draw; `file` is null when no
+   * installed font has that name. `vietnameseMissing` lists Vietnamese letters it lacks.
+   */
+  font: Schema.NullOr(
+    Schema.Struct({
+      name: Schema.String,
+      file: Schema.NullOr(Schema.String),
+      missing: Schema.Array(Schema.String),
+      vietnameseMissing: Schema.Array(Schema.String),
+    }),
+  ),
+  notes: Schema.Array(Schema.String),
+});
+export type VideoCaptionsResult = typeof VideoCaptionsResult.Type;
+
 /** One step of a short's run, from footage to posted. */
 export const VideoPreflightStep = Schema.Struct({
   id: Schema.Literals([

@@ -332,6 +332,27 @@ const RenderCheckTool = Tool.make("video_render_check", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const CaptionsTool = Tool.make("video_captions", {
+  description:
+    "Make a timeline's captions from its transcribed words and write them as an SRT in the project folder's `captions/`, for the user or your Premiere tools to import as a caption track. Cues are one or two short lines that break where the speech pauses, at punctuation or before a word that opens a phrase (but, because, so; nhưng, vì, thì, mà, nên), and never run across a picture cut. The words are the transcript's exactly: never reword, shorten or drop them in the SRT. Each cue is placed on the stillest band of its frames, clear of the strips Reels, TikTok and Shorts cover (`platform` reels, tiktok or shorts for one app). `text` lists each cue as `n start-end (m:ss.ss) y=<centre as a fraction of the height> x,y: line / line`, x,y being the centre in sequence pixels. An SRT carries no position, so set it in Premiere: one position for the track when the cues agree, else per cue. The font check names letters the caption font can't draw, Vietnamese included; omit `font` to check the one the timeline's captions use. Premiere draws a missing letter as a box or in another font, so tell the user and agree on another font before importing. `maxLineChars` (18) and `maxLines` (2) change the cue shape when the user asks. Needs transcripts: `video_transcribe`.",
+  parameters: Schema.Struct({
+    timeline: Schema.optional(Schema.String),
+    platform: Schema.optional(VideoPlatform),
+    font: Schema.optional(Schema.String),
+    maxLineChars: Schema.optional(Schema.Number),
+    maxLines: Schema.optional(Schema.Literals([1, 2])),
+  }),
+  success: Schema.Struct({ timeline: Schema.String, srt: Schema.String, text: Schema.String }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Make captions")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 const PreflightTool = Tool.make("video_preflight", {
   description:
     "Where this short's run stands, from footage to posted: one line per step as `done|working|todo|warn|fail Step: detail (tool that moves it on)`. Steps: footage imported, previews, transcripts, Premiere project linked, in sync with Premiere, render check (warns when the timeline or the export changed since the check), posted. Reads only what the project records; it pulls nothing from Premiere, so `video_timeline_read` is still the first call of a turn. `contactSheet` is the last render check's image, or null; `posted` is the posted record, or null.",
@@ -407,6 +428,7 @@ export const VideoToolkit = Toolkit.make(
   FootageTool,
   FootageLogTool,
   RenderCheckTool,
+  CaptionsTool,
   PreflightTool,
   PostedTool,
   RecipeTool,

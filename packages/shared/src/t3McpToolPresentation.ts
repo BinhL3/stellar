@@ -56,6 +56,7 @@ export type T3McpToolSummaryAction =
   | "video-premiere-export"
   | "video-premiere-push"
   | "video-render-check"
+  | "video-captions"
   | "video-preflight"
   | "video-posted"
   | "video-recipe"
@@ -240,6 +241,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   ),
   video_footage: tool(["Bring in", "Bringing in", "Brought in", "footage"], "video-footage"),
   video_render_check: tool(["Check", "Checking", "Checked", "the export"], "video-render-check"),
+  video_captions: tool(["Make", "Making", "Made", "captions"], "video-captions"),
   video_preflight: tool(["Read", "Reading", "Read", "the run's steps"], "video-preflight"),
   video_posted: tool(["Record", "Recording", "Recorded", "the short as posted"], "video-posted"),
   video_recipe: tool(["Read", "Reading", "Read", "an edit recipe"], "video-recipe"),

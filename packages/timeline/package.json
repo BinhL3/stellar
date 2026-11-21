@@ -3,6 +3,14 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./captionPlacement": {
+      "types": "./src/captionPlacement.ts",
+      "import": "./src/captionPlacement.ts"
+    },
+    "./captions": {
+      "types": "./src/captions.ts",
+      "import": "./src/captions.ts"
+    },
     "./carousel": {
       "types": "./src/carousel.ts",
       "import": "./src/carousel.ts"
@@ -42,6 +50,10 @@
     "./framing": {
       "types": "./src/framing.ts",
       "import": "./src/framing.ts"
+    },
+    "./fontCoverage": {
+      "types": "./src/fontCoverage.ts",
+      "import": "./src/fontCoverage.ts"
     },
     "./frameTimes": {
       "types": "./src/frameTimes.ts",

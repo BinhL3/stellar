@@ -363,6 +363,9 @@ export function summarizeT3ToolCalls(
     case "video-render-check":
       label = phrase("Checked", "check", `the export ${times}`);
       break;
+    case "video-captions":
+      label = phrase("Made", "make", `captions ${times}`);
+      break;
     case "video-preflight":
       label = phrase("Read", "read", `the run's steps ${times}`);
       break;

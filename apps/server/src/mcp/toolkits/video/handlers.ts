@@ -12,6 +12,7 @@ import * as Option from "effect/Option";
 import * as CarouselProjects from "../../../carousel/CarouselProjects.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as FootageLog from "../../../videoProject/FootageLog.ts";
+import { captionsText } from "../../../videoProject/Captions.ts";
 import * as VideoProjects from "../../../videoProject/VideoProjects.ts";
 import { recipeText } from "../../../videoProject/recipes/VideoRecipes.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -351,6 +352,31 @@ const handlers = {
         ].join("\n"),
         contactSheet: report.contactSheet,
       };
+    }),
+  ),
+  video_captions: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* callerWorkspaceRoot;
+      const videoProjects = yield* VideoProjects.VideoProjects;
+      const maxLineChars =
+        input.maxLineChars === undefined ? undefined : Math.round(input.maxLineChars);
+      if (maxLineChars !== undefined && (maxLineChars < 8 || maxLineChars > 60)) {
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "`maxLineChars` is between 8 and 60.",
+        });
+      }
+      const result = yield* videoProjects
+        .makeCaptions({
+          workspaceRoot,
+          ...(input.timeline === undefined ? {} : { timeline: input.timeline }),
+          ...(input.platform === undefined ? {} : { platform: input.platform }),
+          ...(input.font === undefined ? {} : { font: input.font }),
+          ...(maxLineChars === undefined ? {} : { maxLineChars }),
+          ...(input.maxLines === undefined ? {} : { maxLines: input.maxLines }),
+        })
+        .pipe(Effect.mapError(refused));
+      return { timeline: result.timeline, srt: result.srt, text: captionsText(result) };
     }),
   ),
   video_preflight: McpToolAccess.readsAsCaller(() =>
