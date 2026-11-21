@@ -133,6 +133,10 @@ This API replay measures routing and recovery decisions. Screenshots return prod
 | video-broll-chosen-from-footage-log                | guard   | B-roll asked for by what it shows comes from `video_footage_log`: the right clip, from after its unusable start.           |
 | video-user-names-clip-saves-note                   | guard   | When the user says what a clip is, it is saved as that clip's note with `video_footage_log`, in their words.               |
 | video-control-agent-guess-not-saved-as-note        | control | Asked which clip would work, the agent reads the footage log and writes no note of its own.                                |
+| video-captions-made-by-caption-tool                | guard   | Captions come from `video_captions` with the named font, not a hand-written SRT, and the reply names the missing letters.  |
+| video-transcribe-unknown-language-asks             | guard   | When transcription says the language isn't set, the agent asks and never passes a guessed `language`.                      |
+| video-control-transcribe-named-language            | control | A language the user names goes to `video_transcribe` as `language`.                                                        |
+| video-render-check-speed-change-told               | guard   | A Speed warning in the render check reaches the user in the final answer.                                                  |
 | carousel-from-photos-uses-carousel-start           | guard   | A carousel from photos starts with `carousel_start` and its title and folder, not a video project or a footage import.     |
 | carousel-thread-reads-edits-then-looks             | guard   | In a carousel project: `carousel_read`, then `carousel_edit` with the slide, then `carousel_look`; no video tools.         |
 | carousel-photo-imported-before-use                 | guard   | A photo outside the project is imported with `carousel_photos` before `carousel_edit` uses the `src` the import returned.  |

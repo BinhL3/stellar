@@ -57,7 +57,9 @@ The recommendation uses your Voice language, or your system’s preferred langua
 Select the languages you dictate in to compare models that support all of them.
 Accuracy shows how often the model got words or characters wrong in each
 language; speed is the time to transcribe 30 seconds on a reference GPU. Choose
-**All languages** to browse the full catalog. Filtering does not switch your model.
+**All languages** to browse the full catalog. Filtering does not switch your model. If your Voice
+language is one the selected model can't transcribe, Stellar uses another installed model that
+can; with none installed, dictation fails until you download one.
 
 **Advanced** controls GPU or CPU use and when an idle model is unloaded. With hardware set to
 **Auto**, a recording that fails on the GPU is retried once on that same

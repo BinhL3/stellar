@@ -375,6 +375,19 @@ Built from the past threads: it targets where time and failures actually went, a
   word for is flagged by the join audit but not refused. Not checked yet: any of this against
   real speech (only synthetic audio so far).
 
+- **Captions from the words: built.** `video_captions` breaks the timeline's words into cues of
+  one or two short lines, scoring each gap by its length, measured quiet, punctuation and a
+  phrase-opening word, never across a picture cut, and writes `Stellar/captions/<timeline>.srt`
+  for Premiere to import. Each cue is placed on the stillest band of its frames (the frames
+  averaged; what strays from the average is motion) and checked against the caption font's
+  glyphs. An SRT carries no position, so the agent sets it in Premiere. The covered strips of
+  Reels, TikTok and Shorts are one table (`packages/timeline/src/safeZones.ts`) shared by
+  placement and the render check; the platforms publish them only for ads, which cover more
+  than a post, so the table is stricter than an organic post needs.
+- **Transcription language.** The `stt` transcriber reads speech it isn't told the language of
+  as English, so Stellar never runs it without one: the project's recorded language, else
+  Vietnamese when its transcripts are, else it refuses and asks. Dictation likewise moves
+  speech in a language the selected model lacks to an installed model that has it.
 - **Sound pictures: built.** No harness passes audio to a model, so `video_timeline_words`
   with `picture` draws a passage instead (`packages/timeline/src/soundPicture.ts`): waveform
   over spectrogram with the words at their frames, and a second row with a proposed cut taken
@@ -981,11 +994,14 @@ hasn't faced. Grouped by where they bite; the first item in each group is the on
 31. The invariants in Decision 3 are prose. Only "items stay in time order" is checked, as a
     warning on pull.
 32. The render check compares one whole export with the timeline: container facts, black, frozen
-    and silent stretches, loudness, and cuts between different clips, with a contact sheet. It
-    can't start the export, renders no ranges of the changed spans, and returns its sheet as a
-    file path, not as images in the thread. It looks for no jump cuts inside one file, cuts under
-    a transition, captions or speed changes, and assumes stills and text never cover the frame.
-    Its thresholds were set on test patterns, not yet on real exports.
+    and silent stretches, loudness, and cuts between different clips, with a contact sheet. From
+    the timeline it adds framing, large speed changes and placed text inside the apps' covered
+    strips. It can't start the export, renders no ranges of the changed spans, and returns its
+    sheet as a file path, not as images in the thread. It looks for no jump cuts inside one file
+    or cuts under a transition, and assumes stills and text never cover the frame. A caption
+    track's cues keep their position in Premiere's track style, which isn't read, so only text
+    layers are checked against the strips. Its thresholds were set on test patterns, not yet on
+    real exports.
 33. The namespace is `stellar` in code; this document still says `<product>` and lists the name
     as open.
 
