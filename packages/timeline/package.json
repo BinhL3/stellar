@@ -55,6 +55,10 @@
       "types": "./src/levels.ts",
       "import": "./src/levels.ts"
     },
+    "./mediaFile": {
+      "types": "./src/mediaFile.ts",
+      "import": "./src/mediaFile.ts"
+    },
     "./markers": {
       "types": "./src/markers.ts",
       "import": "./src/markers.ts"

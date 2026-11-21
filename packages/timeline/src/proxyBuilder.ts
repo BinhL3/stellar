@@ -14,6 +14,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { readConformState } from "./conformBuilder.ts";
 import { listFootage } from "./footage.ts";
+import { checkMediaFile, isAppleDouble } from "./mediaFile.ts";
 import { serializeJson, TIMELINE_NAMESPACE, type Timeline } from "./otio.ts";
 import {
   PEAKS_PER_SECOND,
@@ -327,6 +328,8 @@ const buildEntry = Effect.fn("timeline.proxies.buildEntry")(function* (input: {
       reason: "The file is missing or its drive is offline.",
     });
   }
+  const problem = yield* checkMediaFile(input.source);
+  if (problem !== null) return yield* new ProxyToolError({ tool: "", reason: problem });
   const stat = found.value;
   const modified = Option.match(stat.mtime, { onNone: () => 0, onSome: (d) => d.getTime() });
   // Whole seconds: a copy to exFAT keeps a file's time only to 10 ms.
@@ -642,7 +645,7 @@ export const buildProjectProxies = Effect.fn("timeline.buildProjectProxies")(fun
       for (const child of track.children) {
         if (child.OTIO_SCHEMA !== "Clip.2") continue;
         const target = child.media_references.DEFAULT_MEDIA.target_url;
-        if (target === "" || targets.has(target)) continue;
+        if (target === "" || targets.has(target) || isAppleDouble(target)) continue;
         // Stills a browser draws are played from the original file.
         if (STILL_PATH.test(target) && stillFormat(target) === null) continue;
         const identity = proxyIdentity(

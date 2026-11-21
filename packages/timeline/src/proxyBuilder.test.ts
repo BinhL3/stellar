@@ -133,6 +133,30 @@ const layer = (ran: Array<string>, installed?: ReadonlyArray<string>) =>
   fakeTools(ran, installed).pipe(Layer.provideMerge(NodeServices.layer));
 
 describe("buildProjectProxies", () => {
+  it.effect("refuses empty, unknown and AppleDouble files without running ffmpeg on them", () => {
+    const ran: Array<string> = [];
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const base = yield* fs.makeTempDirectoryScoped({ prefix: "t3-proxies-refused-" });
+      const root = path.join(base, "Drive");
+      const projectDir = yield* makeProject(root, [
+        "Footage/a.mp4",
+        "Graphics/title.aep",
+        "Footage/._a.mp4",
+      ]);
+      yield* fs.writeFileString(path.join(root, "Footage", "empty.mov"), "");
+      yield* buildProjectProxies({ projectDir, concurrency: 1 });
+      const built = yield* readIndex(projectDir);
+      expect(ran).toEqual(["ffmpeg"]);
+      expect(Object.keys(built.media)).toEqual(["Footage/a.mp4"]);
+      expect(built.failures).toEqual({
+        "Graphics/title.aep": "title.aep is a .aep file, which isn't media Stellar reads.",
+        "Footage/empty.mov": "empty.mov is empty (0 bytes); copy it again.",
+      });
+    }).pipe(Effect.scoped, Effect.provide(layer(ran)));
+  });
+
   it.effect(
     "keeps proxies when the media root moves, adopts ones keyed by absolute path, and clears orphans",
     () => {

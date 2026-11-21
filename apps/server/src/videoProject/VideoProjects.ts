@@ -104,6 +104,7 @@ import {
   writeFootageStringout,
 } from "@t3tools/timeline/footage";
 import { layoutTimeline } from "@t3tools/timeline/layout";
+import { AUDIO_TYPES, checkMediaFile, VIDEO_TYPES } from "@t3tools/timeline/mediaFile";
 import {
   serializeJson,
   serializeTimeline,
@@ -1291,6 +1292,14 @@ const make = Effect.gen(function* () {
     }
     if (importing.has(input.workspaceRoot)) {
       return yield* new VideoProjectError({ reason: "An import is already running." });
+    }
+    const problems: Array<string> = [];
+    for (const file of input.paths) {
+      const problem = yield* onHost(checkMediaFile(file, [INTAKE_FILE]));
+      if (problem !== null) problems.push(problem);
+    }
+    if (problems.length > 0) {
+      return yield* new VideoProjectError({ reason: `Nothing imported. ${problems.join(" ")}` });
     }
     const destination = path.join(path.dirname(input.workspaceRoot), FOOTAGE_DIRECTORY, folder);
     const total = input.paths.length;
@@ -2877,6 +2886,10 @@ const make = Effect.gen(function* () {
         });
       }
       const mediaRoot = path.dirname(input.workspaceRoot);
+      const problem = yield* onHost(
+        checkMediaFile(path.resolve(mediaRoot, importPath), [AUDIO_TYPES, VIDEO_TYPES]),
+      );
+      if (problem !== null) return yield* new VideoProjectError({ reason: problem });
       yield* savingTakes.withPermits(1)(
         Effect.gen(function* () {
           const index = yield* onHost(readTakeIndex(input.workspaceRoot));

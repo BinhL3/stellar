@@ -1449,6 +1449,18 @@ it.live("scans Downloads for new footage and only imports from there", () => {
       .importFootage({ workspaceRoot, paths: [scan.files[0]!.path], folder: ".." })
       .pipe(Effect.flip);
     assert.strictEqual(unnamed.message, "Name the folder the footage goes in.");
+    yield* fs.writeFileString(path.join(downloads, "IMG_8140.MOV"), "");
+    const unreadable = yield* videoProjects
+      .importFootage({
+        workspaceRoot,
+        paths: [path.join(downloads, "IMG_8140.MOV"), path.join(downloads, "notes.txt")],
+        folder: "00 Raw",
+      })
+      .pipe(Effect.flip);
+    assert.strictEqual(
+      unreadable.message,
+      "Nothing imported. IMG_8140.MOV is empty (0 bytes); copy it again. notes.txt is a .txt file, which isn't media Stellar reads.",
+    );
   }).pipe(
     Effect.provide(
       VideoProjects.layer.pipe(
